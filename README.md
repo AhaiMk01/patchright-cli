@@ -111,7 +111,8 @@ graph LR
 - **CLI** (`cli.py`): Thin client. Parses args, sends JSON to daemon, prints result. Each invocation connects and disconnects — the browser stays open between commands.
 - **Snapshot** (`snapshot.py`): Walks the DOM with `TreeWalker` in document order, assigns `data-patchright-ref` attributes, outputs a flat YAML list of interactive elements.
 
-## Commands
+<details>
+<summary><h2>Commands</h2></summary>
 
 ### Core
 ```bash
@@ -240,6 +241,8 @@ patchright-cli close-all
 patchright-cli kill-all
 patchright-cli delete-data             # Delete persistent profile
 ```
+
+</details>
 
 ## Snapshots
 
