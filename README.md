@@ -240,4 +240,4 @@ patchright-cli click e5
 
 ## License
 
-MIT
+Apache 2.0 — same as [playwright-cli](https://github.com/microsoft/playwright-cli)
