@@ -1,11 +1,9 @@
 # patchright-cli
 
-<!-- badges (hidden until PyPI publish)
 [![PyPI version](https://img.shields.io/pypi/v/patchright-cli?color=blue&label=PyPI)](https://pypi.org/project/patchright-cli/)
 [![Python](https://img.shields.io/pypi/pyversions/patchright-cli?label=Python)](https://pypi.org/project/patchright-cli/)
 [![License](https://img.shields.io/github/license/AhaiMk01/patchright-cli?color=green)](LICENSE)
 [![Downloads](https://img.shields.io/pypi/dm/patchright-cli?color=orange&label=Downloads)](https://pypi.org/project/patchright-cli/)
--->
 
 Anti-detect browser automation CLI. Same command interface as [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli) but using [Patchright](https://github.com/kaliiiiiiiiii/patchright-python) (undetected Playwright fork) to bypass bot detection.
 
