@@ -1,14 +1,37 @@
 [project]
 name = "patchright-cli"
 version = "0.1.0"
-description = "CLI tool for browser automation using Patchright (undetected Playwright fork)"
+description = "Anti-detect browser automation CLI using Patchright (undetected Playwright fork)"
 license = "Apache-2.0"
 requires-python = ">=3.10"
+readme = "README.md"
+authors = [
+    { name = "zpahai" },
+]
+keywords = ["browser", "automation", "anti-detect", "patchright", "playwright", "scraping", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "patchright",
     "pyyaml",
     "click",
 ]
+
+[project.urls]
+Homepage = "https://github.com/AhaiMk01/patchright-cli"
+Repository = "https://github.com/AhaiMk01/patchright-cli"
+Issues = "https://github.com/AhaiMk01/patchright-cli/issues"
 
 [project.scripts]
 patchright-cli = "patchright_cli.cli:main"
