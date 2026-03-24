@@ -34,12 +34,15 @@ This CLI wraps Patchright in the same command interface as playwright-cli, so AI
 
 ### For Humans
 
-Just tell your AI agent:
-
+> [!TIP]
+> **Just paste this into your AI coding agent — it will do the rest:**
+>
+> ```
 > Install and set up patchright-cli by following the instructions here:
 > https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/docs/installation.md
-
-Seriously — let the agent do it. It handles configs better than you.
+> ```
+>
+> Your agent handles the install, browser setup, and skill configuration automatically.
 
 ### For LLM Agents
 
