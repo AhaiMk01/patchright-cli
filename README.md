@@ -24,15 +24,9 @@ Anti-detect browser automation CLI. Same command interface as [Microsoft's playw
 | :package: | `pip install` / `uvx` — no Docker, no config files |
 | :lock: | Persistent profiles for maintaining login sessions |
 
-## Why
-
-Regular Playwright and Chrome DevTools get blocked by Akamai, Cloudflare, and other anti-bot systems. Patchright patches Chromium's detection vectors (`navigator.webdriver`, WebGL fingerprints, etc.) so automated browsers look like real users.
-
-This CLI wraps Patchright in the same command interface as playwright-cli, so AI agents (Claude Code, etc.) can automate anti-bot-protected sites with the same workflow they'd use for regular Playwright.
+---
 
 ## Install
-
-### For Humans
 
 > [!TIP]
 > **Just paste this into your AI coding agent — it will do the rest:**
@@ -44,15 +38,20 @@ This CLI wraps Patchright in the same command interface as playwright-cli, so AI
 >
 > Your agent handles the install, browser setup, and skill configuration automatically.
 
-### For LLM Agents
+<details>
+<summary><b>For LLM Agents</b></summary>
 
 ```bash
 curl -s https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/docs/installation.md
 ```
 
-### Manual Install
+</details>
 
-**Requirements:** Python 3.10+ and Google Chrome
+<details>
+<summary><b>Manual Install</b></summary>
+
+> [!IMPORTANT]
+> **Requirements:** Python 3.10+ and Google Chrome
 
 ```bash
 # 1. Install the package
@@ -72,7 +71,7 @@ Or run without installing (like npx):
 uvx patchright-cli open https://example.com
 ```
 
-### From Source
+**From source:**
 
 ```bash
 git clone https://github.com/AhaiMk01/patchright-cli.git
@@ -80,6 +79,10 @@ cd patchright-cli
 uv venv && uv pip install -e .
 python -m patchright install chromium
 ```
+
+</details>
+
+---
 
 ## Quick Start
 
@@ -102,20 +105,26 @@ patchright-cli screenshot
 patchright-cli close
 ```
 
+---
+
 ## Architecture
 
 ```mermaid
 graph LR
-    A[CLI Client<br/>cli.py] -->|TCP/JSON<br/>localhost:9321| B[Daemon<br/>daemon.py]
-    B -->|Patchright<br/>CDP| C[Chrome<br/>stealth]
+    A["🖥️ CLI Client<br/><code>cli.py</code>"] -->|"TCP/JSON<br/>localhost:9321"| B["⚙️ Daemon<br/><code>daemon.py</code>"]
+    B -->|"Patchright<br/>CDP"| C["🌐 Chrome<br/><i>stealth</i>"]
 ```
 
-- **Daemon** (`daemon.py`): Long-running Python process managing browser sessions via Patchright. Listens on `localhost:9321`. Auto-starts on first `open` command.
-- **CLI** (`cli.py`): Thin client. Parses args, sends JSON to daemon, prints result. Each invocation connects and disconnects — the browser stays open between commands.
-- **Snapshot** (`snapshot.py`): Walks the DOM with `TreeWalker` in document order, assigns `data-patchright-ref` attributes, outputs a flat YAML list of interactive elements.
+| Component | Role |
+|-----------|------|
+| **Daemon** (`daemon.py`) | Long-running process managing browser sessions via Patchright. Auto-starts on first `open`. |
+| **CLI** (`cli.py`) | Thin client — connects, sends command, prints result, disconnects. Browser stays open. |
+| **Snapshot** (`snapshot.py`) | `TreeWalker`-based DOM scan assigning `data-patchright-ref` attributes for element targeting. |
+
+---
 
 <details>
-<summary><h2>Commands</h2></summary>
+<summary><h2>📖 Commands</h2></summary>
 
 ### Core
 ```bash
@@ -247,6 +256,8 @@ patchright-cli delete-data             # Delete persistent profile
 
 </details>
 
+---
+
 ## Snapshots
 
 After each state-changing command, the CLI outputs page info and a YAML snapshot:
@@ -259,7 +270,7 @@ After each state-changing command, the CLI outputs page info and a YAML snapshot
 [Snapshot](.patchright-cli/page-1774376207818.yml)
 ```
 
-The snapshot lists interactive elements with refs:
+The snapshot lists interactive elements with refs you can use in commands:
 
 ```yaml
 - ref: e1
@@ -272,15 +283,23 @@ The snapshot lists interactive elements with refs:
   url: "https://iana.org/domains/example"
 ```
 
-Use refs in commands: `patchright-cli click e2`, `patchright-cli fill e5 "text"`.
+> [!NOTE]
+> Use refs directly: `patchright-cli click e2`, `patchright-cli fill e5 "text"`
+
+---
 
 ## Anti-Detect Features
 
-- Real Chrome browser (not Chromium)
-- Patchright patches `navigator.webdriver` and other detection vectors
-- Persistent profiles maintain cookies/sessions across runs
-- No custom user-agent or headers (natural fingerprint)
-- Headed by default (headless is more detectable)
+> [!CAUTION]
+> This tool is for **authorized testing, security research, and legitimate automation** only.
+
+- :white_check_mark: Real Chrome browser (not Chromium)
+- :white_check_mark: Patchright patches `navigator.webdriver` and other detection vectors
+- :white_check_mark: Persistent profiles maintain cookies/sessions across runs
+- :white_check_mark: No custom user-agent or headers (natural fingerprint)
+- :white_check_mark: Headed by default (headless is more detectable)
+
+---
 
 ## Agent Integration
 
@@ -301,6 +320,8 @@ Or just tell your agent:
 
 > Install patchright-cli skill from https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md
 
+---
+
 ## Star History
 
 <a href="https://star-history.com/#AhaiMk01/patchright-cli&Date">
@@ -310,6 +331,8 @@ Or just tell your agent:
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=AhaiMk01/patchright-cli&type=Date" />
  </picture>
 </a>
+
+---
 
 ## License
 
