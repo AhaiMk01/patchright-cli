@@ -248,8 +248,21 @@ def main():
         _print_help()
         sys.exit(1)
 
+    # Separate --key=value and --flag from positional args
+    positional_args = []
+    extra_opts = {}
+    for a in args:
+        if a.startswith("--") and "=" in a:
+            k, v = a[2:].split("=", 1)
+            extra_opts[k] = v
+        elif a.startswith("--"):
+            extra_opts[a[2:]] = True
+        else:
+            positional_args.append(a)
+    args = positional_args
+
     # Build options dict
-    options = {"session": session_name}
+    options = {"session": session_name, **extra_opts}
     if headless:
         options["headless"] = True
     if persistent:

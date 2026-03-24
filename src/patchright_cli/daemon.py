@@ -215,10 +215,10 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
     """Dispatch a single command and return a JSON-serialisable response."""
     cmd = msg.get("command", "")
     args = msg.get("args", [])
-    opts = msg.get("options", {})
+    options = msg.get("options", {})
     cwd = msg.get("cwd")
 
-    session_name = opts.pop("session", "default") or "default"
+    session_name = options.pop("session", "default") or "default"
 
     try:
         # -- Session / lifecycle commands -----------------------------------
@@ -226,9 +226,9 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             url = args[0] if args else None
             session = await state.get_or_create_session(
                 session_name,
-                headless=opts.get("headless", False),
-                persistent=opts.get("persistent", True),
-                profile=opts.get("profile"),
+                headless=options.get("headless", False),
+                persistent=options.get("persistent", True),
+                profile=options.get("profile"),
                 url=url,
             )
             return await _page_info(session, cwd)
