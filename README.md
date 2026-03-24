@@ -1,6 +1,12 @@
 # patchright-cli
 
-Anti-detect browser automation CLI. Same command interface as [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli) but using [Patchright](https://github.com/AhaiMk01/patchright-python) (undetected Playwright fork) to bypass bot detection.
+[![PyPI version](https://img.shields.io/pypi/v/patchright-cli?color=blue&label=PyPI)](https://pypi.org/project/patchright-cli/)
+[![Python](https://img.shields.io/pypi/pyversions/patchright-cli?label=Python)](https://pypi.org/project/patchright-cli/)
+[![License](https://img.shields.io/github/license/AhaiMk01/patchright-cli?color=green)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/AhaiMk01/patchright-cli?style=social)](https://github.com/AhaiMk01/patchright-cli)
+[![Downloads](https://img.shields.io/pypi/dm/patchright-cli?color=orange&label=Downloads)](https://pypi.org/project/patchright-cli/)
+
+Anti-detect browser automation CLI. Same command interface as [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli) but using [Patchright](https://github.com/kaliiiiiiiiii/patchright-python) (undetected Playwright fork) to bypass bot detection.
 
 [![Star History Chart](https://api.star-history.com/svg?repos=AhaiMk01/patchright-cli&type=Date)](https://star-history.com/#AhaiMk01/patchright-cli&Date)
 
@@ -13,13 +19,24 @@ This CLI wraps Patchright in the same command interface as playwright-cli, so AI
 ## Install
 
 ```bash
-cd patchright-cli
-uv venv && uv pip install -e .
+# Recommended: install as a tool
+pip install patchright-cli
+
+# Or with pipx (isolated)
+pipx install patchright-cli
+
+# Or with uv
+uv tool install patchright-cli
+
+# Or run without installing (like npx)
+uvx patchright-cli open https://example.com
 ```
 
-Or run directly:
+For development:
 ```bash
-uv run python -m patchright_cli open https://example.com
+git clone https://github.com/AhaiMk01/patchright-cli.git
+cd patchright-cli
+uv venv && uv pip install -e .
 ```
 
 ## Quick Start
