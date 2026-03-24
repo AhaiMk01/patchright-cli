@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.patchright-cli/
+*.egg-info/
+dist/
+build/
