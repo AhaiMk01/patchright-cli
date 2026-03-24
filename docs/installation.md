@@ -7,6 +7,8 @@
 
 ## Install
 
+### Step 1: Install the package
+
 ```bash
 pip install patchright-cli
 ```
@@ -17,19 +19,60 @@ Or with uv (recommended):
 uv tool install patchright-cli
 ```
 
-Or run without installing:
+### Step 2: Install the Patchright browser
+
+Patchright needs to download its patched Chromium binary on first use:
 
 ```bash
-uvx patchright-cli open https://example.com
+# macOS / Linux
+python -m patchright install chromium
+
+# Windows (PowerShell)
+python -m patchright install chromium
+
+# Or if using uv
+uv run python -m patchright install chromium
 ```
 
-## Verify
+> **Note:** If you have Google Chrome installed, patchright-cli will use it directly via `channel="chrome"` for maximum stealth. The Chromium install above is a fallback.
+
+### Step 3: Verify
 
 ```bash
 patchright-cli --version
 patchright-cli open https://example.com
 patchright-cli eval "document.title"
 patchright-cli close
+```
+
+### Quick one-liner (no install)
+
+```bash
+uvx patchright-cli open https://example.com
+```
+
+### Troubleshooting
+
+If you see `browser not found` errors:
+
+```bash
+# Check if Chrome is installed
+google-chrome --version    # Linux
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --version  # macOS
+reg query "HKLM\SOFTWARE\Google\Chrome\BLBeacon" /v version   # Windows
+
+# If no Chrome, install the Patchright browser
+python -m patchright install chromium
+```
+
+If you see `patchright-cli: command not found`:
+
+```bash
+# Ensure pip scripts directory is in PATH
+python -m patchright_cli --help
+
+# Or use uvx (no PATH needed)
+uvx patchright-cli --help
 ```
 
 ## Agent Integration
