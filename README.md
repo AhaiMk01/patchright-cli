@@ -266,22 +266,23 @@ Use refs in commands: `patchright-cli click e2`, `patchright-cli fill e5 "text"`
 - No custom user-agent or headers (natural fingerprint)
 - Headed by default (headless is more detectable)
 
-## Claude Code Integration
+## Agent Integration
 
-Add the skill to your project:
+Works with any AI coding agent that supports SKILL.md skills:
 
-```bash
-cp -r skills/patchright-cli ~/.claude/skills/
-```
+| Agent | Install skill |
+|-------|--------------|
+| **Claude Code** | `mkdir -p ~/.claude/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.claude/skills/patchright-cli/SKILL.md` |
+| **OpenClaw** | `mkdir -p ~/.openclaw/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.openclaw/skills/patchright-cli/SKILL.md` |
+| **Codex CLI** | `mkdir -p ~/.codex/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.codex/skills/patchright-cli/SKILL.md` |
+| **Gemini CLI** | `mkdir -p ~/.gemini/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.gemini/skills/patchright-cli/SKILL.md` |
+| **Cursor** | Copy SKILL.md to `.cursor/skills/patchright-cli/` in your project |
+| **Windsurf** | Copy SKILL.md to `.windsurf/skills/patchright-cli/` in your project |
+| **Aider** | Copy SKILL.md to `.aider/skills/patchright-cli/` in your project |
 
-Then use in Claude Code:
-```
-patchright-cli open https://protected-site.com
-patchright-cli snapshot
-patchright-cli fill e3 "username"
-patchright-cli fill e4 "password"
-patchright-cli click e5
-```
+Or just tell your agent:
+
+> Install patchright-cli skill from https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md
 
 ## Star History
 

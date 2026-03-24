@@ -17,6 +17,12 @@ Or with uv (recommended):
 uv tool install patchright-cli
 ```
 
+Or run without installing:
+
+```bash
+uvx patchright-cli open https://example.com
+```
+
 ## Verify
 
 ```bash
@@ -26,17 +32,64 @@ patchright-cli eval "document.title"
 patchright-cli close
 ```
 
-## Claude Code Integration
+## Agent Integration
 
-Copy the skill into your Claude Code skills directory:
+The `patchright-cli` skill works with any AI coding agent that supports SKILL.md. Download the skill file and place it in the appropriate directory for your tool.
+
+```bash
+# Download the skill
+curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o SKILL.md
+```
+
+### Claude Code
 
 ```bash
 mkdir -p ~/.claude/skills/patchright-cli
-curl -s https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
+curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
   -o ~/.claude/skills/patchright-cli/SKILL.md
 ```
 
-Then restart Claude Code. The `patchright-cli` skill will be available automatically.
+### OpenClaw
+
+```bash
+mkdir -p ~/.openclaw/skills/patchright-cli
+curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
+  -o ~/.openclaw/skills/patchright-cli/SKILL.md
+```
+
+### OpenAI Codex CLI
+
+```bash
+mkdir -p ~/.codex/skills/patchright-cli
+curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
+  -o ~/.codex/skills/patchright-cli/SKILL.md
+```
+
+### Gemini CLI
+
+```bash
+mkdir -p ~/.gemini/skills/patchright-cli
+curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
+  -o ~/.gemini/skills/patchright-cli/SKILL.md
+```
+
+### Cursor / Windsurf / Aider
+
+Place the skill in your project's `.cursor/skills/`, `.windsurf/skills/`, or `.aider/skills/` directory:
+
+```bash
+mkdir -p .cursor/skills/patchright-cli
+curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
+  -o .cursor/skills/patchright-cli/SKILL.md
+```
+
+### Any SKILL.md-compatible agent
+
+The skill file is a standard SKILL.md. Copy it to wherever your agent reads skills from:
+
+```bash
+curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md
+```
 
 ## Usage
 
