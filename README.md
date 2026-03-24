@@ -2,10 +2,27 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/patchright-cli?color=blue&label=PyPI)](https://pypi.org/project/patchright-cli/)
 [![Python](https://img.shields.io/pypi/pyversions/patchright-cli?label=Python)](https://pypi.org/project/patchright-cli/)
-[![License](https://img.shields.io/github/license/AhaiMk01/patchright-cli?color=green)](LICENSE)
 [![Downloads](https://img.shields.io/pypi/dm/patchright-cli?color=orange&label=Downloads)](https://pypi.org/project/patchright-cli/)
+[![License](https://img.shields.io/github/license/AhaiMk01/patchright-cli?color=green)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/AhaiMk01/patchright-cli/publish.yml?label=CI)](https://github.com/AhaiMk01/patchright-cli/actions)
+[![GitHub stars](https://img.shields.io/github/stars/AhaiMk01/patchright-cli?style=flat&label=Stars)](https://github.com/AhaiMk01/patchright-cli)
+[![GitHub issues](https://img.shields.io/github/issues/AhaiMk01/patchright-cli?label=Issues)](https://github.com/AhaiMk01/patchright-cli/issues)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 Anti-detect browser automation CLI. Same command interface as [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli) but using [Patchright](https://github.com/kaliiiiiiiiii/patchright-python) (undetected Playwright fork) to bypass bot detection.
+
+> **One-liner:** `uvx patchright-cli open https://protected-site.com`
+
+### Highlights
+
+| | Feature |
+|---|---|
+| :shield: | Bypasses Akamai, Cloudflare, and other anti-bot systems |
+| :rocket: | Same command interface as playwright-cli — zero learning curve |
+| :robot: | Built for AI agents (Claude Code, Codex, etc.) with YAML snapshots |
+| :zap: | Daemon architecture — browser stays open between commands |
+| :package: | `pip install` / `uvx` — no Docker, no config files |
+| :lock: | Persistent profiles for maintaining login sessions |
 
 ## Why
 
