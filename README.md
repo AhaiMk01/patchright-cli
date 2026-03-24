@@ -276,6 +276,7 @@ Works with any AI coding agent that supports SKILL.md skills:
 | **OpenClaw** | `mkdir -p ~/.openclaw/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.openclaw/skills/patchright-cli/SKILL.md` |
 | **Codex CLI** | `mkdir -p ~/.codex/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.codex/skills/patchright-cli/SKILL.md` |
 | **Gemini CLI** | `mkdir -p ~/.gemini/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.gemini/skills/patchright-cli/SKILL.md` |
+| **OpenCode** | `mkdir -p ~/.opencode/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.opencode/skills/patchright-cli/SKILL.md` |
 | **Cursor** | Copy SKILL.md to `.cursor/skills/patchright-cli/` in your project |
 | **Windsurf** | Copy SKILL.md to `.windsurf/skills/patchright-cli/` in your project |
 | **Aider** | Copy SKILL.md to `.aider/skills/patchright-cli/` in your project |

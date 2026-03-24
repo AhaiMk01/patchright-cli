@@ -73,6 +73,14 @@ curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/p
   -o ~/.gemini/skills/patchright-cli/SKILL.md
 ```
 
+### OpenCode
+
+```bash
+mkdir -p ~/.opencode/skills/patchright-cli
+curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
+  -o ~/.opencode/skills/patchright-cli/SKILL.md
+```
+
 ### Cursor / Windsurf / Aider
 
 Place the skill in your project's `.cursor/skills/`, `.windsurf/skills/`, or `.aider/skills/` directory:
