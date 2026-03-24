@@ -13,7 +13,6 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-
 _SNAPSHOT_JS = r"""
 (() => {
     const SKIP = new Set(["SCRIPT","STYLE","NOSCRIPT","SVG","LINK","META","BR","HR"]);
@@ -156,7 +155,33 @@ def _walk_tree(node: dict, depth: int = 0) -> list[str]:
 def _yaml_escape(s: str) -> str:
     if not s:
         return '""'
-    if any(c in s for c in (":", "#", "'", '"', "\n", "[", "]", "{", "}", ",", "&", "*", "?", "|", "-", "<", ">", "=", "!", "%", "@", "`")):
+    if any(
+        c in s
+        for c in (
+            ":",
+            "#",
+            "'",
+            '"',
+            "\n",
+            "[",
+            "]",
+            "{",
+            "}",
+            ",",
+            "&",
+            "*",
+            "?",
+            "|",
+            "-",
+            "<",
+            ">",
+            "=",
+            "!",
+            "%",
+            "@",
+            "`",
+        )
+    ):
         escaped = s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
         return f'"{escaped}"'
     return s
@@ -196,7 +221,7 @@ async def take_snapshot(page) -> tuple[str, dict[str, dict]]:
         if item.get("checked") is not None:
             lines.append(f"  checked: {str(item['checked']).lower()}")
         if item.get("disabled"):
-            lines.append(f"  disabled: true")
+            lines.append("  disabled: true")
         if item.get("level") is not None:
             lines.append(f"  level: {item['level']}")
 

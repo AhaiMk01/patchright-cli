@@ -11,7 +11,6 @@ import os
 import socket
 import struct
 import sys
-import time
 
 import click
 
@@ -161,9 +160,26 @@ def _print_help():
     click.echo("Commands:")
     # Group by category
     categories = [
-        ("Core", ["open", "goto", "click", "dblclick", "fill", "type", "hover",
-                   "select", "check", "uncheck", "snapshot", "eval", "screenshot",
-                   "drag", "close"]),
+        (
+            "Core",
+            [
+                "open",
+                "goto",
+                "click",
+                "dblclick",
+                "fill",
+                "type",
+                "hover",
+                "select",
+                "check",
+                "uncheck",
+                "snapshot",
+                "eval",
+                "screenshot",
+                "drag",
+                "close",
+            ],
+        ),
         ("Navigation", ["go-back", "go-forward", "reload"]),
         ("Keyboard", ["press", "keydown", "keyup"]),
         ("Mouse", ["mousemove", "mousedown", "mouseup", "mousewheel"]),
@@ -171,11 +187,26 @@ def _print_help():
         ("Dialog", ["dialog-accept", "dialog-dismiss"]),
         ("Upload/Resize", ["upload", "resize"]),
         ("State", ["state-save", "state-load"]),
-        ("Storage", ["cookie-list", "cookie-get", "cookie-set", "cookie-delete",
-                      "cookie-clear", "localstorage-list", "localstorage-get",
-                      "localstorage-set", "localstorage-delete", "localstorage-clear",
-                      "sessionstorage-list", "sessionstorage-get", "sessionstorage-set",
-                      "sessionstorage-delete", "sessionstorage-clear"]),
+        (
+            "Storage",
+            [
+                "cookie-list",
+                "cookie-get",
+                "cookie-set",
+                "cookie-delete",
+                "cookie-clear",
+                "localstorage-list",
+                "localstorage-get",
+                "localstorage-set",
+                "localstorage-delete",
+                "localstorage-clear",
+                "sessionstorage-list",
+                "sessionstorage-get",
+                "sessionstorage-set",
+                "sessionstorage-delete",
+                "sessionstorage-clear",
+            ],
+        ),
         ("Route", ["route", "route-list", "unroute"]),
         ("Code", ["run-code"]),
         ("Tracing", ["tracing-start", "tracing-stop"]),
@@ -277,6 +308,7 @@ def main():
         else:
             # Try connecting first; if fails, tell user to open
             import socket as _socket
+
             try:
                 sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
                 sock.settimeout(1)
@@ -284,8 +316,7 @@ def main():
                 sock.close()
             except (ConnectionRefusedError, OSError, TimeoutError):
                 click.echo(
-                    f"Daemon is not running on port {port}. "
-                    f"Run 'patchright-cli open' first.",
+                    f"Daemon is not running on port {port}. Run 'patchright-cli open' first.",
                     err=True,
                 )
                 sys.exit(1)

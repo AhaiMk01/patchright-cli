@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Entry point script for patchright-cli."""
 
-import sys
 import os
+import sys
 
 # Ensure the src directory is on the path when running directly
 script_dir = os.path.dirname(os.path.abspath(__file__))

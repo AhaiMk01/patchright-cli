@@ -29,6 +29,7 @@ DEFAULT_PROFILE_DIR = str(Path.home() / ".patchright-cli" / "profiles" / "defaul
 # Session management — multiple named sessions each with their own context
 # ---------------------------------------------------------------------------
 
+
 class Session:
     """A single browser session (one persistent context, multiple pages/tabs)."""
 
@@ -58,21 +59,37 @@ class Session:
         self._attach_page_listeners(page)
 
     def _attach_page_listeners(self, page):
-        page.on("console", lambda msg: self.console_messages.append({
-            "type": msg.type, "text": msg.text,
-            "url": page.url, "ts": time.time(),
-        }))
-        page.on("request", lambda req: self.network_log.append({
-            "method": req.method, "url": req.url,
-            "resource": req.resource_type, "ts": time.time(),
-        }))
+        page.on(
+            "console",
+            lambda msg: self.console_messages.append(
+                {
+                    "type": msg.type,
+                    "text": msg.text,
+                    "url": page.url,
+                    "ts": time.time(),
+                }
+            ),
+        )
+        page.on(
+            "request",
+            lambda req: self.network_log.append(
+                {
+                    "method": req.method,
+                    "url": req.url,
+                    "resource": req.resource_type,
+                    "ts": time.time(),
+                }
+            ),
+        )
         page.on("dialog", lambda dialog: self._handle_dialog(dialog))
 
     def _handle_dialog(self, dialog):
         """Auto-handle dialogs based on pending action or auto-dismiss."""
         import asyncio
+
         action = self._pending_dialog_action
         self._pending_dialog_action = None
+
         async def _do():
             if action and action[0] == "accept":
                 await dialog.accept(action[1] or "")
@@ -80,6 +97,7 @@ class Session:
                 await dialog.dismiss()
             else:
                 await dialog.dismiss()  # default: dismiss
+
         asyncio.ensure_future(_do())
 
     # -- page access --------------------------------------------------------
@@ -114,12 +132,11 @@ class DaemonState:
 
         if self.playwright is None:
             from patchright.async_api import async_playwright
+
             self.playwright = await async_playwright().start()
 
         use_headless = headless if headless is not None else self.default_headless
-        profile_dir = profile or str(
-            Path.home() / ".patchright-cli" / "profiles" / name
-        )
+        profile_dir = profile or str(Path.home() / ".patchright-cli" / "profiles" / name)
         Path(profile_dir).mkdir(parents=True, exist_ok=True)
 
         context = await self.playwright.chromium.launch_persistent_context(
@@ -166,6 +183,7 @@ class DaemonState:
 # Command handlers
 # ---------------------------------------------------------------------------
 
+
 async def _page_info(session: Session, cwd: str | None = None) -> dict:
     """Return standard page info + snapshot after a state-changing command."""
     page = session.page
@@ -206,8 +224,7 @@ async def _resolve_ref(session: Session, page, ref: str):
         pass
 
     raise ValueError(
-        f"Could not locate element for ref '{ref}'. "
-        "The page may have changed — run 'snapshot' to refresh."
+        f"Could not locate element for ref '{ref}'. The page may have changed — run 'snapshot' to refresh."
     )
 
 
@@ -485,9 +502,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
 
         if cmd == "localstorage-set":
             key, value = args[0], args[1]
-            await page.evaluate(
-                f"() => localStorage.setItem({json.dumps(key)}, {json.dumps(value)})"
-            )
+            await page.evaluate(f"() => localStorage.setItem({json.dumps(key)}, {json.dumps(value)})")
             return {"success": True, "output": f"localStorage['{key}'] set."}
 
         if cmd == "localstorage-delete":
@@ -504,7 +519,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             level_filter = args[0] if args else None
             lines = []
             for m in session.console_messages[-50:]:
-                if level_filter and m['type'] != level_filter:
+                if level_filter and m["type"] != level_filter:
                     continue
                 lines.append(f"[{m['type']}] {m['text']}")
             return {"success": True, "output": "\n".join(lines) or "(no console messages)"}
@@ -549,7 +564,11 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         # -- Upload ---------------------------------------------------------
         if cmd == "upload":
             filepath = args[0] if args else ""
-            elem = await _resolve_ref(session, page, args[1]) if len(args) > 1 else page.locator('input[type="file"]').first
+            elem = (
+                await _resolve_ref(session, page, args[1])
+                if len(args) > 1
+                else page.locator('input[type="file"]').first
+            )
             await elem.set_input_files(filepath)
             return await _page_info(session, cwd)
 
@@ -621,14 +640,14 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             async def _route_handler(route):
                 await route.fulfill(status=status, body=body, content_type=content_type)
 
-            if not hasattr(session, '_routes'):
+            if not hasattr(session, "_routes"):
                 session._routes = {}
             await page.route(pattern, _route_handler)
             session._routes[pattern] = _route_handler
             return {"success": True, "output": f"Route added: {pattern} → status={status}"}
 
         if cmd == "route-list":
-            routes = getattr(session, '_routes', {})
+            routes = getattr(session, "_routes", {})
             if not routes:
                 return {"success": True, "output": "(no active routes)"}
             lines = ["### Active Routes"]
@@ -638,7 +657,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
 
         if cmd == "unroute":
             pattern = args[0] if args else None
-            routes = getattr(session, '_routes', {})
+            routes = getattr(session, "_routes", {})
             if pattern:
                 handler = routes.pop(pattern, None)
                 if handler:
@@ -655,7 +674,10 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             code = args[0] if args else ""
             fn = f"async (page) => {{ {code} }}"
             result = await page.evaluate(f"async () => {{ const page = window; {code} }}")
-            return {"success": True, "output": json.dumps(result, indent=2, default=str) if result is not None else "Code executed."}
+            return {
+                "success": True,
+                "output": json.dumps(result, indent=2, default=str) if result is not None else "Code executed.",
+            }
 
         # -- Tracing --------------------------------------------------------
         if cmd == "tracing-start":
@@ -675,10 +697,13 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         if cmd == "video-start":
             session._video_page = page
             # Video requires a new context with record_video_dir
-            return {"success": False, "output": "Video recording requires starting a new session with video enabled. Use: open --video"}
+            return {
+                "success": False,
+                "output": "Video recording requires starting a new session with video enabled. Use: open --video",
+            }
 
         if cmd == "video-stop":
-            if hasattr(session, '_video_page') and session._video_page and session._video_page.video:
+            if hasattr(session, "_video_page") and session._video_page and session._video_page.video:
                 path = await session._video_page.video.path()
                 dest = args[0] if args else str(path)
                 return {"success": True, "output": f"Video saved to {dest}"}
@@ -698,8 +723,9 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         # -- Delete data ----------------------------------------------------
         if cmd == "delete-data":
             session_obj = state.sessions.get(session_name)
-            if session_obj and hasattr(session_obj, '_profile_dir') and session_obj._profile_dir:
+            if session_obj and hasattr(session_obj, "_profile_dir") and session_obj._profile_dir:
                 import shutil
+
                 await state.close_session(session_name)
                 try:
                     shutil.rmtree(session_obj._profile_dir, ignore_errors=True)
@@ -718,6 +744,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
 # ---------------------------------------------------------------------------
 # TCP server
 # ---------------------------------------------------------------------------
+
 
 async def _read_message(reader: asyncio.StreamReader) -> dict | None:
     """Read a length-prefixed JSON message from the stream."""
@@ -856,6 +883,7 @@ def ensure_daemon_running(port: int = DEFAULT_PORT, headless: bool = False) -> b
 
     # Wait for daemon to be ready
     import time as _time
+
     for _ in range(30):  # up to 3 seconds
         _time.sleep(0.1)
         try:
