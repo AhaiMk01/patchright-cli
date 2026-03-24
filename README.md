@@ -11,8 +11,6 @@
 
 Anti-detect browser automation CLI. Same command interface as [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli) but using [Patchright](https://github.com/kaliiiiiiiiii/patchright-python) (undetected Playwright fork) to bypass bot detection.
 
-> **One-liner:** `uvx patchright-cli open https://protected-site.com`
-
 ### Highlights
 
 | | Feature |
