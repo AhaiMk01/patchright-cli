@@ -105,6 +105,21 @@ COMMANDS_HELP = {
     "localstorage-set": "localstorage-set <k> <v>  Set localStorage item",
     "localstorage-delete": "localstorage-delete <k>   Delete localStorage item",
     "localstorage-clear": "localstorage-clear   Clear localStorage",
+    # Dialog
+    "dialog-accept": "dialog-accept [text] Accept next dialog",
+    "dialog-dismiss": "dialog-dismiss       Dismiss next dialog",
+    # Upload / Resize
+    "upload": "upload <file> [ref]   Upload file to input",
+    "resize": "resize <w> <h>        Resize viewport",
+    # State
+    "state-save": "state-save [file]    Save cookies+storage to JSON",
+    "state-load": "state-load <file>    Load saved state",
+    # Session storage
+    "sessionstorage-list": "sessionstorage-list  List sessionStorage",
+    "sessionstorage-get": "sessionstorage-get <k> Get sessionStorage item",
+    "sessionstorage-set": "sessionstorage-set <k> <v> Set sessionStorage item",
+    "sessionstorage-delete": "sessionstorage-delete <k> Delete sessionStorage item",
+    "sessionstorage-clear": "sessionstorage-clear Clear sessionStorage",
     # DevTools
     "console": "console              Show console messages",
     "network": "network              Show network requests",
@@ -112,6 +127,7 @@ COMMANDS_HELP = {
     "list": "list                 List sessions",
     "close-all": "close-all            Close all sessions",
     "kill-all": "kill-all             Kill all sessions",
+    "delete-data": "delete-data          Delete persistent profile",
 }
 
 ALL_COMMANDS = list(COMMANDS_HELP.keys())
@@ -138,11 +154,16 @@ def _print_help():
         ("Keyboard", ["press", "keydown", "keyup"]),
         ("Mouse", ["mousemove", "mousedown", "mouseup", "mousewheel"]),
         ("Tabs", ["tab-list", "tab-new", "tab-close", "tab-select"]),
+        ("Dialog", ["dialog-accept", "dialog-dismiss"]),
+        ("Upload/Resize", ["upload", "resize"]),
+        ("State", ["state-save", "state-load"]),
         ("Storage", ["cookie-list", "cookie-get", "cookie-set", "cookie-delete",
                       "cookie-clear", "localstorage-list", "localstorage-get",
-                      "localstorage-set", "localstorage-delete", "localstorage-clear"]),
+                      "localstorage-set", "localstorage-delete", "localstorage-clear",
+                      "sessionstorage-list", "sessionstorage-get", "sessionstorage-set",
+                      "sessionstorage-delete", "sessionstorage-clear"]),
         ("DevTools", ["console", "network"]),
-        ("Session", ["list", "close-all", "kill-all"]),
+        ("Session", ["list", "close-all", "kill-all", "delete-data"]),
     ]
     for cat_name, cmds in categories:
         click.echo(f"\n  {cat_name}:")

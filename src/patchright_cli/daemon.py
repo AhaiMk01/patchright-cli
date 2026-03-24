@@ -40,6 +40,8 @@ class Session:
         self.ref_map: dict[str, dict] = {}
         self.console_messages: list[dict] = []
         self.network_log: list[dict] = []
+        self._pending_dialog_action: tuple | None = None
+        self._profile_dir: str | None = None
         self._setup_listeners()
 
     # -- internal helpers ---------------------------------------------------
@@ -64,6 +66,21 @@ class Session:
             "method": req.method, "url": req.url,
             "resource": req.resource_type, "ts": time.time(),
         }))
+        page.on("dialog", lambda dialog: self._handle_dialog(dialog))
+
+    def _handle_dialog(self, dialog):
+        """Auto-handle dialogs based on pending action or auto-dismiss."""
+        import asyncio
+        action = self._pending_dialog_action
+        self._pending_dialog_action = None
+        async def _do():
+            if action and action[0] == "accept":
+                await dialog.accept(action[1] or "")
+            elif action and action[0] == "dismiss":
+                await dialog.dismiss()
+            else:
+                await dialog.dismiss()  # default: dismiss
+        asyncio.ensure_future(_do())
 
     # -- page access --------------------------------------------------------
 
@@ -320,8 +337,15 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             snap_dir = base / ".patchright-cli"
             snap_dir.mkdir(parents=True, exist_ok=True)
             ts = int(time.time() * 1000)
-            filepath = snap_dir / f"page-{ts}.png"
-            await page.screenshot(path=str(filepath))
+            fn = options.get("filename")
+            if args and args[0].startswith("e"):
+                # Element screenshot
+                elem = await _resolve_ref(session, page, args[0])
+                filepath = snap_dir / (fn or f"element-{ts}.png")
+                await elem.screenshot(path=str(filepath))
+            else:
+                filepath = snap_dir / (fn or f"page-{ts}.png")
+                await page.screenshot(path=str(filepath))
             return {"success": True, "output": f"Screenshot saved to {filepath}"}
 
         # -- Close ----------------------------------------------------------
@@ -492,6 +516,94 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             for n in names:
                 await state.close_session(n)
             return {"success": True, "output": f"Killed {len(names)} session(s)."}
+
+        # -- Dialog handling ------------------------------------------------
+        if cmd == "dialog-accept":
+            text = args[0] if args else None
+            session._pending_dialog_action = ("accept", text)
+            return {"success": True, "output": "Will accept next dialog" + (f" with '{text}'" if text else "")}
+
+        if cmd == "dialog-dismiss":
+            session._pending_dialog_action = ("dismiss", None)
+            return {"success": True, "output": "Will dismiss next dialog"}
+
+        # -- Upload ---------------------------------------------------------
+        if cmd == "upload":
+            filepath = args[0] if args else ""
+            elem = await _resolve_ref(session, page, args[1]) if len(args) > 1 else page.locator('input[type="file"]').first
+            await elem.set_input_files(filepath)
+            return await _page_info(session, cwd)
+
+        # -- Resize ---------------------------------------------------------
+        if cmd == "resize":
+            w, h = int(args[0]), int(args[1])
+            await page.set_viewport_size({"width": w, "height": h})
+            return {"success": True, "output": f"Viewport resized to {w}x{h}"}
+
+        # -- State save/load ------------------------------------------------
+        if cmd == "state-save":
+            base = Path(cwd) if cwd else Path.cwd()
+            filepath = args[0] if args else str(base / ".patchright-cli" / "state.json")
+            Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+            state_data = await session.context.storage_state()
+            Path(filepath).write_text(json.dumps(state_data, indent=2), encoding="utf-8")
+            return {"success": True, "output": f"State saved to {filepath}"}
+
+        if cmd == "state-load":
+            filepath = args[0] if args else ""
+            if not filepath or not Path(filepath).exists():
+                return {"success": False, "output": f"File not found: {filepath}"}
+            state_data = json.loads(Path(filepath).read_text(encoding="utf-8"))
+            # Apply cookies
+            if state_data.get("cookies"):
+                await session.context.add_cookies(state_data["cookies"])
+            # Apply localStorage via JS
+            for origin_data in state_data.get("origins", []):
+                origin = origin_data.get("origin", "")
+                ls = origin_data.get("localStorage", [])
+                if ls and page.url.startswith(origin):
+                    for item in ls:
+                        await page.evaluate(
+                            f"() => localStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])})"
+                        )
+            return {"success": True, "output": f"State loaded from {filepath}"}
+
+        # -- Session storage ------------------------------------------------
+        if cmd == "sessionstorage-list":
+            result = await page.evaluate("() => JSON.stringify(sessionStorage)")
+            return {"success": True, "output": result}
+
+        if cmd == "sessionstorage-get":
+            key = args[0]
+            result = await page.evaluate(f"() => sessionStorage.getItem({json.dumps(key)})")
+            return {"success": True, "output": json.dumps(result, default=str)}
+
+        if cmd == "sessionstorage-set":
+            key, value = args[0], args[1]
+            await page.evaluate(f"() => sessionStorage.setItem({json.dumps(key)}, {json.dumps(value)})")
+            return {"success": True, "output": f"sessionStorage['{key}'] set."}
+
+        if cmd == "sessionstorage-delete":
+            key = args[0]
+            await page.evaluate(f"() => sessionStorage.removeItem({json.dumps(key)})")
+            return {"success": True, "output": f"sessionStorage['{key}'] deleted."}
+
+        if cmd == "sessionstorage-clear":
+            await page.evaluate("() => sessionStorage.clear()")
+            return {"success": True, "output": "sessionStorage cleared."}
+
+        # -- Delete data ----------------------------------------------------
+        if cmd == "delete-data":
+            session_obj = state.sessions.get(session_name)
+            if session_obj and hasattr(session_obj, '_profile_dir') and session_obj._profile_dir:
+                import shutil
+                await state.close_session(session_name)
+                try:
+                    shutil.rmtree(session_obj._profile_dir, ignore_errors=True)
+                except Exception:
+                    pass
+                return {"success": True, "output": f"Profile data deleted for '{session_name}'."}
+            return {"success": False, "output": "No persistent profile to delete."}
 
         return {"success": False, "output": f"Unknown command: {cmd}"}
 
