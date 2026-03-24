@@ -36,60 +36,62 @@ patchright-cli close
 
 The `patchright-cli` skill works with any AI coding agent that supports SKILL.md. Download the skill file and place it in the appropriate directory for your tool.
 
-```bash
-# Download the skill
-curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o SKILL.md
+The `SKILL_URL` used below:
+```
+https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md
 ```
 
-### Claude Code
+### macOS / Linux
 
 ```bash
-mkdir -p ~/.claude/skills/patchright-cli
-curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
-  -o ~/.claude/skills/patchright-cli/SKILL.md
+# Claude Code
+mkdir -p ~/.claude/skills/patchright-cli && curl -sL "$SKILL_URL" -o ~/.claude/skills/patchright-cli/SKILL.md
+
+# OpenClaw
+mkdir -p ~/.openclaw/skills/patchright-cli && curl -sL "$SKILL_URL" -o ~/.openclaw/skills/patchright-cli/SKILL.md
+
+# OpenAI Codex CLI
+mkdir -p ~/.codex/skills/patchright-cli && curl -sL "$SKILL_URL" -o ~/.codex/skills/patchright-cli/SKILL.md
+
+# Gemini CLI
+mkdir -p ~/.gemini/skills/patchright-cli && curl -sL "$SKILL_URL" -o ~/.gemini/skills/patchright-cli/SKILL.md
+
+# OpenCode
+mkdir -p ~/.opencode/skills/patchright-cli && curl -sL "$SKILL_URL" -o ~/.opencode/skills/patchright-cli/SKILL.md
+
+# Cursor / Windsurf / Aider (per-project)
+mkdir -p .cursor/skills/patchright-cli && curl -sL "$SKILL_URL" -o .cursor/skills/patchright-cli/SKILL.md
 ```
 
-### OpenClaw
+### Windows (PowerShell)
 
-```bash
-mkdir -p ~/.openclaw/skills/patchright-cli
-curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
-  -o ~/.openclaw/skills/patchright-cli/SKILL.md
+```powershell
+$SKILL_URL = "https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md"
+
+# Claude Code
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.claude\skills\patchright-cli" | Out-Null
+Invoke-WebRequest -Uri $SKILL_URL -OutFile "$env:USERPROFILE\.claude\skills\patchright-cli\SKILL.md"
+
+# OpenClaw
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.openclaw\skills\patchright-cli" | Out-Null
+Invoke-WebRequest -Uri $SKILL_URL -OutFile "$env:USERPROFILE\.openclaw\skills\patchright-cli\SKILL.md"
+
+# OpenAI Codex CLI
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.codex\skills\patchright-cli" | Out-Null
+Invoke-WebRequest -Uri $SKILL_URL -OutFile "$env:USERPROFILE\.codex\skills\patchright-cli\SKILL.md"
+
+# Gemini CLI
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.gemini\skills\patchright-cli" | Out-Null
+Invoke-WebRequest -Uri $SKILL_URL -OutFile "$env:USERPROFILE\.gemini\skills\patchright-cli\SKILL.md"
+
+# OpenCode
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.opencode\skills\patchright-cli" | Out-Null
+Invoke-WebRequest -Uri $SKILL_URL -OutFile "$env:USERPROFILE\.opencode\skills\patchright-cli\SKILL.md"
 ```
 
-### OpenAI Codex CLI
+### Windows (Git Bash)
 
-```bash
-mkdir -p ~/.codex/skills/patchright-cli
-curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
-  -o ~/.codex/skills/patchright-cli/SKILL.md
-```
-
-### Gemini CLI
-
-```bash
-mkdir -p ~/.gemini/skills/patchright-cli
-curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
-  -o ~/.gemini/skills/patchright-cli/SKILL.md
-```
-
-### OpenCode
-
-```bash
-mkdir -p ~/.opencode/skills/patchright-cli
-curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
-  -o ~/.opencode/skills/patchright-cli/SKILL.md
-```
-
-### Cursor / Windsurf / Aider
-
-Place the skill in your project's `.cursor/skills/`, `.windsurf/skills/`, or `.aider/skills/` directory:
-
-```bash
-mkdir -p .cursor/skills/patchright-cli
-curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md \
-  -o .cursor/skills/patchright-cli/SKILL.md
-```
+Same as macOS / Linux commands above — Git Bash supports `mkdir -p`, `curl`, and `~`.
 
 ### Any SKILL.md-compatible agent
 
