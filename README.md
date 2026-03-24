@@ -47,11 +47,11 @@ curl -s https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/docs/inst
 
 </details>
 
-<details>
-<summary><b>Manual Install</b></summary>
-
 > [!IMPORTANT]
 > **Requirements:** Python 3.10+ and Google Chrome
+
+<details>
+<summary><b>Manual Install</b></summary>
 
 ```bash
 # 1. Install the package
@@ -111,8 +111,8 @@ patchright-cli close
 
 ```mermaid
 graph LR
-    A["🖥️ CLI Client<br/><code>cli.py</code>"] -->|"TCP/JSON<br/>localhost:9321"| B["⚙️ Daemon<br/><code>daemon.py</code>"]
-    B -->|"Patchright<br/>CDP"| C["🌐 Chrome<br/><i>stealth</i>"]
+    A[CLI] -->|TCP:9321| B[Daemon]
+    B -->|Patchright| C[Chrome]
 ```
 
 | Component | Role |
