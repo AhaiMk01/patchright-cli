@@ -76,11 +76,10 @@ patchright-cli close
 
 ## Architecture
 
-```
-┌─────────────┐     TCP/JSON      ┌──────────────┐     CDP      ┌─────────┐
-│  CLI client  │ ◄──────────────► │    Daemon     │ ◄──────────► │ Chrome  │
-│  (cli.py)    │   localhost:9321  │  (daemon.py)  │  Patchright  │(stealth)│
-└─────────────┘                   └──────────────┘              └─────────┘
+```mermaid
+graph LR
+    A[CLI Client<br/>cli.py] -->|TCP/JSON<br/>localhost:9321| B[Daemon<br/>daemon.py]
+    B -->|Patchright<br/>CDP| C[Chrome<br/>stealth]
 ```
 
 - **Daemon** (`daemon.py`): Long-running Python process managing browser sessions via Patchright. Listens on `localhost:9321`. Auto-starts on first `open` command.
