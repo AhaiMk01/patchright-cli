@@ -8,8 +8,6 @@
 
 Anti-detect browser automation CLI. Same command interface as [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli) but using [Patchright](https://github.com/kaliiiiiiiiii/patchright-python) (undetected Playwright fork) to bypass bot detection.
 
-[![Star History Chart](https://api.star-history.com/svg?repos=AhaiMk01/patchright-cli&type=Date)](https://star-history.com/#AhaiMk01/patchright-cli&Date)
-
 ## Why
 
 Regular Playwright and Chrome DevTools get blocked by Akamai, Cloudflare, and other anti-bot systems. Patchright patches Chromium's detection vectors (`navigator.webdriver`, WebGL fingerprints, etc.) so automated browsers look like real users.
@@ -254,6 +252,16 @@ patchright-cli fill e3 "username"
 patchright-cli fill e4 "password"
 patchright-cli click e5
 ```
+
+## Star History
+
+<a href="https://star-history.com/#AhaiMk01/patchright-cli&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=AhaiMk01/patchright-cli&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=AhaiMk01/patchright-cli&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=AhaiMk01/patchright-cli&type=Date" />
+ </picture>
+</a>
 
 ## License
 
