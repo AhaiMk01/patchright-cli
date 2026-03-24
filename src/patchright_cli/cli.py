@@ -120,8 +120,22 @@ COMMANDS_HELP = {
     "sessionstorage-set": "sessionstorage-set <k> <v> Set sessionStorage item",
     "sessionstorage-delete": "sessionstorage-delete <k> Delete sessionStorage item",
     "sessionstorage-clear": "sessionstorage-clear Clear sessionStorage",
+    # Route
+    "route": "route <pattern> [--status=N] [--body=S]  Mock requests",
+    "route-list": "route-list           List active routes",
+    "unroute": "unroute [pattern]    Remove route(s)",
+    # Run code
+    "run-code": "run-code <code>      Run raw JS in page context",
+    # Tracing
+    "tracing-start": "tracing-start        Start Playwright tracing",
+    "tracing-stop": "tracing-stop         Stop tracing and save",
+    # Video
+    "video-start": "video-start          Start video recording",
+    "video-stop": "video-stop [file]    Stop recording and save",
+    # PDF
+    "pdf": "pdf [--filename=F]   Save page as PDF",
     # DevTools
-    "console": "console              Show console messages",
+    "console": "console [level]      Show console messages",
     "network": "network              Show network requests",
     # Session
     "list": "list                 List sessions",
@@ -162,6 +176,11 @@ def _print_help():
                       "localstorage-set", "localstorage-delete", "localstorage-clear",
                       "sessionstorage-list", "sessionstorage-get", "sessionstorage-set",
                       "sessionstorage-delete", "sessionstorage-clear"]),
+        ("Route", ["route", "route-list", "unroute"]),
+        ("Code", ["run-code"]),
+        ("Tracing", ["tracing-start", "tracing-stop"]),
+        ("Video", ["video-start", "video-stop"]),
+        ("PDF", ["pdf"]),
         ("DevTools", ["console", "network"]),
         ("Session", ["list", "close-all", "kill-all", "delete-data"]),
     ]

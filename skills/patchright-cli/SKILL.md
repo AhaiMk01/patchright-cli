@@ -99,10 +99,62 @@ patchright-cli localstorage-set theme dark
 patchright-cli localstorage-clear
 ```
 
+### Dialog
+
+```bash
+patchright-cli dialog-accept
+patchright-cli dialog-accept "OK"
+patchright-cli dialog-dismiss
+```
+
+### Upload / Resize
+
+```bash
+patchright-cli upload ./document.pdf
+patchright-cli upload ./photo.jpg e5
+patchright-cli resize 1920 1080
+```
+
+### State Persistence
+
+```bash
+patchright-cli state-save auth.json
+patchright-cli state-load auth.json
+```
+
+### Session Storage
+
+```bash
+patchright-cli sessionstorage-list
+patchright-cli sessionstorage-get step
+patchright-cli sessionstorage-set step 3
+patchright-cli sessionstorage-delete step
+patchright-cli sessionstorage-clear
+```
+
+### Request Mocking
+
+```bash
+patchright-cli route "**/*.jpg" --status=404
+patchright-cli route "https://api.example.com/**" --body='{"mock": true}'
+patchright-cli route-list
+patchright-cli unroute "**/*.jpg"
+patchright-cli unroute
+```
+
+### Tracing / Video / PDF
+
+```bash
+patchright-cli tracing-start
+patchright-cli tracing-stop
+patchright-cli pdf --filename=page.pdf
+```
+
 ### DevTools
 
 ```bash
 patchright-cli console
+patchright-cli console warning
 patchright-cli network
 ```
 

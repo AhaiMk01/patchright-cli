@@ -310,7 +310,13 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         # -- Snapshot -------------------------------------------------------
         if cmd == "snapshot":
             yaml_text, session.ref_map = await take_snapshot(page)
-            snap_path = save_snapshot(yaml_text, cwd)
+            fn = options.get("filename")
+            if fn:
+                Path(fn).parent.mkdir(parents=True, exist_ok=True)
+                Path(fn).write_text(yaml_text, encoding="utf-8")
+                snap_path = fn
+            else:
+                snap_path = save_snapshot(yaml_text, cwd)
             url = page.url
             try:
                 title = await page.title()
@@ -424,6 +430,9 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         # -- Cookies --------------------------------------------------------
         if cmd == "cookie-list":
             cookies = await session.context.cookies()
+            domain = options.get("domain")
+            if domain:
+                cookies = [c for c in cookies if domain in c.get("domain", "")]
             return {"success": True, "output": json.dumps(cookies, indent=2, default=str)}
 
         if cmd == "cookie-get":
@@ -435,12 +444,19 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         if cmd == "cookie-set":
             cookie_name = args[0]
             cookie_value = args[1]
-            url = page.url
-            await session.context.add_cookies([{
-                "name": cookie_name,
-                "value": cookie_value,
-                "url": url,
-            }])
+            cookie = {"name": cookie_name, "value": cookie_value}
+            if options.get("domain"):
+                cookie["domain"] = options["domain"]
+                cookie["path"] = options.get("path", "/")
+            else:
+                cookie["url"] = page.url
+            if options.get("httpOnly") or "httpOnly" in options:
+                cookie["httpOnly"] = True
+            if options.get("secure") or "secure" in options:
+                cookie["secure"] = True
+            if options.get("sameSite"):
+                cookie["sameSite"] = options["sameSite"]
+            await session.context.add_cookies([cookie])
             return {"success": True, "output": f"Cookie '{cookie_name}' set."}
 
         if cmd == "cookie-delete":
@@ -485,8 +501,11 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
 
         # -- DevTools -------------------------------------------------------
         if cmd == "console":
+            level_filter = args[0] if args else None
             lines = []
             for m in session.console_messages[-50:]:
+                if level_filter and m['type'] != level_filter:
+                    continue
                 lines.append(f"[{m['type']}] {m['text']}")
             return {"success": True, "output": "\n".join(lines) or "(no console messages)"}
 
@@ -591,6 +610,90 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         if cmd == "sessionstorage-clear":
             await page.evaluate("() => sessionStorage.clear()")
             return {"success": True, "output": "sessionStorage cleared."}
+
+        # -- Route (request interception) -----------------------------------
+        if cmd == "route":
+            pattern = args[0] if args else "**/*"
+            status = int(options.get("status", 200))
+            body = options.get("body", "")
+            content_type = options.get("content-type", "text/plain")
+
+            async def _route_handler(route):
+                await route.fulfill(status=status, body=body, content_type=content_type)
+
+            if not hasattr(session, '_routes'):
+                session._routes = {}
+            await page.route(pattern, _route_handler)
+            session._routes[pattern] = _route_handler
+            return {"success": True, "output": f"Route added: {pattern} → status={status}"}
+
+        if cmd == "route-list":
+            routes = getattr(session, '_routes', {})
+            if not routes:
+                return {"success": True, "output": "(no active routes)"}
+            lines = ["### Active Routes"]
+            for pat in routes:
+                lines.append(f"  - {pat}")
+            return {"success": True, "output": "\n".join(lines)}
+
+        if cmd == "unroute":
+            pattern = args[0] if args else None
+            routes = getattr(session, '_routes', {})
+            if pattern:
+                handler = routes.pop(pattern, None)
+                if handler:
+                    await page.unroute(pattern, handler)
+                return {"success": True, "output": f"Route removed: {pattern}"}
+            else:
+                for pat, handler in routes.items():
+                    await page.unroute(pat, handler)
+                routes.clear()
+                return {"success": True, "output": "All routes removed."}
+
+        # -- Run code -------------------------------------------------------
+        if cmd == "run-code":
+            code = args[0] if args else ""
+            fn = f"async (page) => {{ {code} }}"
+            result = await page.evaluate(f"async () => {{ const page = window; {code} }}")
+            return {"success": True, "output": json.dumps(result, indent=2, default=str) if result is not None else "Code executed."}
+
+        # -- Tracing --------------------------------------------------------
+        if cmd == "tracing-start":
+            await session.context.tracing.start(screenshots=True, snapshots=True, sources=True)
+            return {"success": True, "output": "Tracing started."}
+
+        if cmd == "tracing-stop":
+            base = Path(cwd) if cwd else Path.cwd()
+            snap_dir = base / ".patchright-cli"
+            snap_dir.mkdir(parents=True, exist_ok=True)
+            ts = int(time.time() * 1000)
+            filepath = snap_dir / f"trace-{ts}.zip"
+            await session.context.tracing.stop(path=str(filepath))
+            return {"success": True, "output": f"Tracing saved to {filepath}"}
+
+        # -- Video recording ------------------------------------------------
+        if cmd == "video-start":
+            session._video_page = page
+            # Video requires a new context with record_video_dir
+            return {"success": False, "output": "Video recording requires starting a new session with video enabled. Use: open --video"}
+
+        if cmd == "video-stop":
+            if hasattr(session, '_video_page') and session._video_page and session._video_page.video:
+                path = await session._video_page.video.path()
+                dest = args[0] if args else str(path)
+                return {"success": True, "output": f"Video saved to {dest}"}
+            return {"success": False, "output": "No video recording in progress."}
+
+        # -- PDF ------------------------------------------------------------
+        if cmd == "pdf":
+            base = Path(cwd) if cwd else Path.cwd()
+            snap_dir = base / ".patchright-cli"
+            snap_dir.mkdir(parents=True, exist_ok=True)
+            fn = options.get("filename")
+            ts = int(time.time() * 1000)
+            filepath = snap_dir / (fn or f"page-{ts}.pdf")
+            await page.pdf(path=str(filepath))
+            return {"success": True, "output": f"PDF saved to {filepath}"}
 
         # -- Delete data ----------------------------------------------------
         if cmd == "delete-data":
