@@ -334,6 +334,32 @@ Or just tell your agent:
 
 ---
 
+<details>
+<summary><h2>Differences from playwright-cli</h2></summary>
+
+patchright-cli aims for full command parity with [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli). The following playwright-cli features are **intentionally not implemented** due to Patchright's architecture:
+
+| Feature | Reason |
+|---------|--------|
+| `--browser=firefox/webkit/msedge` | Patchright only supports Chromium/Chrome. Anti-detect patches are Chrome-specific. |
+| `--config=<file>` | No config file system. Options are passed as CLI flags. |
+| `--extension` | Browser extension connection not supported. Patchright uses CDP directly. |
+| `show` / `devtools-start` | DevTools are available natively in headed mode (default). |
+| `install` / `install-browser` | Use `python -m patchright install chromium` instead. |
+
+All other commands and options are fully supported.
+
+</details>
+
+---
+
+## Disclaimer
+
+> [!WARNING]
+> This tool is provided for **authorized security testing, legitimate automation, and educational purposes** only. Users are solely responsible for ensuring their use complies with applicable laws and the terms of service of any websites they interact with. The authors do not endorse or encourage any unauthorized access, scraping, or circumvention of security measures. Use at your own risk.
+
+---
+
 ## License
 
 Apache 2.0 — same as [playwright-cli](https://github.com/microsoft/playwright-cli)
