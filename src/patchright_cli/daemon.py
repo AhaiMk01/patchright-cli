@@ -241,9 +241,12 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         # -- Session / lifecycle commands -----------------------------------
         if cmd == "open":
             url = args[0] if args else None
+            headless = options.get("headless", False)
+            if options.get("headed"):
+                headless = False
             session = await state.get_or_create_session(
                 session_name,
-                headless=options.get("headless", False),
+                headless=headless,
                 persistent=options.get("persistent", True),
                 profile=options.get("profile"),
                 url=url,
@@ -280,12 +283,16 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         # -- Core interactions ----------------------------------------------
         if cmd == "click":
             elem = await _resolve_ref(session, page, args[0])
-            await elem.click()
+            button = args[1] if len(args) > 1 else "left"
+            modifiers = options.get("modifiers", "").split(",") if options.get("modifiers") else []
+            await elem.click(button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None)
             return await _page_info(session, cwd)
 
         if cmd == "dblclick":
             elem = await _resolve_ref(session, page, args[0])
-            await elem.dblclick()
+            button = args[1] if len(args) > 1 else "left"
+            modifiers = options.get("modifiers", "").split(",") if options.get("modifiers") else []
+            await elem.dblclick(button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None)
             return await _page_info(session, cwd)
 
         if cmd == "fill":
@@ -368,7 +375,8 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 await elem.screenshot(path=str(filepath))
             else:
                 filepath = snap_dir / (fn or f"page-{ts}.png")
-                await page.screenshot(path=str(filepath))
+                full_page = bool(options.get("full-page"))
+                await page.screenshot(path=str(filepath), full_page=full_page)
             return {"success": True, "output": f"Screenshot saved to {filepath}"}
 
         # -- Close ----------------------------------------------------------
@@ -450,6 +458,9 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             domain = options.get("domain")
             if domain:
                 cookies = [c for c in cookies if domain in c.get("domain", "")]
+            path_filter = options.get("path")
+            if path_filter:
+                cookies = [c for c in cookies if path_filter in c.get("path", "")]
             return {"success": True, "output": json.dumps(cookies, indent=2, default=str)}
 
         if cmd == "cookie-get":
@@ -473,6 +484,10 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 cookie["secure"] = True
             if options.get("sameSite"):
                 cookie["sameSite"] = options["sameSite"]
+            if options.get("expires"):
+                cookie["expires"] = int(options["expires"])
+            if options.get("path"):
+                cookie["path"] = options["path"]
             await session.context.add_cookies([cookie])
             return {"success": True, "output": f"Cookie '{cookie_name}' set."}
 
@@ -636,9 +651,23 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             status = int(options.get("status", 200))
             body = options.get("body", "")
             content_type = options.get("content-type", "text/plain")
+            headers = {}
+            if options.get("header"):
+                for h in options["header"] if isinstance(options["header"], list) else [options["header"]]:
+                    k, _, v = h.partition(":")
+                    headers[k.strip()] = v.strip()
+            remove_headers = [h.strip() for h in options.get("remove-header", "").split(",") if h.strip()]
 
             async def _route_handler(route):
-                await route.fulfill(status=status, body=body, content_type=content_type)
+                if headers or remove_headers:
+                    resp_headers = dict(headers)
+                    if remove_headers:
+                        # If fulfilling with custom body, remove-header applies to response headers
+                        for rh in remove_headers:
+                            resp_headers.pop(rh, None)
+                    await route.fulfill(status=status, body=body, content_type=content_type, headers=resp_headers)
+                else:
+                    await route.fulfill(status=status, body=body, content_type=content_type)
 
             if not hasattr(session, "_routes"):
                 session._routes = {}

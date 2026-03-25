@@ -62,8 +62,8 @@ COMMANDS_HELP = {
     # Core
     "open": "open [url]           Open browser (starts daemon if needed)",
     "goto": "goto <url>           Navigate to URL",
-    "click": "click <ref>          Click element by ref",
-    "dblclick": "dblclick <ref>       Double-click element by ref",
+    "click": "click <ref> [button]  Click element [--modifiers=Alt,Shift]",
+    "dblclick": "dblclick <ref> [btn] Double-click [--modifiers=Alt,Shift]",
     "fill": "fill <ref> <value>   Fill text into element",
     "type": "type <text>          Type text via keyboard",
     "hover": "hover <ref>          Hover over element",
@@ -72,7 +72,7 @@ COMMANDS_HELP = {
     "uncheck": "uncheck <ref>        Uncheck checkbox/radio",
     "snapshot": "snapshot             Take accessibility snapshot",
     "eval": "eval <expr>          Evaluate JavaScript",
-    "screenshot": "screenshot           Save screenshot",
+    "screenshot": "screenshot [ref]     Save screenshot [--full-page] [--filename=F]",
     "drag": "drag <from> <to>     Drag element to target",
     "close": "close                Close browser session",
     # Navigation
@@ -94,9 +94,9 @@ COMMANDS_HELP = {
     "tab-close": "tab-close [index]    Close tab",
     "tab-select": "tab-select <index>   Switch to tab",
     # Storage
-    "cookie-list": "cookie-list          List cookies",
+    "cookie-list": "cookie-list          List cookies [--domain=D] [--path=P]",
     "cookie-get": "cookie-get <name>    Get cookie",
-    "cookie-set": "cookie-set <n> <v>   Set cookie",
+    "cookie-set": "cookie-set <n> <v>   Set cookie [--domain --path --expires --httpOnly --secure --sameSite]",
     "cookie-delete": "cookie-delete <name> Delete cookie",
     "cookie-clear": "cookie-clear         Clear all cookies",
     "localstorage-list": "localstorage-list    List localStorage",
@@ -120,7 +120,7 @@ COMMANDS_HELP = {
     "sessionstorage-delete": "sessionstorage-delete <k> Delete sessionStorage item",
     "sessionstorage-clear": "sessionstorage-clear Clear sessionStorage",
     # Route
-    "route": "route <pattern> [--status=N] [--body=S]  Mock requests",
+    "route": "route <pattern> [--status=N] [--body=S] [--header=K:V] [--remove-header=H]  Mock requests",
     "route-list": "route-list           List active routes",
     "unroute": "unroute [pattern]    Remove route(s)",
     # Run code
