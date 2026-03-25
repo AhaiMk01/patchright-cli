@@ -65,10 +65,16 @@ patchright-cli open https://example.com
 patchright-cli close
 ```
 
-Or run without installing (like npx):
+Or run without installing (like npx — always uses latest version):
 
 ```bash
 uvx patchright-cli open https://example.com
+```
+
+**Updating:**
+
+```bash
+pip install --upgrade patchright-cli   # or: uv tool upgrade patchright-cli
 ```
 
 **From source:**
