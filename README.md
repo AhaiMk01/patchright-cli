@@ -130,9 +130,14 @@ graph LR
 ```bash
 patchright-cli open [url]              # Launch browser
 patchright-cli open --persistent       # With persistent profile
+patchright-cli open --headless         # Run headless
+patchright-cli open --profile=<path>   # Custom profile directory
 patchright-cli goto <url>              # Navigate
 patchright-cli click <ref>             # Click element
+patchright-cli click <ref> right       # Right-click
+patchright-cli click <ref> --modifiers=Alt,Shift
 patchright-cli dblclick <ref>          # Double-click
+patchright-cli dblclick <ref> --modifiers=Shift
 patchright-cli fill <ref> <value>      # Fill text input
 patchright-cli type <text>             # Type via keyboard
 patchright-cli hover <ref>             # Hover over element
@@ -143,7 +148,9 @@ patchright-cli drag <from> <to>        # Drag and drop
 patchright-cli snapshot                # Accessibility snapshot
 patchright-cli snapshot --filename=f   # Save to custom path
 patchright-cli eval <expr>             # Run JavaScript
-patchright-cli screenshot              # Full page screenshot
+patchright-cli run-code <code>         # Run JS with return value
+patchright-cli screenshot              # Page screenshot
+patchright-cli screenshot --full-page  # Full scrollable page
 patchright-cli screenshot <ref>        # Element screenshot
 patchright-cli screenshot --filename=f # Save to custom path
 patchright-cli close                   # Close session
@@ -199,9 +206,11 @@ patchright-cli state-load <file>       # Restore saved state
 # Cookies
 patchright-cli cookie-list
 patchright-cli cookie-list --domain=example.com
+patchright-cli cookie-list --path=/api
 patchright-cli cookie-get <name>
 patchright-cli cookie-set <name> <value>
 patchright-cli cookie-set <name> <value> --domain=example.com --httpOnly --secure
+patchright-cli cookie-set <name> <value> --path=/ --sameSite=Lax --expires=1735689600
 patchright-cli cookie-delete <name>
 patchright-cli cookie-clear
 
@@ -224,6 +233,9 @@ patchright-cli sessionstorage-clear
 ```bash
 patchright-cli route "**/*.jpg" --status=404
 patchright-cli route "https://api.example.com/**" --body='{"mock":true}'
+patchright-cli route "**/*" --content-type=application/json --body='{"ok":true}'
+patchright-cli route "**/*" --header=X-Custom:value
+patchright-cli route "**/*" --remove-header=Content-Type
 patchright-cli route-list
 patchright-cli unroute "**/*.jpg"
 patchright-cli unroute                 # Remove all routes
@@ -252,6 +264,7 @@ patchright-cli list                    # List all sessions
 patchright-cli close-all
 patchright-cli kill-all
 patchright-cli delete-data             # Delete persistent profile
+patchright-cli --port=9322 open        # Custom daemon port
 ```
 
 </details>

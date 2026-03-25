@@ -25,16 +25,31 @@ patchright-cli screenshot
 patchright-cli close
 ```
 
+## Global Options
+
+```bash
+patchright-cli --headless ...           # Run headless
+patchright-cli --persistent ...         # Use persistent profile
+patchright-cli --profile=/path ...      # Custom profile directory
+patchright-cli -s=mysession ...         # Named session
+patchright-cli --port=9322 ...          # Custom daemon port (default: 9321)
+```
+
 ## Commands
 
 ### Core
 
 ```bash
-patchright-cli open
-patchright-cli open https://example.com/
+patchright-cli open                            # Launch browser
+patchright-cli open https://example.com/       # Launch and navigate
+patchright-cli open --persistent               # With persistent profile
+patchright-cli open --headless                 # Run headless
+patchright-cli open --profile=/path/to/dir     # Custom profile directory
 patchright-cli goto https://example.com
 patchright-cli type "search query"
 patchright-cli click e3
+patchright-cli click e3 right                  # Right-click
+patchright-cli click e3 --modifiers=Alt,Shift  # Click with modifiers
 patchright-cli dblclick e7
 patchright-cli fill e5 "user@example.com"
 patchright-cli drag e2 e8
@@ -43,10 +58,14 @@ patchright-cli select e9 "option-value"
 patchright-cli check e12
 patchright-cli uncheck e12
 patchright-cli snapshot
+patchright-cli snapshot --filename=snap.yml    # Save to custom path
 patchright-cli eval "document.title"
 patchright-cli eval "el => el.textContent" e5
+patchright-cli run-code "return document.querySelectorAll('a').length"
 patchright-cli screenshot
+patchright-cli screenshot e3                   # Element screenshot
 patchright-cli screenshot --filename=page.png
+patchright-cli screenshot --full-page          # Full page screenshot
 patchright-cli close
 ```
 
@@ -71,8 +90,10 @@ patchright-cli keyup Shift
 
 ```bash
 patchright-cli mousemove 150 300
-patchright-cli mousedown
+patchright-cli mousedown                       # Left button (default)
+patchright-cli mousedown right                 # Right button
 patchright-cli mouseup
+patchright-cli mouseup right
 patchright-cli mousewheel 0 100
 ```
 
@@ -82,20 +103,27 @@ patchright-cli mousewheel 0 100
 patchright-cli tab-list
 patchright-cli tab-new https://example.com
 patchright-cli tab-select 0
-patchright-cli tab-close
+patchright-cli tab-close              # Close current tab
+patchright-cli tab-close 2            # Close tab by index
 ```
 
 ### Storage
 
 ```bash
+# Cookies
 patchright-cli cookie-list
+patchright-cli cookie-list --domain=example.com
+patchright-cli cookie-list --path=/api
 patchright-cli cookie-get session_id
 patchright-cli cookie-set session_id abc123
+patchright-cli cookie-set session_id abc123 --domain=example.com --path=/ --httpOnly --secure --sameSite=Lax --expires=1735689600
 patchright-cli cookie-delete session_id
 patchright-cli cookie-clear
+# localStorage
 patchright-cli localstorage-list
 patchright-cli localstorage-get theme
 patchright-cli localstorage-set theme dark
+patchright-cli localstorage-delete theme
 patchright-cli localstorage-clear
 ```
 
@@ -137,9 +165,12 @@ patchright-cli sessionstorage-clear
 ```bash
 patchright-cli route "**/*.jpg" --status=404
 patchright-cli route "https://api.example.com/**" --body='{"mock": true}'
+patchright-cli route "**/*" --content-type=application/json --body='{"ok":true}'
+patchright-cli route "**/*" --header=X-Custom:value
+patchright-cli route "**/*" --remove-header=Content-Type
 patchright-cli route-list
 patchright-cli unroute "**/*.jpg"
-patchright-cli unroute
+patchright-cli unroute                         # Remove all routes
 ```
 
 ### Tracing / Video / PDF
@@ -170,6 +201,9 @@ patchright-cli list
 # Close all browsers
 patchright-cli close-all
 patchright-cli kill-all
+# Delete persistent profile data
+patchright-cli delete-data
+patchright-cli -s=mysession delete-data
 ```
 
 ## Anti-detect features

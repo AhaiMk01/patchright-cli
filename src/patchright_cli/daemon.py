@@ -43,33 +43,40 @@ class Session:
         self.network_log: list[dict] = []
         self._pending_dialog_action: tuple | None = None
         self._profile_dir: str | None = None
-        self._setup_listeners()
+        self._cdp_sessions: dict[int, object] = {}
 
     # -- internal helpers ---------------------------------------------------
 
-    def _setup_listeners(self):
+    async def setup_listeners(self):
         """Attach console / network listeners to all existing pages."""
         for page in self.pages:
-            self._attach_page_listeners(page)
-        self.context.on("page", self._on_new_page)
+            await self._attach_page_listeners(page)
+        self.context.on("page", lambda page: asyncio.ensure_future(self._on_new_page(page)))
 
-    def _on_new_page(self, page):
+    async def _on_new_page(self, page):
         self.pages.append(page)
         self.current_tab = len(self.pages) - 1
-        self._attach_page_listeners(page)
+        await self._attach_page_listeners(page)
 
-    def _attach_page_listeners(self, page):
-        page.on(
-            "console",
-            lambda msg: self.console_messages.append(
-                {
-                    "type": msg.type,
-                    "text": msg.text,
-                    "url": page.url,
-                    "ts": time.time(),
-                }
-            ),
-        )
+    async def _attach_page_listeners(self, page):
+        # Use CDP for console messages (Patchright suppresses page.on('console'))
+        try:
+            cdp = await page.context.new_cdp_session(page)
+            await cdp.send("Runtime.enable")
+            cdp.on(
+                "Runtime.consoleAPICalled",
+                lambda event: self.console_messages.append(
+                    {
+                        "type": event["type"] if event["type"] != "warning" else "warning",
+                        "text": " ".join(str(a.get("value", a.get("description", ""))) for a in event.get("args", [])),
+                        "url": page.url,
+                        "ts": time.time(),
+                    }
+                ),
+            )
+            self._cdp_sessions[id(page)] = cdp
+        except Exception:
+            pass
         page.on(
             "request",
             lambda req: self.network_log.append(
@@ -115,6 +122,7 @@ class DaemonState:
 
     def __init__(self):
         self.sessions: dict[str, Session] = {}
+        self.profile_dirs: dict[str, str] = {}
         self.playwright = None
         self.default_headless: bool = False
 
@@ -158,7 +166,9 @@ class DaemonState:
             await pages[0].goto(url)
 
         session = Session(name, context, list(pages))
+        await session.setup_listeners()
         self.sessions[name] = session
+        self.profile_dirs[name] = profile_dir
         return session
 
     async def close_session(self, name: str) -> bool:
@@ -252,6 +262,19 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 url=url,
             )
             return await _page_info(session, cwd)
+
+        # delete-data works even after session is closed
+        if cmd == "delete-data":
+            import shutil
+
+            # Close session if still open
+            if session_name in state.sessions:
+                await state.close_session(session_name)
+            profile_dir = state.profile_dirs.pop(session_name, None)
+            if profile_dir and Path(profile_dir).exists():
+                shutil.rmtree(profile_dir, ignore_errors=True)
+                return {"success": True, "output": f"Profile data deleted for '{session_name}'."}
+            return {"success": False, "output": "No persistent profile to delete."}
 
         # All other commands require an existing session
         session = state.sessions.get(session_name)
@@ -532,6 +555,10 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         # -- DevTools -------------------------------------------------------
         if cmd == "console":
             level_filter = args[0] if args else None
+            # Normalize filter aliases (warn -> warning)
+            filter_aliases = {"warn": "warning"}
+            if level_filter:
+                level_filter = filter_aliases.get(level_filter, level_filter)
             lines = []
             for m in session.console_messages[-50:]:
                 if level_filter and m["type"] != level_filter:
@@ -750,18 +777,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             return {"success": True, "output": f"PDF saved to {filepath}"}
 
         # -- Delete data ----------------------------------------------------
-        if cmd == "delete-data":
-            session_obj = state.sessions.get(session_name)
-            if session_obj and hasattr(session_obj, "_profile_dir") and session_obj._profile_dir:
-                import shutil
-
-                await state.close_session(session_name)
-                try:
-                    shutil.rmtree(session_obj._profile_dir, ignore_errors=True)
-                except Exception:
-                    pass
-                return {"success": True, "output": f"Profile data deleted for '{session_name}'."}
-            return {"success": False, "output": "No persistent profile to delete."}
+        # delete-data is handled before the session check (above)
 
         return {"success": False, "output": f"Unknown command: {cmd}"}
 
