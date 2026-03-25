@@ -7,49 +7,55 @@
 
 ## Install
 
-### Step 1: Install the package
+### Step 1: Ensure uv is installed
+
+uv is the recommended Python package manager. Check if it's installed:
 
 ```bash
-pip install patchright-cli
+uv --version
 ```
 
-Or with uv (recommended):
-
-```bash
-uv tool install patchright-cli
-```
-
-### Step 2: Install the Patchright browser
-
-Patchright needs to download its patched Chromium binary on first use:
+If not installed:
 
 ```bash
 # macOS / Linux
-python -m patchright install chromium
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Windows (PowerShell)
-python -m patchright install chromium
-
-# Or if using uv
-uv run python -m patchright install chromium
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-> **Note:** If you have Google Chrome installed, patchright-cli will use it directly via `channel="chrome"` for maximum stealth. The Chromium install above is a fallback.
+### Step 2: Run patchright-cli
+
+With uvx (recommended — always uses the latest version, no install needed):
+
+```bash
+uvx patchright-cli open https://example.com
+uvx patchright-cli snapshot
+uvx patchright-cli close
+```
+
+> **Note:** If you have Google Chrome installed, patchright-cli will use it directly via `channel="chrome"` for maximum stealth. If Chrome is not found, install the Patchright fallback browser: `uvx patchright install chromium`
 
 ### Step 3: Verify
 
 ```bash
-patchright-cli --version
+uvx patchright-cli --version
+uvx patchright-cli open https://example.com
+uvx patchright-cli eval "document.title"
+uvx patchright-cli close
+```
+
+<details>
+<summary><b>Alternative: pip install</b></summary>
+
+```bash
+pip install patchright-cli
 patchright-cli open https://example.com
-patchright-cli eval "document.title"
 patchright-cli close
 ```
 
-### Quick one-liner (no install)
-
-```bash
-uvx patchright-cli open https://example.com
-```
+</details>
 
 ### Troubleshooting
 
@@ -62,16 +68,13 @@ google-chrome --version    # Linux
 reg query "HKLM\SOFTWARE\Google\Chrome\BLBeacon" /v version   # Windows
 
 # If no Chrome, install the Patchright browser
-python -m patchright install chromium
+uvx patchright install chromium
 ```
 
 If you see `patchright-cli: command not found`:
 
 ```bash
-# Ensure pip scripts directory is in PATH
-python -m patchright_cli --help
-
-# Or use uvx (no PATH needed)
+# Use uvx instead (no install or PATH needed)
 uvx patchright-cli --help
 ```
 
@@ -148,25 +151,25 @@ curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/p
 
 ```bash
 # Open an anti-bot-protected site
-patchright-cli open https://protected-site.com
+uvx patchright-cli open https://protected-site.com
 
 # Take a snapshot to see interactive elements
-patchright-cli snapshot
+uvx patchright-cli snapshot
 
 # Interact with elements using refs from the snapshot
-patchright-cli fill e3 "username"
-patchright-cli fill e4 "password"
-patchright-cli click e5
+uvx patchright-cli fill e3 "username"
+uvx patchright-cli fill e4 "password"
+uvx patchright-cli click e5
 
 # Save login state for reuse
-patchright-cli state-save auth.json
+uvx patchright-cli state-save auth.json
 
 # Later, restore the session
-patchright-cli open https://protected-site.com --persistent
-patchright-cli state-load auth.json
+uvx patchright-cli open https://protected-site.com --persistent
+uvx patchright-cli state-load auth.json
 
 # Close when done
-patchright-cli close
+uvx patchright-cli close
 ```
 
 ## All Commands

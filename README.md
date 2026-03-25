@@ -50,31 +50,22 @@ curl -s https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/docs/inst
 > [!IMPORTANT]
 > **Requirements:** Python 3.10+ and Google Chrome
 
-<details>
-<summary><b>Manual Install</b></summary>
-
 ```bash
-# 1. Install the package
-pip install patchright-cli        # or: uv tool install patchright-cli
-
-# 2. Install the Patchright browser (fallback if Chrome is not found)
-python -m patchright install chromium
-
-# 3. Verify
-patchright-cli open https://example.com
-patchright-cli close
-```
-
-Or run without installing (like npx — always uses latest version):
-
-```bash
+# Recommended — always runs latest version, no install needed
 uvx patchright-cli open https://example.com
 ```
 
-**Updating:**
+<details>
+<summary><b>Other install methods</b></summary>
 
 ```bash
-pip install --upgrade patchright-cli   # or: uv tool upgrade patchright-cli
+# Via pip
+pip install patchright-cli
+patchright-cli open https://example.com
+patchright-cli close
+
+# Update
+pip install --upgrade patchright-cli
 ```
 
 **From source:**
