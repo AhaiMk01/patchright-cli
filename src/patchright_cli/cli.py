@@ -64,14 +64,14 @@ COMMANDS_HELP = {
     "goto": "goto <url>           Navigate to URL",
     "click": "click <ref> [button]  Click element [--modifiers=Alt,Shift]",
     "dblclick": "dblclick <ref> [btn] Double-click [--modifiers=Alt,Shift]",
-    "fill": "fill <ref> <value>   Fill text into element",
-    "type": "type <text>          Type text via keyboard",
+    "fill": "fill <ref> <value>   Fill text into element [--submit]",
+    "type": "type <text>          Type text via keyboard [--submit]",
     "hover": "hover <ref>          Hover over element",
     "select": "select <ref> <value> Select dropdown option",
     "check": "check <ref>          Check checkbox/radio",
     "uncheck": "uncheck <ref>        Uncheck checkbox/radio",
-    "snapshot": "snapshot             Take accessibility snapshot",
-    "eval": "eval <expr>          Evaluate JavaScript",
+    "snapshot": "snapshot [ref]        Take accessibility snapshot",
+    "eval": "eval <expr>          Evaluate JavaScript [--file=F or stdin]",
     "screenshot": "screenshot [ref]     Save screenshot [--full-page] [--filename=F]",
     "drag": "drag <from> <to>     Drag element to target",
     "close": "close                Close browser session",
@@ -120,22 +120,23 @@ COMMANDS_HELP = {
     "sessionstorage-delete": "sessionstorage-delete <k> Delete sessionStorage item",
     "sessionstorage-clear": "sessionstorage-clear Clear sessionStorage",
     # Route
-    "route": "route <pattern> [--status=N] [--body=S] [--header=K:V] [--remove-header=H]  Mock requests",
+    "route": "route <pattern> [--status=N] [--body=S] [--content-type=T] [--header=K:V]  Mock requests",
     "route-list": "route-list           List active routes",
     "unroute": "unroute [pattern]    Remove route(s)",
+    "network-state-set": "network-state-set <state>  Set online/offline (online|offline)",
     # Run code
-    "run-code": "run-code <code>      Run raw JS in page context",
+    "run-code": "run-code <code>      Run raw JS in page context [--file=F or stdin]",
     # Tracing
     "tracing-start": "tracing-start        Start Playwright tracing",
     "tracing-stop": "tracing-stop         Stop tracing and save",
     # Video
     "video-start": "video-start          Start video recording",
-    "video-stop": "video-stop [file]    Stop recording and save",
+    "video-stop": "video-stop           Stop recording and save [--filename=F]",
     # PDF
     "pdf": "pdf [--filename=F]   Save page as PDF",
     # DevTools
-    "console": "console [level]      Show console messages",
-    "network": "network              Show network requests",
+    "console": "console [level]      Show console messages [--clear]",
+    "network": "network              Show network requests [--static] [--clear]",
     # Session
     "list": "list                 List sessions",
     "close-all": "close-all            Close all sessions",
@@ -207,7 +208,7 @@ def _print_help():
                 "sessionstorage-clear",
             ],
         ),
-        ("Route", ["route", "route-list", "unroute"]),
+        ("Route", ["route", "route-list", "unroute", "network-state-set"]),
         ("Code", ["run-code"]),
         ("Tracing", ["tracing-start", "tracing-stop"]),
         ("Video", ["video-start", "video-stop"]),
@@ -244,7 +245,7 @@ def main():
             persistent = True
         elif arg.startswith("--profile="):
             profile = arg.split("=", 1)[1]
-        elif arg.startswith("--profile") and i + 1 < len(argv):
+        elif arg == "--profile" and i + 1 < len(argv):
             i += 1
             profile = argv[i]
         elif arg.startswith("-s="):
@@ -253,10 +254,18 @@ def main():
             i += 1
             session_name = argv[i]
         elif arg.startswith("--port="):
-            port = int(arg.split("=", 1)[1])
+            try:
+                port = int(arg.split("=", 1)[1])
+            except ValueError:
+                click.echo(f"Invalid port value: {arg}", err=True)
+                sys.exit(1)
         elif arg == "--port" and i + 1 < len(argv):
             i += 1
-            port = int(argv[i])
+            try:
+                port = int(argv[i])
+            except ValueError:
+                click.echo(f"Invalid port value: {argv[i]}", err=True)
+                sys.exit(1)
         elif arg in ("--version", "-v"):
             click.echo(f"patchright-cli {__version__}")
             sys.exit(0)
@@ -292,6 +301,27 @@ def main():
             positional_args.append(a)
     args = positional_args
 
+    # For eval/run-code: support --file=<path> and stdin via "-"
+    if command in ("eval", "run-code"):
+        file_opt = extra_opts.pop("file", None)
+        if file_opt:
+            # Read JS from file
+            try:
+                with open(file_opt, encoding="utf-8") as f:
+                    args = [f.read()]
+            except FileNotFoundError:
+                click.echo(f"File not found: {file_opt}", err=True)
+                sys.exit(1)
+        elif args and args[0] == "-":
+            # Read JS from stdin
+            args = [sys.stdin.read()]
+        elif not args and not sys.stdin.isatty():
+            # Piped input with no positional arg
+            args = [sys.stdin.read()]
+        if not args:
+            click.echo(f"'{command}' requires a JS expression, --file=<path>, or piped stdin.", err=True)
+            sys.exit(1)
+
     # Build options dict
     options = {"session": session_name, **extra_opts}
     if headless:
@@ -309,17 +339,18 @@ def main():
             # Try connecting first; if fails, tell user to open
             import socket as _socket
 
+            sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
             try:
-                sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
                 sock.settimeout(1)
                 sock.connect(("127.0.0.1", port))
-                sock.close()
             except (ConnectionRefusedError, OSError, TimeoutError):
                 click.echo(
                     f"Daemon is not running on port {port}. Run 'patchright-cli open' first.",
                     err=True,
                 )
                 sys.exit(1)
+            finally:
+                sock.close()
     except RuntimeError as e:
         click.echo(str(e), err=True)
         sys.exit(1)

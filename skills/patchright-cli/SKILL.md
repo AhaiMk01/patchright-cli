@@ -1,7 +1,6 @@
 ---
 name: patchright-cli
 description: Anti-detect browser automation using Patchright (undetected Playwright fork). Use when you need to interact with websites that block regular Playwright/Chrome DevTools, such as Akamai/Cloudflare-protected sites. Provides the same command interface as playwright-cli but bypasses bot detection.
-allowed-tools: Bash(patchright-cli:*), Bash(python -m patchright_cli:*)
 ---
 
 # Anti-Detect Browser Automation with patchright-cli
@@ -47,21 +46,28 @@ patchright-cli open --headless                 # Run headless
 patchright-cli open --profile=/path/to/dir     # Custom profile directory
 patchright-cli goto https://example.com
 patchright-cli type "search query"
+patchright-cli type "search query" --submit    # Type and press Enter
 patchright-cli click e3
 patchright-cli click e3 right                  # Right-click
 patchright-cli click e3 --modifiers=Alt,Shift  # Click with modifiers
 patchright-cli dblclick e7
+patchright-cli dblclick e7 --modifiers=Shift   # Double-click with modifiers
 patchright-cli fill e5 "user@example.com"
+patchright-cli fill e5 "query" --submit        # Fill and press Enter
 patchright-cli drag e2 e8
 patchright-cli hover e4
 patchright-cli select e9 "option-value"
 patchright-cli check e12
 patchright-cli uncheck e12
 patchright-cli snapshot
+patchright-cli snapshot e3                     # Partial snapshot of element subtree
 patchright-cli snapshot --filename=snap.yml    # Save to custom path
 patchright-cli eval "document.title"
-patchright-cli eval "el => el.textContent" e5
+patchright-cli eval --file=script.js           # Read JS from file (avoids shell quoting)
+cat script.js | patchright-cli eval            # Read JS from stdin
 patchright-cli run-code "return document.querySelectorAll('a').length"
+patchright-cli run-code --file=script.js       # Read JS from file
+cat script.js | patchright-cli run-code        # Read JS from stdin
 patchright-cli screenshot
 patchright-cli screenshot e3                   # Element screenshot
 patchright-cli screenshot --filename=page.png
@@ -171,6 +177,8 @@ patchright-cli route "**/*" --remove-header=Content-Type
 patchright-cli route-list
 patchright-cli unroute "**/*.jpg"
 patchright-cli unroute                         # Remove all routes
+patchright-cli network-state-set offline       # Simulate offline mode
+patchright-cli network-state-set online        # Restore connectivity
 ```
 
 ### Tracing / Video / PDF
@@ -178,6 +186,9 @@ patchright-cli unroute                         # Remove all routes
 ```bash
 patchright-cli tracing-start
 patchright-cli tracing-stop
+patchright-cli video-start                     # Start video recording (CDP screencast)
+patchright-cli video-stop                      # Stop and save video (requires ffmpeg for .webm)
+patchright-cli video-stop --filename=rec.webm  # Save to custom path
 patchright-cli pdf --filename=page.pdf
 ```
 
@@ -185,8 +196,11 @@ patchright-cli pdf --filename=page.pdf
 
 ```bash
 patchright-cli console
-patchright-cli console warning
-patchright-cli network
+patchright-cli console warning                 # Filter by level
+patchright-cli console --clear                 # Clear message buffer after printing
+patchright-cli network                         # Show requests (excludes static resources)
+patchright-cli network --static                # Include images, fonts, scripts, etc.
+patchright-cli network --clear                 # Clear network log after printing
 ```
 
 ### Sessions
@@ -199,12 +213,32 @@ patchright-cli -s=mysession close
 # List all sessions
 patchright-cli list
 # Close all browsers
-patchright-cli close-all
-patchright-cli kill-all
+patchright-cli close-all                       # Gracefully close all sessions
+patchright-cli kill-all                        # Force-kill all sessions and stop daemon
 # Delete persistent profile data
 patchright-cli delete-data
 patchright-cli -s=mysession delete-data
 ```
+
+## Running JavaScript (eval / run-code)
+
+**Always use `--file` for `eval` and `run-code`**. Inline JS breaks because quotes get mangled through bash → uvx → python shell layers.
+
+```bash
+# WRONG — nested quotes break through shell layers
+patchright-cli eval "JSON.stringify({x: document.querySelector('a[href*=\"foo\"]')})"
+
+# RIGHT — write JS to a temp file, pass with --file
+cat > /tmp/check.js << 'JSEOF'
+JSON.stringify({x: !!document.querySelector('a[href*="foo"]')})
+JSEOF
+patchright-cli eval --file=/tmp/check.js
+
+# RIGHT — pipe via stdin (for simple expressions only)
+echo 'document.title' | patchright-cli eval
+```
+
+`--file` also avoids the OS argument length limit (`ARG_MAX`) for large scripts.
 
 ## Anti-detect features
 
@@ -229,11 +263,12 @@ After each command, outputs page state and a YAML snapshot file:
 ## Installation
 
 ```bash
-cd patchright-cli && uv pip install -e .
-```
+# Recommended — always runs latest version, no install needed
+uvx patchright-cli open https://example.com
 
-Or run directly:
-```bash
-python -m patchright_cli open https://example.com
-python -m patchright_cli click e1
+# Or install via pip
+pip install patchright-cli
+
+# Or from source
+cd patchright-cli && uv pip install -e .
 ```

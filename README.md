@@ -136,16 +136,21 @@ patchright-cli click <ref> --modifiers=Alt,Shift
 patchright-cli dblclick <ref>          # Double-click
 patchright-cli dblclick <ref> --modifiers=Shift
 patchright-cli fill <ref> <value>      # Fill text input
+patchright-cli fill <ref> <value> --submit  # Fill and press Enter
 patchright-cli type <text>             # Type via keyboard
+patchright-cli type <text> --submit    # Type and press Enter
 patchright-cli hover <ref>             # Hover over element
 patchright-cli select <ref> <value>    # Select dropdown option
 patchright-cli check <ref>             # Check checkbox
 patchright-cli uncheck <ref>           # Uncheck checkbox
 patchright-cli drag <from> <to>        # Drag and drop
 patchright-cli snapshot                # Accessibility snapshot
+patchright-cli snapshot <ref>          # Snapshot element subtree
 patchright-cli snapshot --filename=f   # Save to custom path
 patchright-cli eval <expr>             # Run JavaScript
+patchright-cli eval --file=script.js   # Run JS from file
 patchright-cli run-code <code>         # Run JS with return value
+patchright-cli run-code --file=f.js    # Run JS from file
 patchright-cli screenshot              # Page screenshot
 patchright-cli screenshot --full-page  # Full scrollable page
 patchright-cli screenshot <ref>        # Element screenshot
@@ -238,18 +243,30 @@ patchright-cli unroute "**/*.jpg"
 patchright-cli unroute                 # Remove all routes
 ```
 
-### Tracing / PDF
+### Tracing / Video / PDF
 ```bash
 patchright-cli tracing-start
 patchright-cli tracing-stop            # Saves .zip trace file
+patchright-cli video-start             # Start video recording (CDP screencast)
+patchright-cli video-stop              # Stop and save video (requires ffmpeg for .webm)
+patchright-cli video-stop --filename=recording.webm
 patchright-cli pdf --filename=page.pdf
+```
+
+### Network
+```bash
+patchright-cli network                 # Network request log
+patchright-cli network --static        # Include static resources
+patchright-cli network --clear         # Clear log after printing
+patchright-cli network-state-set offline  # Simulate offline mode
+patchright-cli network-state-set online   # Restore connectivity
 ```
 
 ### DevTools
 ```bash
 patchright-cli console                 # All console messages
 patchright-cli console warning         # Filter by level
-patchright-cli network                 # Network request log
+patchright-cli console --clear         # Clear after printing
 ```
 
 ### Sessions

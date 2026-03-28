@@ -44,6 +44,9 @@ class Session:
         self._pending_dialog_action: tuple | None = None
         self._profile_dir: str | None = None
         self._cdp_sessions: dict[int, object] = {}
+        self._video_cdp = None
+        self._video_frames: list[bytes] = []
+        self._video_recording: bool = False
 
     # -- internal helpers ---------------------------------------------------
 
@@ -54,8 +57,9 @@ class Session:
         self.context.on("page", lambda page: asyncio.ensure_future(self._on_new_page(page)))
 
     async def _on_new_page(self, page):
-        self.pages.append(page)
-        self.current_tab = len(self.pages) - 1
+        if page not in self.pages:
+            self.pages.append(page)
+            self.current_tab = len(self.pages) - 1
         await self._attach_page_listeners(page)
 
     async def _attach_page_listeners(self, page):
@@ -286,6 +290,50 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
 
         page = session.page
 
+        # Commands that don't need a page
+        if cmd == "list":
+            lines = ["### Sessions"]
+            for sname, s in state.sessions.items():
+                marker = " *" if sname == session_name else ""
+                tab_count = len(s.pages)
+                lines.append(f"  - {sname}{marker}: {tab_count} tab(s)")
+            return {"success": True, "output": "\n".join(lines)}
+
+        if cmd == "close":
+            closed = await state.close_session(session_name)
+            return {"success": True, "output": f"Session '{session_name}' closed." if closed else "Session not found."}
+
+        if cmd == "close-all":
+            names = list(state.sessions.keys())
+            for n in names:
+                await state.close_session(n)
+            return {"success": True, "output": f"Closed {len(names)} session(s)."}
+
+        if cmd == "kill-all":
+            names = list(state.sessions.keys())
+            for n in names:
+                s = state.sessions.get(n)
+                if s:
+                    try:
+                        for p in s.pages:
+                            try:
+                                await p.close()
+                            except Exception:
+                                pass
+                        await s.context.close()
+                    except Exception:
+                        pass
+                    state.sessions.pop(n, None)
+            if hasattr(state, "shutdown_event"):
+                state.shutdown_event.set()
+            return {"success": True, "output": f"Killed {len(names)} session(s) and stopping daemon."}
+
+        if page is None:
+            return {
+                "success": False,
+                "output": "No page open. Run 'tab-new' to create one, or 'close' and 'open' again.",
+            }
+
         # -- Navigation -----------------------------------------------------
         if cmd == "goto":
             await page.goto(args[0])
@@ -321,11 +369,15 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         if cmd == "fill":
             elem = await _resolve_ref(session, page, args[0])
             await elem.fill(args[1])
+            if options.get("submit"):
+                await page.keyboard.press("Enter")
             return await _page_info(session, cwd)
 
         if cmd == "type":
             text = args[0] if args else ""
             await page.keyboard.type(text)
+            if options.get("submit"):
+                await page.keyboard.press("Enter")
             return await _page_info(session, cwd)
 
         if cmd == "hover":
@@ -356,7 +408,13 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
 
         # -- Snapshot -------------------------------------------------------
         if cmd == "snapshot":
-            yaml_text, session.ref_map = await take_snapshot(page)
+            element_ref = args[0] if args else None
+            if element_ref:
+                # Partial snapshot: scope JS to a specific element subtree
+                elem = await _resolve_ref(session, page, element_ref)
+                yaml_text, session.ref_map = await take_snapshot(page, root_element=elem)
+            else:
+                yaml_text, session.ref_map = await take_snapshot(page)
             fn = options.get("filename")
             if fn:
                 Path(fn).parent.mkdir(parents=True, exist_ok=True)
@@ -401,11 +459,6 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 full_page = bool(options.get("full-page"))
                 await page.screenshot(path=str(filepath), full_page=full_page)
             return {"success": True, "output": f"Screenshot saved to {filepath}"}
-
-        # -- Close ----------------------------------------------------------
-        if cmd == "close":
-            closed = await state.close_session(session_name)
-            return {"success": True, "output": f"Session '{session_name}' closed." if closed else "Session not found."}
 
         # -- Keyboard -------------------------------------------------------
         if cmd == "press":
@@ -463,6 +516,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             idx = int(args[0]) if args else session.current_tab
             if 0 <= idx < len(session.pages):
                 p = session.pages.pop(idx)
+                session._cdp_sessions.pop(id(p), None)
                 await p.close()
                 session.current_tab = max(0, min(session.current_tab, len(session.pages) - 1))
             return {"success": True, "output": f"Tab {idx} closed."}
@@ -501,9 +555,9 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 cookie["path"] = options.get("path", "/")
             else:
                 cookie["url"] = page.url
-            if options.get("httpOnly") or "httpOnly" in options:
+            if options.get("httpOnly"):
                 cookie["httpOnly"] = True
-            if options.get("secure") or "secure" in options:
+            if options.get("secure"):
                 cookie["secure"] = True
             if options.get("sameSite"):
                 cookie["sameSite"] = options["sameSite"]
@@ -564,34 +618,38 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 if level_filter and m["type"] != level_filter:
                     continue
                 lines.append(f"[{m['type']}] {m['text']}")
+            if options.get("clear"):
+                session.console_messages.clear()
             return {"success": True, "output": "\n".join(lines) or "(no console messages)"}
 
         if cmd == "network":
+            include_static = bool(options.get("static"))
+            static_types = {"image", "font", "stylesheet", "script", "media"}
             lines = []
             for r in session.network_log[-50:]:
+                if not include_static and r["resource"] in static_types:
+                    continue
                 lines.append(f"{r['method']} {r['url']} [{r['resource']}]")
+            if options.get("clear"):
+                session.network_log.clear()
             return {"success": True, "output": "\n".join(lines) or "(no network requests)"}
 
-        # -- Session management ---------------------------------------------
-        if cmd == "list":
-            lines = ["### Sessions"]
-            for sname, s in state.sessions.items():
-                marker = " *" if sname == session_name else ""
-                tab_count = len(s.pages)
-                lines.append(f"  - {sname}{marker}: {tab_count} tab(s)")
-            return {"success": True, "output": "\n".join(lines)}
-
-        if cmd == "close-all":
-            names = list(state.sessions.keys())
-            for n in names:
-                await state.close_session(n)
-            return {"success": True, "output": f"Closed {len(names)} session(s)."}
-
-        if cmd == "kill-all":
-            names = list(state.sessions.keys())
-            for n in names:
-                await state.close_session(n)
-            return {"success": True, "output": f"Killed {len(names)} session(s)."}
+        if cmd == "network-state-set":
+            state_val = args[0] if args else ""
+            if state_val not in ("online", "offline"):
+                return {"success": False, "output": "Usage: network-state-set <online|offline>"}
+            cdp = await page.context.new_cdp_session(page)
+            if state_val == "offline":
+                await cdp.send(
+                    "Network.emulateNetworkConditions",
+                    {"offline": True, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1},
+                )
+            else:
+                await cdp.send(
+                    "Network.emulateNetworkConditions",
+                    {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1},
+                )
+            return {"success": True, "output": f"Network state set to {state_val}."}
 
         # -- Dialog handling ------------------------------------------------
         if cmd == "dialog-accept":
@@ -637,7 +695,9 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             # Apply cookies
             if state_data.get("cookies"):
                 await session.context.add_cookies(state_data["cookies"])
-            # Apply localStorage via JS
+            # Apply localStorage via JS (only works if page is on the matching origin)
+            ls_applied = 0
+            ls_skipped = 0
             for origin_data in state_data.get("origins", []):
                 origin = origin_data.get("origin", "")
                 ls = origin_data.get("localStorage", [])
@@ -646,7 +706,13 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                         await page.evaluate(
                             f"() => localStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])})"
                         )
-            return {"success": True, "output": f"State loaded from {filepath}"}
+                    ls_applied += len(ls)
+                elif ls:
+                    ls_skipped += len(ls)
+            msg = f"State loaded from {filepath}"
+            if ls_skipped:
+                msg += f" (note: {ls_skipped} localStorage item(s) skipped — navigate to the matching origin first)"
+            return {"success": True, "output": msg}
 
         # -- Session storage ------------------------------------------------
         if cmd == "sessionstorage-list":
@@ -728,8 +794,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         # -- Run code -------------------------------------------------------
         if cmd == "run-code":
             code = args[0] if args else ""
-            fn = f"async (page) => {{ {code} }}"
-            result = await page.evaluate(f"async () => {{ const page = window; {code} }}")
+            result = await page.evaluate(f"async () => {{ {code} }}")
             return {
                 "success": True,
                 "output": json.dumps(result, indent=2, default=str) if result is not None else "Code executed.",
@@ -751,19 +816,88 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
 
         # -- Video recording ------------------------------------------------
         if cmd == "video-start":
-            session._video_page = page
-            # Video requires a new context with record_video_dir
-            return {
-                "success": False,
-                "output": "Video recording requires starting a new session with video enabled. Use: open --video",
-            }
+            if session._video_recording:
+                return {"success": False, "output": "Video recording is already in progress."}
+            cdp = await page.context.new_cdp_session(page)
+            session._video_cdp = cdp
+            session._video_frames = []
+            session._video_recording = True
+
+            def _on_frame(event):
+                import base64
+
+                session._video_frames.append(base64.b64decode(event["data"]))
+                asyncio.ensure_future(cdp.send("Page.screencastFrameAck", {"sessionId": event["sessionId"]}))
+
+            cdp.on("Page.screencastFrame", _on_frame)
+            await cdp.send(
+                "Page.startScreencast", {"format": "jpeg", "quality": 80, "maxWidth": 1280, "maxHeight": 720}
+            )
+            return {"success": True, "output": "Video recording started."}
 
         if cmd == "video-stop":
-            if hasattr(session, "_video_page") and session._video_page and session._video_page.video:
-                path = await session._video_page.video.path()
-                dest = args[0] if args else str(path)
-                return {"success": True, "output": f"Video saved to {dest}"}
-            return {"success": False, "output": "No video recording in progress."}
+            if not session._video_recording or not session._video_cdp:
+                return {"success": False, "output": "No video recording in progress."}
+            try:
+                await session._video_cdp.send("Page.stopScreencast")
+            except Exception:
+                pass
+            session._video_recording = False
+            frames = session._video_frames
+            session._video_frames = []
+            session._video_cdp = None
+
+            if not frames:
+                return {"success": False, "output": "No video frames were captured."}
+
+            base = Path(cwd) if cwd else Path.cwd()
+            snap_dir = base / ".patchright-cli"
+            snap_dir.mkdir(parents=True, exist_ok=True)
+            ts = int(time.time() * 1000)
+
+            fn = options.get("filename")
+
+            # Try ffmpeg for webm output, fall back to saving frames as images
+            video_path = snap_dir / (fn or f"video-{ts}.webm")
+            try:
+                import shutil
+                import tempfile
+
+                if not shutil.which("ffmpeg"):
+                    raise FileNotFoundError("ffmpeg not found")
+
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    for i, frame_data in enumerate(frames):
+                        Path(tmpdir, f"frame-{i:06d}.jpg").write_bytes(frame_data)
+                    proc = await asyncio.create_subprocess_exec(
+                        "ffmpeg",
+                        "-y",
+                        "-framerate",
+                        "5",
+                        "-i",
+                        str(Path(tmpdir, "frame-%06d.jpg")),
+                        "-c:v",
+                        "libvpx",
+                        "-b:v",
+                        "1M",
+                        str(video_path),
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    await proc.wait()
+                    if proc.returncode != 0:
+                        raise RuntimeError("ffmpeg failed")
+                return {"success": True, "output": f"Video saved to {video_path} ({len(frames)} frames)"}
+            except (FileNotFoundError, RuntimeError):
+                # Fallback: save frames as individual images
+                frames_dir = snap_dir / f"video-{ts}-frames"
+                frames_dir.mkdir(parents=True, exist_ok=True)
+                for i, frame_data in enumerate(frames):
+                    (frames_dir / f"frame-{i:04d}.jpg").write_bytes(frame_data)
+                return {
+                    "success": True,
+                    "output": f"Saved {len(frames)} frames to {frames_dir}/ (install ffmpeg for video output)",
+                }
 
         # -- PDF ------------------------------------------------------------
         if cmd == "pdf":
@@ -840,6 +974,7 @@ async def run_daemon(port: int = DEFAULT_PORT, headless: bool = False):
     """Start the daemon TCP server."""
     state = DaemonState()
     state.default_headless = headless
+    state.shutdown_event = asyncio.Event()
 
     async def client_handler(reader, writer):
         await _handle_client(reader, writer, state)
@@ -850,7 +985,7 @@ async def run_daemon(port: int = DEFAULT_PORT, headless: bool = False):
     print(f"patchright-cli daemon listening on {addr[0]}:{addr[1]}", flush=True)
 
     # Handle graceful shutdown
-    shutdown_event = asyncio.Event()
+    shutdown_event = state.shutdown_event
 
     def _signal_handler():
         logger.info("Shutdown signal received")
@@ -862,12 +997,11 @@ async def run_daemon(port: int = DEFAULT_PORT, headless: bool = False):
             loop.add_signal_handler(sig, _signal_handler)
 
     try:
-        if sys.platform == "win32":
-            # On Windows, asyncio signal handlers don't work; just serve forever
-            async with server:
-                await server.serve_forever()
-        else:
-            async with server:
+        async with server:
+            if sys.platform == "win32":
+                # On Windows, asyncio signal handlers don't work; use shutdown_event from kill-all
+                await shutdown_event.wait()
+            else:
                 await shutdown_event.wait()
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
