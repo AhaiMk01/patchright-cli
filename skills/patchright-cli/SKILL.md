@@ -83,6 +83,7 @@ These go before the command:
 --headless          # Run headless (default: headed — headed is less detectable)
 --persistent        # Use persistent profile (keeps cookies/storage across sessions)
 --profile=/path     # Custom profile directory
+--proxy=<url>       # Proxy server (http, https, socks5)
 -s=mysession        # Named session (default: "default")
 --port=9322         # Custom daemon port (default: 9321)
 ```
@@ -99,6 +100,8 @@ patchright-cli open https://example.com        # Launch and navigate
 patchright-cli open --persistent               # Keep cookies/storage between runs
 patchright-cli open --headless                 # Headless mode
 patchright-cli open --profile=/path/to/dir     # Custom profile directory
+patchright-cli --proxy=http://host:port open   # Route traffic through HTTP proxy
+patchright-cli --proxy=socks5://host:port open # SOCKS5 proxy
 patchright-cli close                           # Close session
 ```
 
@@ -221,6 +224,24 @@ patchright-cli run-code --file=/tmp/scroll.js
 ---
 
 ## Common patterns
+
+### Using a proxy
+
+```bash
+# HTTP proxy
+patchright-cli --proxy=http://host:port open https://example.com
+
+# SOCKS5 proxy
+patchright-cli --proxy=socks5://host:port open https://example.com
+
+# Authenticated proxy
+patchright-cli --proxy=http://user:pass@host:port open https://example.com
+
+# Combine with persistent profile and named session
+patchright-cli --proxy=http://host:port -s=proxied open https://example.com --persistent
+```
+
+The proxy is set at browser launch and applies to all traffic in that session. Note: `--proxy` is a global option and must come before the command.
 
 ### Login flow
 

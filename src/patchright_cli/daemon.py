@@ -137,6 +137,7 @@ class DaemonState:
         headless: bool | None = None,
         persistent: bool = True,
         profile: str | None = None,
+        proxy: str | None = None,
         url: str | None = None,
     ) -> Session:
         if name in self.sessions:
@@ -151,14 +152,18 @@ class DaemonState:
         profile_dir = profile or str(Path.home() / ".patchright-cli" / "profiles" / name)
         Path(profile_dir).mkdir(parents=True, exist_ok=True)
 
+        launch_kwargs = {
+            "channel": "chrome",
+            "headless": use_headless,
+            "no_viewport": True,
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
+        if proxy:
+            launch_kwargs["proxy"] = {"server": proxy}
+
         context = await self.playwright.chromium.launch_persistent_context(
             profile_dir,
-            channel="chrome",
-            headless=use_headless,
-            no_viewport=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-            ],
+            **launch_kwargs,
         )
 
         pages = context.pages or []
@@ -263,6 +268,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 headless=headless,
                 persistent=options.get("persistent", True),
                 profile=options.get("profile"),
+                proxy=options.get("proxy"),
                 url=url,
             )
             return await _page_info(session, cwd)

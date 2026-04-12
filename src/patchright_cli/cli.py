@@ -154,6 +154,7 @@ def _print_help():
     click.echo("  --headless          Run headless (default: headed)")
     click.echo("  --persistent        Use persistent profile")
     click.echo("  --profile=<path>    Custom profile directory")
+    click.echo("  --proxy=<url>       Proxy server (e.g. http://host:port, socks5://host:port)")
     click.echo("  -s=<name>           Named session (default: 'default')")
     click.echo("  --port=<n>          Daemon port (default: 9321)")
     click.echo("  --version           Show version")
@@ -231,6 +232,7 @@ def main():
     headless = False
     persistent = False
     profile = None
+    proxy = None
     session_name = "default"
     port = DEFAULT_PORT
 
@@ -248,6 +250,11 @@ def main():
         elif arg == "--profile" and i + 1 < len(argv):
             i += 1
             profile = argv[i]
+        elif arg.startswith("--proxy="):
+            proxy = arg.split("=", 1)[1]
+        elif arg == "--proxy" and i + 1 < len(argv):
+            i += 1
+            proxy = argv[i]
         elif arg.startswith("-s="):
             session_name = arg.split("=", 1)[1]
         elif arg == "-s" and i + 1 < len(argv):
@@ -330,6 +337,8 @@ def main():
         options["persistent"] = True
     if profile:
         options["profile"] = profile
+    if proxy:
+        options["proxy"] = proxy
 
     # Ensure daemon is running (auto-start for 'open', require for others)
     try:
