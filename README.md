@@ -369,9 +369,7 @@ patchright-cli aims for full command parity with [Microsoft's playwright-cli](ht
 | Feature | Reason |
 |---------|--------|
 | `--browser=firefox/webkit/msedge` | Patchright only supports Chromium/Chrome. Anti-detect patches are Chrome-specific. |
-| `--config=<file>` | No config file system. Options are passed as CLI flags. |
 | `--extension` | Browser extension connection not supported. Patchright uses CDP directly. |
-| `show` / `devtools-start` | DevTools are available natively in headed mode (default). |
 | `install` / `install-browser` | Use `python -m patchright install chromium` instead. |
 
 All other commands and options are fully supported.
@@ -384,6 +382,16 @@ All other commands and options are fully supported.
 
 > [!WARNING]
 > This tool is provided for **authorized security testing, legitimate automation, and educational purposes** only. Users are solely responsible for ensuring their use complies with applicable laws and the terms of service of any websites they interact with. The authors do not endorse or encourage any unauthorized access, scraping, or circumvention of security measures. Use at your own risk.
+
+---
+
+## Credits
+
+This project builds on the work of:
+
+- **[Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright)** by [@Kaliiiiiiiiii-Vinyzu](https://github.com/Kaliiiiiiiiii-Vinyzu) — the undetected Playwright fork that makes this possible. All anti-detect capabilities come from Patchright.
+- **[playwright-cli](https://github.com/microsoft/playwright-cli)** by Microsoft — the original CLI that patchright-cli's command interface is modeled after.
+- **[camoufox-cli](https://github.com/Bin-Huang/camoufox-cli)** by [@Bin-Huang](https://github.com/Bin-Huang) — inspiration for the CLI-first approach to anti-detect browser automation and the SKILL.md agent integration pattern.
 
 ---
 
