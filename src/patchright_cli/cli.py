@@ -54,6 +54,80 @@ def _strip_raw_output(output: str) -> str:
     return "\n".join(result_lines).strip()
 
 
+def _detect_agent_dirs() -> list[tuple[str, Path]]:
+    """Detect installed AI agent config directories."""
+    home = Path.home()
+    agents = [
+        ("Claude Code", home / ".claude"),
+        ("Gemini CLI", home / ".gemini"),
+        ("Codex CLI", home / ".codex"),
+        ("OpenCode", home / ".opencode"),
+    ]
+    return [(name, d) for name, d in agents if d.exists()]
+
+
+def _get_bundled_skills_dir() -> Path | None:
+    """Get the path to bundled skill files in the installed package."""
+    pkg_dir = Path(__file__).parent / "_skills" / "patchright-cli"
+    if pkg_dir.exists():
+        return pkg_dir
+    # Fallback: check if running from source
+    src_dir = Path(__file__).resolve().parent.parent.parent / "skills" / "patchright-cli"
+    if src_dir.exists():
+        return src_dir
+    return None
+
+
+def _install_skills_to_dir(target: Path) -> None:
+    """Copy SKILL.md and references/ to target directory."""
+    import shutil
+
+    source = _get_bundled_skills_dir()
+    if source is None:
+        raise FileNotFoundError("Could not find bundled skill files.")
+
+    target.mkdir(parents=True, exist_ok=True)
+
+    # Copy SKILL.md
+    shutil.copy2(source / "SKILL.md", target / "SKILL.md")
+
+    # Copy references/ if it exists
+    refs_src = source / "references"
+    if refs_src.exists():
+        refs_dst = target / "references"
+        if refs_dst.exists():
+            shutil.rmtree(refs_dst)
+        shutil.copytree(refs_src, refs_dst)
+
+
+def _handle_install(args: list) -> None:
+    """Handle the install command."""
+    if "--skills" not in args and "skills" not in args:
+        click.echo("Usage: patchright-cli install --skills")
+        click.echo("\nTo install the browser, use: python -m patchright install chromium")
+        sys.exit(0)
+
+    agents = _detect_agent_dirs()
+    if not agents:
+        click.echo("No AI agent installations detected.")
+        click.echo("\nManual install — copy skills to your agent's directory:")
+        click.echo("  Claude Code:  ~/.claude/skills/patchright-cli/")
+        click.echo("  Gemini CLI:   ~/.gemini/skills/patchright-cli/")
+        click.echo("  Codex CLI:    ~/.codex/skills/patchright-cli/")
+        click.echo("  OpenCode:     ~/.opencode/skills/patchright-cli/")
+        sys.exit(0)
+
+    for name, agent_dir in agents:
+        target = agent_dir / "skills" / "patchright-cli"
+        try:
+            _install_skills_to_dir(target)
+            click.echo(f"  Installed to {name}: {target}")
+        except Exception as e:
+            click.echo(f"  Failed for {name}: {e}", err=True)
+
+    click.echo(f"\npatchright-cli v{__version__} skills installed.")
+
+
 def _send_command(command: str, args: list, options: dict, port: int = DEFAULT_PORT) -> dict:
     """Connect to daemon, send command, receive response."""
     msg = {
@@ -197,6 +271,8 @@ COMMANDS_HELP = {
     # Codegen
     "codegen": "codegen [file]        Start recording interactions",
     "codegen-stop": "codegen-stop [file]   Stop recording and save script",
+    # Setup
+    "install": "install --skills      Install skill files for AI agents",
 }
 
 ALL_COMMANDS = list(COMMANDS_HELP.keys())
@@ -292,6 +368,7 @@ def _print_help():
         ("Session", ["list", "close-all", "kill-all", "delete-data"]),
         ("Dashboard", ["show"]),
         ("Codegen", ["codegen", "codegen-stop"]),
+        ("Setup", ["install"]),
     ]
     for cat_name, cmds in categories:
         click.echo(f"\n  {cat_name}:")
@@ -431,6 +508,10 @@ def main():
         click.echo(f"Unknown command: {command}\n", err=True)
         _print_help()
         sys.exit(1)
+
+    if command == "install":
+        _handle_install(args + [k if v is True else f"{k}={v}" for k, v in extra_opts.items()])
+        sys.exit(0)
 
     # Separate --key=value and --flag from positional args
     positional_args = []

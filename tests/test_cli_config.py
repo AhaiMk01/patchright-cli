@@ -110,3 +110,33 @@ def test_raw_flag_strips_decorations_from_mixed():
 
     result = _strip_raw_output(output)
     assert result == "some actual result"
+
+
+# ---------------------------------------------------------------------------
+# install --skills tests
+# ---------------------------------------------------------------------------
+
+
+def test_install_skills_detects_agents(tmp_path, monkeypatch):
+    """install --skills should detect agent directories and install skills."""
+    from patchright_cli.cli import _detect_agent_dirs
+
+    # Create a fake .claude directory
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+    agents = _detect_agent_dirs()
+    assert any("claude" in str(d).lower() for d in agents)
+
+
+def test_install_skills_copies_files(tmp_path):
+    """install --skills should copy SKILL.md and references to target dir."""
+    from patchright_cli.cli import _install_skills_to_dir
+
+    target = tmp_path / "skills" / "patchright-cli"
+    _install_skills_to_dir(target)
+
+    assert (target / "SKILL.md").exists()

@@ -44,6 +44,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/patchright_cli"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"skills/patchright-cli" = "patchright_cli/_skills/patchright-cli"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 markers = [
