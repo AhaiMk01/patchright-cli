@@ -40,23 +40,22 @@ def _strip_raw_output(output: str) -> str:
     """Strip page info and snapshot decorations, returning only the result value."""
     lines = output.splitlines()
     result_lines = []
-    skip = False
+    in_section = False
     for line in lines:
-        if line.startswith("### Page") or line.startswith("### Snapshot"):
-            skip = True
+        if line.startswith("### "):
+            in_section = True
             continue
-        if skip and (
-            line.startswith("- Page URL:") or line.startswith("- Page Title:") or line.startswith("[Snapshot](")
-        ):
+        if in_section and (line.startswith("- ") or line.startswith("[Snapshot](")):
             continue
-        skip = False
+        in_section = False
         result_lines.append(line)
     return "\n".join(result_lines).strip()
 
 
-def _detect_agent_dirs() -> list[tuple[str, Path]]:
+def _detect_agent_dirs(home: Path | None = None) -> list[tuple[str, Path]]:
     """Detect installed AI agent config directories."""
-    home = Path.home()
+    if home is None:
+        home = Path.home()
     agents = [
         ("Claude Code", home / ".claude"),
         ("Gemini CLI", home / ".gemini"),

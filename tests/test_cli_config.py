@@ -112,24 +112,83 @@ def test_raw_flag_strips_decorations_from_mixed():
     assert result == "some actual result"
 
 
+def test_raw_flag_whitespace_only():
+    from patchright_cli.cli import _strip_raw_output
+
+    assert _strip_raw_output("   \n\n  ") == ""
+
+
+def test_raw_flag_empty_string():
+    from patchright_cli.cli import _strip_raw_output
+
+    assert _strip_raw_output("") == ""
+
+
+def test_raw_flag_snapshot_without_link():
+    """### Snapshot header with no [Snapshot] link following."""
+    from patchright_cli.cli import _strip_raw_output
+
+    output = "### Snapshot\nsome result"
+    result = _strip_raw_output(output)
+    assert result == "some result"
+
+
+def test_raw_flag_extra_metadata_lines():
+    """Future metadata lines (starting with '- ') after ### Page should be stripped."""
+    from patchright_cli.cli import _strip_raw_output
+
+    output = "### Page\n- Page URL: https://example.com/\n- Page Title: Example\n- Page Status: 200\nactual result"
+    result = _strip_raw_output(output)
+    assert result == "actual result"
+
+
+def test_raw_flag_unknown_section_header():
+    """Unknown ### headers should also be stripped."""
+    from patchright_cli.cli import _strip_raw_output
+
+    output = "### Console\n- warning: something\nmy data"
+    result = _strip_raw_output(output)
+    assert result == "my data"
+
+
 # ---------------------------------------------------------------------------
 # install --skills tests
 # ---------------------------------------------------------------------------
 
 
-def test_install_skills_detects_agents(tmp_path, monkeypatch):
+def test_install_skills_detects_agents(tmp_path):
     """install --skills should detect agent directories and install skills."""
     from patchright_cli.cli import _detect_agent_dirs
 
     # Create a fake .claude directory
-    claude_dir = tmp_path / ".claude"
-    claude_dir.mkdir()
+    (tmp_path / ".claude").mkdir()
 
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    agents = _detect_agent_dirs(home=tmp_path)
+    assert len(agents) == 1
+    assert agents[0][0] == "Claude Code"
+    assert agents[0][1] == tmp_path / ".claude"
 
-    agents = _detect_agent_dirs()
-    assert any("claude" in str(d).lower() for d in agents)
+
+def test_install_skills_detects_multiple_agents(tmp_path):
+    """Should detect all agent directories that exist."""
+    from patchright_cli.cli import _detect_agent_dirs
+
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".gemini").mkdir()
+
+    agents = _detect_agent_dirs(home=tmp_path)
+    assert len(agents) == 2
+    names = [a[0] for a in agents]
+    assert "Claude Code" in names
+    assert "Gemini CLI" in names
+
+
+def test_install_skills_no_agents(tmp_path):
+    """Should return empty list when no agent dirs exist."""
+    from patchright_cli.cli import _detect_agent_dirs
+
+    agents = _detect_agent_dirs(home=tmp_path)
+    assert agents == []
 
 
 def test_install_skills_copies_files(tmp_path):
