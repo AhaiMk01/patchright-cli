@@ -193,6 +193,9 @@ class DaemonState:
         geolocation: dict | None = None,
         user_agent: str | None = None,
         grant_permissions: str | None = None,
+        cdp_endpoint: str | None = None,
+        cdp_headers: dict | None = None,
+        cdp_timeout: int = 30000,
     ) -> Session:
         if name in self.sessions:
             return self.sessions[name]
@@ -229,38 +232,46 @@ class DaemonState:
             perms = [p.strip() for p in grant_permissions.split(",") if p.strip()]
             context_options["permissions"] = list(set(context_options.get("permissions", []) + perms))
 
-        launch_kwargs = {
-            "channel": "chrome",
-            "headless": use_headless,
-            "no_viewport": True,
-            "args": ["--disable-blink-features=AutomationControlled"],
-        }
-        if proxy:
-            parsed = urlparse(proxy)
-            if parsed.username or parsed.password:
-                import base64
+        if cdp_endpoint:
+            browser = await self.playwright.chromium.connect_over_cdp(
+                cdp_endpoint, headers=cdp_headers, timeout=cdp_timeout
+            )
+            context = await browser.new_context(**context_options)
+            pages = context.pages or []
+            if not pages:
+                page = await context.new_page()
+                pages = [page]
+        else:
+            launch_kwargs = {
+                "channel": "chrome",
+                "headless": use_headless,
+                "no_viewport": True,
+                "args": ["--disable-blink-features=AutomationControlled"],
+            }
+            if proxy:
+                parsed = urlparse(proxy)
+                if parsed.username or parsed.password:
+                    import base64
 
-                creds = base64.b64encode(f"{parsed.username or ''}:{parsed.password or ''}".encode()).decode()
-                launch_kwargs["extra_http_headers"] = {"Proxy-Authorization": f"Basic {creds}"}
-                # Rebuild proxy URL without credentials
-                netloc = parsed.hostname or ""
-                if parsed.port:
-                    netloc += f":{parsed.port}"
-                cleaned = parsed._replace(netloc=netloc).geturl()
-                launch_kwargs["proxy"] = {"server": cleaned}
-            else:
-                launch_kwargs["proxy"] = {"server": proxy}
-
-        launch_kwargs.update(context_options)
-        context = await self.playwright.chromium.launch_persistent_context(
-            profile_dir,
-            **launch_kwargs,
-        )
-
-        pages = context.pages or []
-        if not pages:
-            page = await context.new_page()
-            pages = [page]
+                    creds = base64.b64encode(f"{parsed.username or ''}:{parsed.password or ''}".encode()).decode()
+                    launch_kwargs["extra_http_headers"] = {"Proxy-Authorization": f"Basic {creds}"}
+                    # Rebuild proxy URL without credentials
+                    netloc = parsed.hostname or ""
+                    if parsed.port:
+                        netloc += f":{parsed.port}"
+                    cleaned = parsed._replace(netloc=netloc).geturl()
+                    launch_kwargs["proxy"] = {"server": cleaned}
+                else:
+                    launch_kwargs["proxy"] = {"server": proxy}
+            launch_kwargs.update(context_options)
+            context = await self.playwright.chromium.launch_persistent_context(
+                profile_dir,
+                **launch_kwargs,
+            )
+            pages = context.pages or []
+            if not pages:
+                page = await context.new_page()
+                pages = [page]
 
         if url:
             await pages[0].goto(url)
@@ -1297,6 +1308,29 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 profile=options.get("profile"),
                 proxy=options.get("proxy"),
                 url=url,
+                device=options.get("device"),
+                viewport=options.get("viewport"),
+                locale=options.get("locale"),
+                timezone=options.get("timezone"),
+                geolocation=options.get("geolocation"),
+                user_agent=options.get("user-agent") or options.get("userAgent"),
+                grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
+            )
+            if session.page:
+                session.push_history(session.page.url)
+            return await _page_info(session, cwd)
+
+        if cmd == "attach":
+            cdp = options.get("cdp")
+            if not cdp:
+                return {"success": False, "output": "Usage: attach --cdp=<url>"}
+            headless = options.get("headless", False)
+            session = await state.get_or_create_session(
+                session_name,
+                headless=headless,
+                cdp_endpoint=cdp,
+                cdp_headers=options.get("cdp-headers"),
+                cdp_timeout=int(options.get("cdp-timeout", 30000)),
                 device=options.get("device"),
                 viewport=options.get("viewport"),
                 locale=options.get("locale"),

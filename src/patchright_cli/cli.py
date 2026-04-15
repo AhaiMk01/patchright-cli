@@ -82,6 +82,7 @@ def _recv_exact(sock: socket.socket, n: int) -> bytes:
 COMMANDS_HELP = {
     # Core
     "open": "open [url]           Open browser (starts daemon if needed)",
+    "attach": "attach --cdp=<url>   Attach to running Chrome via CDP",
     "goto": "goto <url>           Navigate to URL",
     "click": "click <ref> [button]  Click element [--modifiers=Alt,Shift]",
     "dblclick": "dblclick <ref> [btn] Double-click [--modifiers=Alt,Shift]",
@@ -201,6 +202,7 @@ def _print_help():
     click.echo("  --geolocation=lat,lon Geolocation override")
     click.echo("  --user-agent=<ua>   Custom user agent")
     click.echo("  --grant-permissions=P Comma-separated permissions to grant")
+    click.echo("  --cdp=<url>         Attach to Chrome via CDP endpoint")
     click.echo("  --version           Show version")
     click.echo("  --help              Show this help\n")
     click.echo("Commands:")
@@ -210,6 +212,7 @@ def _print_help():
             "Core",
             [
                 "open",
+                "attach",
                 "goto",
                 "click",
                 "dblclick",
@@ -368,6 +371,11 @@ def main():
         elif arg == "--grant-permissions" and i + 1 < len(argv):
             i += 1
             extra_opts["grant-permissions"] = argv[i]
+        elif arg.startswith("--cdp="):
+            extra_opts["cdp"] = arg.split("=", 1)[1]
+        elif arg == "--cdp" and i + 1 < len(argv):
+            i += 1
+            extra_opts["cdp"] = argv[i]
         elif arg in ("--version", "-v"):
             click.echo(f"patchright-cli {__version__}")
             sys.exit(0)
