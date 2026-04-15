@@ -298,49 +298,6 @@ patchright-cli --port=9322 open        # Custom daemon port
 
 ---
 
-## Snapshots
-
-After each state-changing command, the CLI outputs page info and a YAML snapshot:
-
-```
-### Page
-- Page URL: https://example.com/
-- Page Title: Example Domain
-### Snapshot
-[Snapshot](.patchright-cli/page-1774376207818.yml)
-```
-
-The snapshot lists interactive elements with refs you can use in commands:
-
-```yaml
-- ref: e1
-  role: heading
-  name: Example Domain
-  level: 1
-- ref: e2
-  role: link
-  name: Learn more
-  url: "https://iana.org/domains/example"
-```
-
-> [!NOTE]
-> Use refs directly: `patchright-cli click e2`, `patchright-cli fill e5 "text"`
-
----
-
-## Anti-Detect Features
-
-> [!CAUTION]
-> This tool is for **authorized testing, security research, and legitimate automation** only.
-
-- :white_check_mark: Real Chrome browser (not Chromium)
-- :white_check_mark: Patchright patches `navigator.webdriver` and other detection vectors
-- :white_check_mark: Persistent profiles maintain cookies/sessions across runs
-- :white_check_mark: No custom user-agent or headers (natural fingerprint)
-- :white_check_mark: Headed by default (headless is more detectable)
-
----
-
 ## Agent Integration
 
 Works with Claude Code, Cursor, Gemini CLI, Codex, and [40+ other agents](https://github.com/vercel-labs/skills).
