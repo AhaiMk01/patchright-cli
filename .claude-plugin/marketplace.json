@@ -1,20 +1,19 @@
 {
   "name": "patchright-cli",
   "owner": {
-    "name": "zpahai"
+    "name": "Han Zhu"
   },
   "metadata": {
-    "description": "Anti-detect browser automation CLI using Patchright (undetected Playwright fork)",
-    "version": "0.4.0"
+    "description": "Anti-detect browser automation CLI & Skills for AI agents, powered by Patchright",
+    "version": "0.4.1"
   },
   "plugins": [
     {
       "name": "patchright-cli",
-      "description": "Anti-detect browser automation CLI for AI agents",
+      "description": "Anti-detect browser automation skill using Patchright (undetected Playwright fork)",
       "source": "./",
       "skills": [
-        "./skills/patchright-cli",
-        "./.claude-plugin/skills/browser-automation"
+        "./skills/patchright-cli"
       ]
     }
   ]
