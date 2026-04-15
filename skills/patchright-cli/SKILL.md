@@ -7,43 +7,6 @@ description: Anti-detect browser automation using Patchright (undetected Playwri
 
 patchright-cli drives a real Chrome browser that passes bot detection (Cloudflare, Akamai, etc.). It works as a CLI: you issue commands, get back page state. This is the tool to reach for whenever regular Playwright or Chrome DevTools gets blocked.
 
-## What's new in v0.4.1
-
-- **`snapshot --depth=N`** — limit snapshot depth to reduce noise on complex pages.
-- **`eval` with element ref** — `eval <expr> <ref>` evaluates JS on a specific element (receives the element as the first argument).
-- **`PATCHRIGHT_CLI_SESSION` env var** — set a default session name without passing `-s` every time.
-- **Configurable timeouts** — `--timeout-action=ms` and `--timeout-navigation=ms` override Playwright's default timeouts per command.
-- **`video-chapter`** — add named chapter markers during video recording; chapters are saved as JSON alongside the video.
-- **`--config=<path>`** — load options from a JSON config file (auto-discovers `.patchright-cli/config.json` in cwd). CLI flags always override config values.
-- **Device emulation** — `--device="iPhone 15"`, `--viewport-size=WxH`, `--locale=en-US`, `--timezone=America/New_York`, `--geolocation=lat,lon`, `--user-agent=<ua>`.
-- **`grant-permissions`** — grant browser permissions (geolocation, camera, etc.) to a running session: `grant-permissions geolocation,camera --origin=https://example.com`.
-- **`attach --cdp=<url>`** — connect to an already-running Chrome instance via Chrome DevTools Protocol instead of launching a new one.
-- **`show` dashboard** — `show` starts a local web dashboard (default port 9322) that streams live screenshots of all sessions via WebSocket.
-- **`codegen` / `codegen-stop`** — record your interactions and save them as a replayable bash script.
-
-### What was new in v0.4.0
-
-- Native accessibility snapshots via `aria_snapshot()` — more accurate and immune to page-script interference.
-- Smart link clicks — `click` on a link navigates directly via `goto`.
-- Custom history stack — `go-back`/`go-forward` use an internal tracker.
-- Scroll & wait commands, `text` command, cookie import/export, authenticated proxy, daemon auto-restart, idle timeout, test suite.
-
-## How it works: the snapshot-driven loop
-
-Every interaction follows the same cycle:
-
-```
-open browser → snapshot → read refs → interact → snapshot again → repeat
-```
-
-1. **Open** a browser session — this launches a real Chrome window
-2. **Snapshot** the page — this uses Playwright's accessibility tree and assigns refs (`e1`, `e2`, ...) to interactive elements
-3. **Read the snapshot** — it's a YAML file showing the element tree with refs
-4. **Interact** using refs — `click e5`, `fill e3 "hello"`, etc.
-5. **Check the result** — most commands auto-snapshot, so you get updated refs
-
-Refs are ephemeral. They change every time the page updates. If a command fails with "Could not locate element for ref", the page has changed — just run `snapshot` to get fresh refs.
-
 ## Quick start
 
 ```bash
@@ -57,12 +20,290 @@ patchright-cli screenshot                    # capture the page
 patchright-cli close                         # done
 ```
 
+Every interaction follows: **open -> snapshot -> read refs -> interact -> snapshot again -> repeat**. Refs are ephemeral -- they change on every page update. If a ref fails, re-snapshot.
+
+## Command chaining
+
+Commands can be chained with `&&`. The browser persists via a background daemon, so chaining is safe.
+
+```bash
+# Chain when you don't need intermediate output
+patchright-cli open https://example.com && patchright-cli screenshot
+
+# Run separately when you need to read refs first
+patchright-cli snapshot          # read refs from output
+patchright-cli click e5          # use discovered ref
+```
+
+## Global options
+
+These go before the command:
+
+```bash
+--headless              # Run headless (default: headed -- headed is less detectable)
+--persistent            # Use persistent profile (keeps cookies/storage across sessions)
+--profile=/path         # Custom profile directory
+--proxy=<url>           # Proxy server (http, https, socks5) -- supports user:pass@host auth
+-s=mysession            # Named session (default: "default", or PATCHRIGHT_CLI_SESSION env var)
+--port=9322             # Custom daemon port (default: 9321)
+--config=<path>         # Load options from JSON config file
+--cdp=<url>             # Attach to Chrome via CDP endpoint (use with `attach` command)
+--device="iPhone 15"    # Emulate a device
+--viewport-size=1280x720 # Set viewport size
+--locale=en-US          # Browser locale
+--timezone=America/New_York # Timezone ID
+--geolocation=40.7,-74.0   # Geolocation override (lat,lon)
+--user-agent=<ua>       # Custom user agent string
+--grant-permissions=geolocation,camera  # Grant permissions at launch
+--timeout-action=10000  # Default action timeout (ms)
+--timeout-navigation=30000 # Default navigation timeout (ms)
+--show-port=9322        # Dashboard port (default: 9322)
+```
+
+---
+
+## Core commands
+
+### Browser lifecycle
+
+```bash
+open [url]                    # Launch browser (optionally navigate)
+open --persistent             # Keep cookies/storage between runs
+open --headless               # Headless mode
+attach --cdp=<url>            # Attach to existing Chrome via CDP
+close                         # Close session
+```
+
+### Navigation
+
+```bash
+goto <url>                    # Navigate to URL
+go-back / go-forward          # History navigation
+reload                        # Reload page
+url                           # Print current URL
+title                         # Print page title
+```
+
+### Snapshots
+
+```bash
+snapshot                      # Full page snapshot
+snapshot <ref>                # Subtree of a specific element
+snapshot --depth=N            # Limit depth
+snapshot -i                   # Interactive elements only
+```
+
+### Interaction
+
+```bash
+click <ref>                   # Left-click (smart: navigates links directly)
+click <ref> right             # Right-click
+click <ref> --modifiers=Alt   # Click with modifier keys
+dblclick <ref>                # Double-click
+hover <ref>                   # Hover
+drag <ref> <target-ref>       # Drag element to target
+```
+
+### Form input
+
+```bash
+fill <ref> "value"            # Clear field and type value
+fill <ref> "value" --submit   # Fill and press Enter
+type "text"                   # Type via keyboard (no target)
+type "text" --submit          # Type and press Enter
+select <ref> "option"         # Select dropdown option
+check <ref> / uncheck <ref>   # Checkbox/radio
+```
+
+### Text and screenshots
+
+```bash
+text <ref>                    # Get text content by ref
+text "css-selector"           # Get text by CSS selector
+screenshot                    # Page screenshot
+screenshot <ref>              # Element screenshot
+screenshot --full-page        # Full scrollable page
+screenshot --filename=F       # Custom filename
+```
+
+### Scroll, wait, and keyboard
+
+```bash
+scroll <dx> <dy>              # Scroll by pixels
+scroll-to <ref>               # Scroll element into view
+wait <ms>                     # Wait N milliseconds
+wait-for <ref>                # Wait until element visible
+wait-for <ref> --state=hidden # Wait until hidden
+press <key>                   # Keypress (Enter, ArrowDown, etc.)
+keydown <key> / keyup <key>   # Hold/release key
+```
+
+### Mouse
+
+```bash
+mousemove <x> <y>             # Move to coordinates
+mousedown / mouseup           # Button down/up
+mousewheel <dx> <dy>          # Scroll wheel
+```
+
+### Tabs
+
+```bash
+tab-list                      # List open tabs
+tab-new <url>                 # Open new tab
+tab-select <index>            # Switch to tab
+tab-close [index]             # Close tab
+```
+
+### Dialogs
+
+Dialogs must be pre-armed *before* the action that triggers them:
+
+```bash
+dialog-accept                 # Accept next dialog
+dialog-accept "OK"            # Accept with text input
+dialog-dismiss                # Dismiss next dialog
+```
+
+### DevTools
+
+```bash
+console                       # Show console messages
+console warning               # Filter by level
+network                       # Show network requests
+network --static              # Include static assets
+```
+
+### Recording and capture
+
+```bash
+screenshot / pdf              # Static capture
+video-start / video-stop      # Video recording
+tracing-start / tracing-stop  # Playwright trace
+codegen / codegen-stop        # Record interactions as script
+resize <w> <h>                # Viewport resize
+upload <file> [ref]           # File upload
+show                          # Live dashboard
+```
+
+### Storage
+
+```bash
+cookie-list / cookie-get / cookie-set / cookie-delete / cookie-clear
+cookie-export / cookie-import
+localstorage-list / localstorage-get / localstorage-set / localstorage-delete / localstorage-clear
+sessionstorage-list / sessionstorage-get / sessionstorage-set / sessionstorage-delete / sessionstorage-clear
+state-save <file> / state-load <file>
+```
+
+### Network
+
+```bash
+route "<pattern>" [options]   # Mock requests (--status, --body, --content-type, --header)
+route-list / unroute          # Manage routes
+network-state-set offline     # Simulate offline
+network-state-set online      # Restore connectivity
+```
+
+### Sessions
+
+```bash
+list                          # List active sessions
+close-all                     # Close all sessions
+kill-all                      # Force-kill all + stop daemon
+delete-data                   # Delete session profile data
+grant-permissions <perms>     # Grant browser permissions
+```
+
+---
+
+## Common patterns
+
+### Login flow
+
+```bash
+patchright-cli open https://example.com/login --persistent
+patchright-cli snapshot
+patchright-cli fill e3 "user@example.com"
+patchright-cli fill e5 "password123"
+patchright-cli click e8
+patchright-cli snapshot
+# With --persistent, cookies survive across sessions
+```
+
+### Extracting data
+
+```bash
+patchright-cli open https://example.com/data
+patchright-cli snapshot
+cat > /tmp/extract.js << 'JSEOF'
+JSON.stringify(
+  [...document.querySelectorAll('table tr')].map(row =>
+    [...row.cells].map(cell => cell.textContent.trim())
+  )
+)
+JSEOF
+patchright-cli eval --file=/tmp/extract.js
+```
+
+### Using a proxy
+
+```bash
+patchright-cli --proxy=http://host:port open https://example.com
+patchright-cli --proxy=socks5://host:port open https://example.com
+patchright-cli --proxy=http://user:pass@host:port open https://example.com
+```
+
+### Handling dialogs
+
+```bash
+patchright-cli dialog-accept              # Arm before triggering action
+patchright-cli click e5                   # This click triggers the dialog
+```
+
+### Waiting for dynamic content
+
+```bash
+patchright-cli wait-for e12               # Wait for element
+patchright-cli wait 1000                  # Fixed wait
+# For custom conditions, use run-code (see references/running-code.md)
+```
+
+---
+
+## Anti-detect notes
+
+- Uses real Chrome (not Chromium) -- this is what makes it undetectable
+- Patchright patches `navigator.webdriver` and other detection vectors automatically
+- Headed by default -- headless mode is more detectable, use only when necessary
+- No custom user-agent or headers by default -- preserves Chrome's natural fingerprint
+- Persistent profiles maintain realistic browser history and cookies
+- The daemon architecture means Chrome stays running between commands, behaving like a real user's browser
+- `attach --cdp` lets you connect to an existing Chrome instance
+
+## Config files
+
+Create `.patchright-cli/config.json` in your project directory (auto-discovered) or pass `--config=<path>`:
+
+```json
+{
+  "headless": false,
+  "persistent": true,
+  "proxy": "http://proxy:8080",
+  "device": "iPhone 15",
+  "locale": "en-US",
+  "timezone": "America/New_York"
+}
+```
+
+CLI flags always override config file values.
+
 ## Installation
 
 ### CLI tool
 
 ```bash
-# Recommended — always runs latest version
+# Recommended -- always runs latest version
 uvx patchright-cli <command>
 
 # Or install globally
@@ -96,467 +337,12 @@ Install the skill so your agent knows how to use patchright-cli. The same comman
 **Or just tell your agent:**
 > Install patchright-cli skill from https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md
 
-## Global options
-
-These go before the command:
-
-```bash
---headless              # Run headless (default: headed — headed is less detectable)
---persistent            # Use persistent profile (keeps cookies/storage across sessions)
---profile=/path         # Custom profile directory
---proxy=<url>           # Proxy server (http, https, socks5) — supports user:pass@host auth
--s=mysession            # Named session (default: "default", or PATCHRIGHT_CLI_SESSION env var)
---port=9322             # Custom daemon port (default: 9321)
---config=<path>         # Load options from JSON config file
---cdp=<url>             # Attach to Chrome via CDP endpoint (use with `attach` command)
---device="iPhone 15"    # Emulate a device
---viewport-size=1280x720 # Set viewport size
---locale=en-US          # Browser locale
---timezone=America/New_York # Timezone ID
---geolocation=40.7,-74.0   # Geolocation override (lat,lon)
---user-agent=<ua>       # Custom user agent string
---grant-permissions=geolocation,camera  # Grant permissions at launch
---timeout-action=10000  # Default action timeout (ms)
---timeout-navigation=30000 # Default navigation timeout (ms)
---show-port=9322        # Dashboard port (default: 9322)
-```
-
----
-
-## Core commands
-
-### Browser lifecycle
-
-```bash
-patchright-cli open                            # Launch browser
-patchright-cli open https://example.com        # Launch and navigate
-patchright-cli open --persistent               # Keep cookies/storage between runs
-patchright-cli open --headless                 # Headless mode
-patchright-cli open --profile=/path/to/dir     # Custom profile directory
-patchright-cli --proxy=http://host:port open   # Route traffic through HTTP proxy
-patchright-cli --proxy=socks5://host:port open # SOCKS5 proxy
-patchright-cli --proxy=http://user:pass@host:port open  # Authenticated proxy
-patchright-cli --device="iPhone 15" open       # Emulate a device
-patchright-cli attach --cdp=http://localhost:9222  # Attach to existing Chrome via CDP
-patchright-cli close                           # Close session
-```
-
-### Navigation
-
-```bash
-patchright-cli goto https://example.com
-patchright-cli go-back                         # Uses internal history stack
-patchright-cli go-forward
-patchright-cli reload
-patchright-cli url                             # Print current URL
-patchright-cli title                           # Print page title
-```
-
-### Snapshots
-
-Snapshots are how you discover what's on the page. They produce a YAML tree of interactive elements, each tagged with a ref like `e1`, `e5`, `e12`.
-
-```bash
-patchright-cli snapshot                        # Full page snapshot
-patchright-cli snapshot e3                     # Subtree of a specific element
-patchright-cli snapshot --filename=snap.yml    # Save to custom path
-patchright-cli snapshot --depth=2              # Limit depth (reduces noise on complex pages)
-```
-
-After each state-changing command (click, fill, goto, etc.), a snapshot is automatically taken and returned. You don't need to manually snapshot after every action.
-
-### Clicking and interacting
-
-```bash
-patchright-cli click e3                        # Left-click
-patchright-cli click e3 right                  # Right-click
-patchright-cli click e3 --modifiers=Alt,Shift  # Click with modifier keys
-patchright-cli dblclick e7                     # Double-click
-patchright-cli dblclick e7 --modifiers=Shift
-patchright-cli hover e4
-patchright-cli drag e2 e8                      # Drag element to target
-```
-
-`click` is smart about links: if the element (or an ancestor) is an `<a>` tag, the CLI navigates directly instead of performing a DOM click. This avoids sticky-header overlay timeouts and `target="_blank"` silences.
-
-### Form input
-
-```bash
-patchright-cli fill e5 "user@example.com"      # Clear field and type value
-patchright-cli fill e5 "query" --submit        # Fill and press Enter
-patchright-cli type "search query"             # Type via keyboard (no target element)
-patchright-cli type "query" --submit           # Type and press Enter
-patchright-cli select e9 "option-value"        # Select dropdown option
-patchright-cli check e12                       # Check checkbox/radio
-patchright-cli uncheck e12
-```
-
-`fill` targets a specific input by ref and replaces its contents. `type` types via the keyboard into whatever is focused.
-
-### Text extraction
-
-```bash
-patchright-cli text e5                         # Get text content by ref
-patchright-cli text "h1"                       # Or by raw CSS selector
-```
-
-### Screenshots
-
-```bash
-patchright-cli screenshot                      # Page screenshot
-patchright-cli screenshot e3                   # Element screenshot
-patchright-cli screenshot --filename=page.png  # Custom filename
-patchright-cli screenshot --full-page          # Full scrollable page
-```
-
-Screenshots save to `.patchright-cli/` in the current directory.
-
-### Scroll & wait
-
-```bash
-patchright-cli scroll 0 200                    # Scroll by (dx, dy) pixels
-patchright-cli scroll-to e5                    # Scroll element into view
-patchright-cli wait 500                        # Wait N milliseconds
-patchright-cli wait-for e5                     # Wait until element is visible
-patchright-cli wait-for e5 --state=hidden      # Wait until hidden
-```
-
-### Keyboard and mouse
-
-```bash
-# Keyboard
-patchright-cli press Enter                     # Single keypress
-patchright-cli press ArrowDown
-patchright-cli keydown Shift                   # Hold key down
-patchright-cli keyup Shift                     # Release key
-
-# Mouse
-patchright-cli mousemove 150 300               # Move to coordinates
-patchright-cli mousedown                       # Left button down
-patchright-cli mousedown right                 # Right button down
-patchright-cli mouseup
-patchright-cli mousewheel 0 100                # Scroll (dx, dy)
-```
-
-### Tabs
-
-```bash
-patchright-cli tab-list                        # List open tabs
-patchright-cli tab-new https://example.com     # Open new tab
-patchright-cli tab-select 0                    # Switch to tab by index
-patchright-cli tab-close                       # Close current tab
-patchright-cli tab-close 2                     # Close tab by index
-```
-
----
-
-## JavaScript execution
-
-**Always use `--file` or stdin for `eval` and `run-code`.** Inline JS breaks because quotes get mangled through shell layers (bash -> uvx -> python).
-
-```bash
-# WRONG — nested quotes break
-patchright-cli eval "document.querySelector('a').href"
-
-# RIGHT — write to a temp file
-cat > /tmp/check.js << 'JSEOF'
-JSON.stringify({title: document.title, links: document.querySelectorAll('a').length})
-JSEOF
-patchright-cli eval --file=/tmp/check.js
-
-# RIGHT — pipe via stdin (simple expressions)
-echo 'document.title' | patchright-cli eval
-```
-
-`eval` returns the expression result. You can also target a specific element: `eval <expr> <ref>` — the element is passed as the first argument to the expression.
-
-```bash
-# Evaluate on a specific element
-echo 'el => el.textContent' | patchright-cli eval - e5
-```
-
-`run-code` wraps your code in `async () => { ... }` so you can use `return` and `await`.
-
-```bash
-# run-code example
-cat > /tmp/scroll.js << 'JSEOF'
-window.scrollTo(0, document.body.scrollHeight);
-return document.body.scrollHeight;
-JSEOF
-patchright-cli run-code --file=/tmp/scroll.js
-```
-
----
-
-## Common patterns
-
-### Using a proxy
-
-```bash
-# HTTP proxy
-patchright-cli --proxy=http://host:port open https://example.com
-
-# SOCKS5 proxy
-patchright-cli --proxy=socks5://host:port open https://example.com
-
-# Authenticated proxy (credentials are parsed and injected automatically)
-patchright-cli --proxy=http://user:pass@host:port open https://example.com
-
-# Combine with persistent profile and named session
-patchright-cli --proxy=http://host:port -s=proxied open https://example.com --persistent
-```
-
-The proxy is set at browser launch and applies to all traffic in that session. Note: `--proxy` is a global option and must come before the command.
-
-### Login flow
-
-```bash
-patchright-cli open https://example.com/login --persistent
-patchright-cli snapshot
-# Find the username/password fields and login button in the snapshot
-patchright-cli fill e3 "user@example.com"
-patchright-cli fill e5 "password123"
-patchright-cli click e8                        # Click login button
-# Wait a moment for redirect, then snapshot to verify
-patchright-cli snapshot
-# With --persistent, cookies survive across sessions
-```
-
-### Extracting data from a page
-
-```bash
-patchright-cli open https://example.com/data
-patchright-cli snapshot                        # Get the page structure
-# Use eval to extract structured data
-cat > /tmp/extract.js << 'JSEOF'
-JSON.stringify(
-  [...document.querySelectorAll('table tr')].map(row =>
-    [...row.cells].map(cell => cell.textContent.trim())
-  )
-)
-JSEOF
-patchright-cli eval --file=/tmp/extract.js
-```
-
-### Waiting for dynamic content
-
-```bash
-# Wait for an element to appear
-patchright-cli wait-for e12
-
-# Or wait a fixed time
-patchright-cli wait 1000
-
-# If you need a custom condition, use run-code
-cat > /tmp/wait.js << 'JSEOF'
-for (let i = 0; i < 30; i++) {
-  if (document.querySelector('.results-loaded')) return true;
-  await new Promise(r => setTimeout(r, 500));
-}
-return false;
-JSEOF
-patchright-cli run-code --file=/tmp/wait.js
-patchright-cli snapshot
-```
-
-### Multi-page workflow with persistent session
-
-```bash
-# Use a named persistent session to maintain state
-patchright-cli -s=myproject open https://app.example.com --persistent
-patchright-cli -s=myproject snapshot
-patchright-cli -s=myproject click e5
-# ... do work ...
-patchright-cli -s=myproject close
-# Later, reopen — cookies and localStorage are preserved
-patchright-cli -s=myproject open https://app.example.com --persistent
-```
-
-### Handling dialogs (alert/confirm/prompt)
-
-Dialogs must be pre-armed *before* the action that triggers them:
-
-```bash
-patchright-cli dialog-accept              # Accept next dialog
-patchright-cli click e5                   # This click triggers the dialog
-# Or:
-patchright-cli dialog-accept "OK"         # Accept with text input
-patchright-cli dialog-dismiss             # Dismiss instead
-```
-
----
-
-## Storage and state
-
-### Cookies
-
-```bash
-patchright-cli cookie-list                              # All cookies
-patchright-cli cookie-list --domain=example.com         # Filter by domain
-patchright-cli cookie-list --path=/api                  # Filter by path
-patchright-cli cookie-get session_id                    # Get specific cookie
-patchright-cli cookie-set session_id abc123             # Set cookie (current page URL)
-patchright-cli cookie-set token xyz --domain=example.com --path=/ --httpOnly --secure --sameSite=Lax --expires=1735689600
-patchright-cli cookie-delete session_id
-patchright-cli cookie-clear                             # Clear all
-patchright-cli cookie-export cookies.json               # Export all cookies to JSON
-patchright-cli cookie-import cookies.json               # Import cookies from JSON
-```
-
-### localStorage / sessionStorage
-
-```bash
-# localStorage
-patchright-cli localstorage-list
-patchright-cli localstorage-get theme
-patchright-cli localstorage-set theme dark
-patchright-cli localstorage-delete theme
-patchright-cli localstorage-clear
-
-# sessionStorage (same pattern)
-patchright-cli sessionstorage-list
-patchright-cli sessionstorage-get step
-patchright-cli sessionstorage-set step 3
-patchright-cli sessionstorage-delete step
-patchright-cli sessionstorage-clear
-```
-
-### Save/load full state (cookies + storage)
-
-```bash
-patchright-cli state-save auth.json        # Save cookies + localStorage
-patchright-cli state-load auth.json        # Restore (navigate to matching origin first for localStorage)
-```
-
----
-
-## Network tools
-
-### Request mocking
-
-```bash
-patchright-cli route "**/*.jpg" --status=404                          # Block images
-patchright-cli route "https://api.example.com/**" --body='{"mock": true}'  # Mock API
-patchright-cli route "**/*" --content-type=application/json --body='{"ok":true}'
-patchright-cli route "**/*" --header=X-Custom:value
-patchright-cli route "**/*" --remove-header=Content-Type
-patchright-cli route-list                                             # List active routes
-patchright-cli unroute "**/*.jpg"                                     # Remove specific route
-patchright-cli unroute                                                # Remove all routes
-```
-
-### Network state
-
-```bash
-patchright-cli network-state-set offline   # Simulate offline
-patchright-cli network-state-set online    # Restore connectivity
-```
-
-### DevTools inspection
-
-```bash
-patchright-cli console                     # Show console messages (last 50)
-patchright-cli console warning             # Filter by level
-patchright-cli console --clear             # Clear buffer after printing
-
-patchright-cli network                     # Show requests (excludes static assets)
-patchright-cli network --static            # Include images, fonts, scripts, etc.
-patchright-cli network --clear             # Clear log after printing
-```
-
----
-
-## Recording and capture
-
-```bash
-# Tracing (Playwright trace format)
-patchright-cli tracing-start
-patchright-cli tracing-stop                # Saves .zip to .patchright-cli/
-
-# Video (CDP screencast, requires ffmpeg for .webm output)
-patchright-cli video-start
-patchright-cli video-chapter "Login page"  # Add chapter marker during recording
-patchright-cli video-chapter "Dashboard"   # Chapters saved as JSON alongside video
-patchright-cli video-stop                  # Save as .webm (or frames if no ffmpeg)
-patchright-cli video-stop --filename=rec.webm
-
-# Codegen — record interactions as a replayable bash script
-patchright-cli codegen                     # Start recording
-# ... do your interactions (click, fill, goto, etc.) ...
-patchright-cli codegen-stop                # Stop and save script to .patchright-cli/
-patchright-cli codegen-stop script.sh      # Save to custom path
-
-# PDF
-patchright-cli pdf                         # Save page as PDF
-patchright-cli pdf --filename=page.pdf
-
-# File upload
-patchright-cli upload ./document.pdf       # Upload to first file input
-patchright-cli upload ./photo.jpg e5       # Upload to specific input
-
-# Viewport resize
-patchright-cli resize 1920 1080
-
-# Dashboard — live session monitor
-patchright-cli show                        # Open dashboard at http://127.0.0.1:9322
-patchright-cli show --show-port=9400       # Custom port
-```
-
----
-
-## Session management
-
-```bash
-# Named sessions allow multiple independent browsers
-patchright-cli -s=session1 open https://site-a.com --persistent
-patchright-cli -s=session2 open https://site-b.com --persistent
-
-# Or set a default session via env var
-export PATCHRIGHT_CLI_SESSION=myproject
-patchright-cli open https://example.com    # Uses "myproject" session
-
-patchright-cli list                        # List all active sessions
-patchright-cli close-all                   # Gracefully close all
-patchright-cli kill-all                    # Force-kill all + stop daemon
-
-# Delete persistent profile data
-patchright-cli delete-data                 # Delete default session's profile
-patchright-cli -s=mysession delete-data    # Delete named session's profile
-
-# Grant permissions to a running session
-patchright-cli grant-permissions geolocation,camera
-patchright-cli grant-permissions notifications --origin=https://example.com
-```
-
-The daemon auto-starts on the first command and auto-shuts down after 5 minutes of inactivity. If it ever crashes, the next command you run will respawn it automatically.
-
----
-
-## Config files
-
-Create `.patchright-cli/config.json` in your project directory (auto-discovered) or pass `--config=<path>`:
-
-```json
-{
-  "headless": false,
-  "persistent": true,
-  "proxy": "http://proxy:8080",
-  "device": "iPhone 15",
-  "locale": "en-US",
-  "timezone": "America/New_York"
-}
-```
-
-CLI flags always override config file values.
-
----
-
-## Anti-detect notes
-
-- Uses real Chrome (not Chromium) — this is what makes it undetectable
-- Patchright patches `navigator.webdriver` and other detection vectors automatically
-- Headed by default — headless mode is more detectable, use only when necessary
-- No custom user-agent or headers by default — preserves Chrome's natural fingerprint (use `--user-agent` and `--device` only when you need specific emulation)
-- Persistent profiles maintain realistic browser history and cookies
-- The daemon architecture means Chrome stays running between commands, behaving like a real user's browser
-- `attach --cdp` lets you connect to an existing Chrome instance — useful for debugging or controlling a browser you launched manually with `--remote-debugging-port`
+## Specific tasks
+
+* **Snapshots and element refs** [references/snapshot-refs.md](references/snapshot-refs.md)
+* **Browser session management** [references/session-management.md](references/session-management.md)
+* **Request mocking** [references/request-mocking.md](references/request-mocking.md)
+* **Storage state (cookies, localStorage)** [references/storage-state.md](references/storage-state.md)
+* **Running JavaScript** [references/running-code.md](references/running-code.md)
+* **Tracing** [references/tracing.md](references/tracing.md)
+* **Video recording & capture** [references/video-recording.md](references/video-recording.md)
