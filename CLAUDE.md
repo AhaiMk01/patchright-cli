@@ -26,7 +26,18 @@ python -m patchright_cli <command> [args...]
 patchright-cli <command> [args...]
 ```
 
-There are no automated tests yet — changes are tested manually via the CLI.
+## Testing
+
+```bash
+# Unit tests (no browser required)
+pytest tests/ -v --ignore=tests/test_e2e.py
+
+# E2E tests (requires Chrome)
+pytest tests/test_e2e.py -v
+
+# Lint
+pre-commit run --all-files
+```
 
 ## Architecture
 
@@ -38,9 +49,9 @@ CLI (cli.py) --TCP:9321--> Daemon (daemon.py) --Patchright--> Chrome
 
 - **CLI (`src/patchright_cli/cli.py`)**: Stateless thin client. Parses argv manually (not click subcommands), builds a JSON `{command, args, options, cwd}` message, sends it over a length-prefixed TCP socket to the daemon, prints the response, and exits. All commands are defined in the `COMMANDS_HELP` dict and `ALL_COMMANDS` list.
 
-- **Daemon (`src/patchright_cli/daemon.py`)**: Long-running async process managing browser sessions. Auto-spawned on `open` via `ensure_daemon_running()` which launches a subprocess. Uses `DaemonState` → multiple `Session` objects, each owning a Patchright persistent browser context. Command dispatch is a large `handle_command()` function with if/elif branches. Console capture uses CDP sessions (not Playwright's `page.on('console')`) because Patchright suppresses it.
+- **Daemon (`src/patchright_cli/daemon.py`)**: Long-running async process managing browser sessions. Auto-spawned on `open` via `ensure_daemon_running()` which launches a subprocess. Uses `DaemonState` → multiple `Session` objects, each owning a Patchright persistent browser context. Command dispatch uses `@register()` decorated handlers in `COMMAND_HANDLERS` dict, dispatched by `handle_command()`. Console capture uses CDP sessions (not Playwright's `page.on('console')`) because Patchright suppresses it.
 
-- **Snapshot (`src/patchright_cli/snapshot.py`)**: Two-pass DOM scanner injected as JavaScript: Pass 1 uses TreeWalker to assign `data-patchright-ref` attributes (`e1`, `e2`, ...) in document order; Pass 2 builds a nested tree. Python side converts to flat YAML. Snapshots are saved to `.patchright-cli/` in the caller's cwd.
+- **Snapshot (`src/patchright_cli/snapshot.py`)**: Uses Playwright's native `aria_snapshot()` to get the accessibility tree. `RefRegistry` annotates each node with sequential refs (`e1`, `e2`, ...). Snapshots are saved as YAML to `.patchright-cli/` in the caller's cwd.
 
 ## Key Design Decisions
 
