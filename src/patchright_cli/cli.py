@@ -179,6 +179,9 @@ COMMANDS_HELP = {
     "delete-data": "delete-data          Delete persistent profile",
     # Dashboard
     "show": "show [--port=N]       Open session dashboard in browser",
+    # Codegen
+    "codegen": "codegen [file]        Start recording interactions",
+    "codegen-stop": "codegen-stop [file]   Stop recording and save script",
 }
 
 ALL_COMMANDS = list(COMMANDS_HELP.keys())
@@ -272,6 +275,7 @@ def _print_help():
         ("DevTools", ["console", "network"]),
         ("Session", ["list", "close-all", "kill-all", "delete-data"]),
         ("Dashboard", ["show"]),
+        ("Codegen", ["codegen", "codegen-stop"]),
     ]
     for cat_name, cmds in categories:
         click.echo(f"\n  {cat_name}:")
