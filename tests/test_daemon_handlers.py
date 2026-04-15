@@ -28,6 +28,7 @@ def mock_session():
     session.page.goto = AsyncMock()
     session.page.url = "https://example.com"
     session.page.title = AsyncMock(return_value="Example")
+    session._codegen = None
     return session
 
 

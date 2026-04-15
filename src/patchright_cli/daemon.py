@@ -71,6 +71,7 @@ class Session:
         self._video_chapters: list[tuple[int, str]] = []
         self._history: list[str] = []
         self._history_index: int = -1
+        self._codegen: list[str] | None = None
 
     # -- internal helpers ---------------------------------------------------
 
@@ -1295,6 +1296,85 @@ async def cmd_show(session: Session, page, args: list, options: dict, cwd: str |
     return {"success": True, "output": f"Dashboard running at {url}"}
 
 
+_CODEGEN_RECORDABLE = {
+    "goto",
+    "go-back",
+    "go-forward",
+    "reload",
+    "click",
+    "dblclick",
+    "fill",
+    "type",
+    "hover",
+    "select",
+    "check",
+    "uncheck",
+    "drag",
+    "press",
+    "keydown",
+    "keyup",
+    "mousemove",
+    "mousedown",
+    "mouseup",
+    "mousewheel",
+    "scroll",
+    "scroll-to",
+    "wait",
+    "wait-for",
+    "tab-new",
+    "tab-close",
+    "tab-select",
+    "upload",
+    "resize",
+    "cookie-set",
+    "cookie-delete",
+    "cookie-clear",
+    "localstorage-set",
+    "localstorage-delete",
+    "localstorage-clear",
+    "sessionstorage-set",
+    "sessionstorage-delete",
+    "sessionstorage-clear",
+    "state-load",
+    "route",
+    "unroute",
+    "network-state-set",
+    "dialog-accept",
+    "dialog-dismiss",
+    "screenshot",
+    "pdf",
+}
+
+
+@register("codegen")
+async def cmd_codegen(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    session._codegen = []
+    if page:
+        url = page.url
+        session._codegen.append(f'patchright-cli open "{url}"')
+    return {"success": True, "output": "Recording started. Run 'codegen-stop' to save the script."}
+
+
+@register("codegen-stop")
+async def cmd_codegen_stop(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    if session._codegen is None:
+        return {"success": False, "output": "No recording in progress. Run 'codegen' first."}
+    lines = ["#!/usr/bin/env bash", "set -e", ""] + session._codegen
+    script = "\n".join(lines) + "\n"
+    session._codegen = None
+
+    base = Path(cwd) if cwd else Path.cwd()
+    snap_dir = base / ".patchright-cli"
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000)
+    filepath = args[0] if args else str(snap_dir / f"script-{ts}.sh")
+    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+    Path(filepath).write_text(script, encoding="utf-8")
+    return {"success": True, "output": f"Saved {len(lines) - 3} command(s) to {filepath}"}
+
+
 # ---------------------------------------------------------------------------
 # Command dispatch
 # ---------------------------------------------------------------------------
@@ -1434,7 +1514,20 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         if handler is None:
             return {"success": False, "output": f"Unknown command: {cmd}"}
 
-        return await handler(session, page, args, options, cwd, state)
+        result = await handler(session, page, args, options, cwd, state)
+        if result.get("success") and session._codegen is not None and cmd in _CODEGEN_RECORDABLE:
+            args_quoted = [f'"{a}"' if " " in a else a for a in args]
+            opt_parts = []
+            for k, v in options.items():
+                if k in ("session", "headless", "persistent", "profile", "proxy"):
+                    continue
+                if v is True:
+                    opt_parts.append(f"--{k}")
+                elif isinstance(v, str):
+                    opt_parts.append(f"--{k}={v}")
+            cmd_line = " ".join(["patchright-cli"] + opt_parts + [cmd] + args_quoted)
+            session._codegen.append(cmd_line)
+        return result
 
     except Exception as e:
         logger.error("Command %s failed: %s", cmd, traceback.format_exc())
