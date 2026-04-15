@@ -26,6 +26,7 @@ dependencies = [
     "patchright",
     "pyyaml",
     "click",
+    "aiohttp>=3.9",
 ]
 
 [project.urls]
