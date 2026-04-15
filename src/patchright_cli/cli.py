@@ -71,7 +71,7 @@ COMMANDS_HELP = {
     "check": "check <ref>          Check checkbox/radio",
     "uncheck": "uncheck <ref>        Uncheck checkbox/radio",
     "snapshot": "snapshot [ref]        Take accessibility snapshot [--filename=F] [--depth=N]",
-    "eval": "eval <expr>          Evaluate JavaScript [--file=F or stdin]",
+    "eval": "eval <expr> [ref]     Evaluate JavaScript [--file=F or stdin]",
     "text": "text <ref|selector>  Get text content of element",
     "screenshot": "screenshot [ref]     Save screenshot [--full-page] [--filename=F]",
     "drag": "drag <from> <to>     Drag element to target",

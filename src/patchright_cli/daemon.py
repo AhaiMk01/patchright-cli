@@ -466,8 +466,16 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
 
 @register("eval")
 async def cmd_eval(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    expr = args[0] if args else ""
-    result = await page.evaluate(expr)
+    import re
+
+    if len(args) >= 2 and re.fullmatch(r"e\d+", args[-1]) and session.ref_registry is not None:
+        expr = " ".join(args[:-1])
+        ref = args[-1]
+        elem = await _resolve_ref(session, page, ref)
+        result = await elem.evaluate(expr)
+    else:
+        expr = args[0] if args else ""
+        result = await page.evaluate(expr)
     return {"success": True, "output": json.dumps(result, indent=2, default=str)}
 
 
