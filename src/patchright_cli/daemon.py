@@ -433,11 +433,12 @@ async def cmd_drag(session: Session, page, args: list, options: dict, cwd: str |
 @register("snapshot")
 async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     element_ref = args[0] if args else None
+    max_depth = int(options["depth"]) if options.get("depth") is not None else None
     if element_ref:
         elem = await _resolve_ref(session, page, element_ref)
-        snapshot_text, session.ref_registry = await take_snapshot(page, root_element=elem)
+        snapshot_text, session.ref_registry = await take_snapshot(page, root_element=elem, max_depth=max_depth)
     else:
-        snapshot_text, session.ref_registry = await take_snapshot(page)
+        snapshot_text, session.ref_registry = await take_snapshot(page, max_depth=max_depth)
     fn = options.get("filename")
     if fn:
         Path(fn).parent.mkdir(parents=True, exist_ok=True)
