@@ -31,7 +31,7 @@ class RefRegistry:
         self.entries: dict[str, AriaRefEntry] = {}
         self._counter = 0
 
-    def parse(self, aria_text: str) -> str:
+    def parse(self, aria_text: str, max_depth: int | None = None) -> str:
         """Return annotated snapshot text with [ref=eN] tags inserted."""
         self.entries.clear()
         self._counter = 0
@@ -41,6 +41,12 @@ class RefRegistry:
         for line in aria_text.splitlines():
             m = _NODE_LINE_RE.match(line)
             if not m:
+                result_lines.append(line)
+                continue
+
+            indent = len(line) - len(line.lstrip())
+            depth = indent // 2
+            if max_depth is not None and depth > max_depth:
                 result_lines.append(line)
                 continue
 

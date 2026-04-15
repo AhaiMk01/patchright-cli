@@ -73,3 +73,14 @@ def test_resolve_missing_ref_raises():
         assert "e99" in str(e)
     else:
         raise AssertionError("Expected ValueError for missing ref")
+
+
+def test_parse_with_max_depth():
+    registry = RefRegistry()
+    raw = '- heading "Login"\n  - textbox "Username"\n  - button "Submit"\n    - link "Forgot"'
+    result = registry.parse(raw, max_depth=1)
+    lines = result.splitlines()
+    assert "[ref=e1]" in lines[0]  # depth 0
+    assert "[ref=e2]" in lines[1]  # depth 1
+    assert "[ref=e3]" in lines[2]  # depth 1
+    assert "[ref=" not in lines[3]  # depth 2 skipped
