@@ -247,7 +247,7 @@ def main():
     persistent = False
     profile = None
     proxy = None
-    session_name = "default"
+    session_name = os.environ.get("PATCHRIGHT_CLI_SESSION", "default")
     port = DEFAULT_PORT
 
     # Extract options
