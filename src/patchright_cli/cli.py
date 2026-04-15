@@ -102,7 +102,7 @@ def _install_skills_to_dir(target: Path) -> None:
 
 def _handle_install(args: list) -> None:
     """Handle the install command."""
-    if "--skills" not in args and "skills" not in args:
+    if "--skills" not in args:
         click.echo("Usage: patchright-cli install --skills")
         click.echo("\nTo install the browser, use: python -m patchright install chromium")
         sys.exit(0)

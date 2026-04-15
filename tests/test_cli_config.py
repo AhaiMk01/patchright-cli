@@ -140,3 +140,5 @@ def test_install_skills_copies_files(tmp_path):
     _install_skills_to_dir(target)
 
     assert (target / "SKILL.md").exists()
+    assert (target / "references").is_dir()
+    assert (target / "references" / "snapshot-refs.md").exists()
