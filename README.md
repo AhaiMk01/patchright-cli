@@ -321,6 +321,19 @@ patchright-cli install --skills
 
 </details>
 
+### Skill docs
+
+| File | Topic |
+|------|-------|
+| [`SKILL.md`](skills/patchright-cli/SKILL.md) | Main skill — commands, options, patterns |
+| [`snapshot-refs.md`](skills/patchright-cli/references/snapshot-refs.md) | Snapshots, element refs, `-i` flag |
+| [`session-management.md`](skills/patchright-cli/references/session-management.md) | Named sessions, profiles, CDP, dashboard |
+| [`request-mocking.md`](skills/patchright-cli/references/request-mocking.md) | Route mocking, network state |
+| [`storage-state.md`](skills/patchright-cli/references/storage-state.md) | Cookies, localStorage, sessionStorage |
+| [`running-code.md`](skills/patchright-cli/references/running-code.md) | eval, run-code, `--file`, stdin |
+| [`tracing.md`](skills/patchright-cli/references/tracing.md) | Trace recording and debugging |
+| [`video-recording.md`](skills/patchright-cli/references/video-recording.md) | Video, codegen, screenshot, PDF |
+
 ---
 
 ## Star History
