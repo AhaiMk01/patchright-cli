@@ -84,13 +84,15 @@ class DashboardState:
         sessions = []
         for name, session in self.daemon_state.sessions.items():
             page = session.page
-            sessions.append({
-                "name": name,
-                "url": page.url if page else "",
-                "title": "",
-                "tabs": len(session.pages),
-                "screenshot": self._screenshots.get(name),
-            })
+            sessions.append(
+                {
+                    "name": name,
+                    "url": page.url if page else "",
+                    "title": "",
+                    "tabs": len(session.pages),
+                    "screenshot": self._screenshots.get(name),
+                }
+            )
         return {"sessions": sessions}
 
 

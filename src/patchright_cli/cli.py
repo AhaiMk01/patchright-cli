@@ -21,10 +21,7 @@ from patchright_cli.daemon import DEFAULT_PORT, ensure_daemon_running
 
 def _load_config(config_path: str | None) -> dict:
     """Load JSON config file. If config_path is None, try .patchright-cli/config.json in cwd."""
-    if config_path:
-        p = Path(config_path)
-    else:
-        p = Path.cwd() / ".patchright-cli" / "config.json"
+    p = Path(config_path) if config_path else Path.cwd() / ".patchright-cli" / "config.json"
     if p.exists():
         return json.loads(p.read_text(encoding="utf-8"))
     return {}

@@ -96,6 +96,7 @@ async def test_cookie_import(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
     mock_session.context.add_cookies = AsyncMock()
     import tempfile
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write('[{"name": "b", "value": "2"}]')
         path = f.name
@@ -104,6 +105,7 @@ async def test_cookie_import(mock_state, mock_session):
     assert "Imported 1 cookie" in response["output"]
     mock_session.context.add_cookies.assert_awaited_once()
     import os
+
     os.unlink(path)
 
 
