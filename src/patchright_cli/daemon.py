@@ -186,6 +186,13 @@ class DaemonState:
         profile: str | None = None,
         proxy: str | None = None,
         url: str | None = None,
+        device: str | None = None,
+        viewport: dict | None = None,
+        locale: str | None = None,
+        timezone: str | None = None,
+        geolocation: dict | None = None,
+        user_agent: str | None = None,
+        grant_permissions: str | None = None,
     ) -> Session:
         if name in self.sessions:
             return self.sessions[name]
@@ -198,6 +205,29 @@ class DaemonState:
         use_headless = headless if headless is not None else self.default_headless
         profile_dir = profile or str(Path.home() / ".patchright-cli" / "profiles" / name)
         Path(profile_dir).mkdir(parents=True, exist_ok=True)
+
+        context_options: dict = {}
+        if device and self.playwright is not None:
+            device_descriptor = self.playwright.devices.get(device)
+            if device_descriptor:
+                context_options.update(device_descriptor)
+        if viewport:
+            context_options["viewport"] = {"width": int(viewport["width"]), "height": int(viewport["height"])}
+        if locale:
+            context_options["locale"] = locale
+        if timezone:
+            context_options["timezone_id"] = timezone
+        if geolocation:
+            context_options["geolocation"] = {
+                "latitude": float(geolocation["lat"]),
+                "longitude": float(geolocation["lon"]),
+            }
+            context_options["permissions"] = context_options.get("permissions", []) + ["geolocation"]
+        if user_agent:
+            context_options["user_agent"] = user_agent
+        if grant_permissions:
+            perms = [p.strip() for p in grant_permissions.split(",") if p.strip()]
+            context_options["permissions"] = list(set(context_options.get("permissions", []) + perms))
 
         launch_kwargs = {
             "channel": "chrome",
@@ -221,6 +251,7 @@ class DaemonState:
             else:
                 launch_kwargs["proxy"] = {"server": proxy}
 
+        launch_kwargs.update(context_options)
         context = await self.playwright.chromium.launch_persistent_context(
             profile_dir,
             **launch_kwargs,
@@ -872,6 +903,25 @@ async def cmd_resize(session: Session, page, args: list, options: dict, cwd: str
     return {"success": True, "output": f"Viewport resized to {w}x{h}"}
 
 
+# -- Permissions -------------------------------------------------------------
+
+
+@register("grant-permissions")
+async def cmd_grant_permissions(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    perms_str = args[0] if args else ""
+    perms = [p.strip() for p in perms_str.split(",") if p.strip()]
+    if not perms:
+        return {"success": False, "output": "Usage: grant-permissions <perm1,perm2> [--origin=url]"}
+    origin = options.get("origin")
+    kwargs = {"permissions": perms}
+    if origin:
+        kwargs["origin"] = origin
+    await session.context.grant_permissions(**kwargs)
+    return {"success": True, "output": f"Granted permissions: {', '.join(perms)}"}
+
+
 # -- State save/load ---------------------------------------------------------
 
 
@@ -1247,6 +1297,13 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 profile=options.get("profile"),
                 proxy=options.get("proxy"),
                 url=url,
+                device=options.get("device"),
+                viewport=options.get("viewport"),
+                locale=options.get("locale"),
+                timezone=options.get("timezone"),
+                geolocation=options.get("geolocation"),
+                user_agent=options.get("user-agent") or options.get("userAgent"),
+                grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
             )
             if session.page:
                 session.push_history(session.page.url)

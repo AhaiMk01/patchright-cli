@@ -138,6 +138,8 @@ COMMANDS_HELP = {
     # Dialog
     "dialog-accept": "dialog-accept [text] Accept next dialog",
     "dialog-dismiss": "dialog-dismiss       Dismiss next dialog",
+    # Permissions
+    "grant-permissions": "grant-permissions <perms>  Grant permissions [--origin=url]",
     # Upload / Resize
     "upload": "upload <file> [ref]   Upload file to input",
     "resize": "resize <w> <h>        Resize viewport",
@@ -192,6 +194,13 @@ def _print_help():
     click.echo("  --config=<path>     Load config from JSON file")
     click.echo("  --timeout-action=ms   Default action timeout")
     click.echo("  --timeout-navigation=ms Default navigation timeout")
+    click.echo("  --device=<name>     Emulate a device (e.g. 'iPhone 15')")
+    click.echo("  --viewport-size=WxH Set viewport size")
+    click.echo("  --locale=<code>     Locale (e.g. en-US)")
+    click.echo("  --timezone=<id>     Timezone ID")
+    click.echo("  --geolocation=lat,lon Geolocation override")
+    click.echo("  --user-agent=<ua>   Custom user agent")
+    click.echo("  --grant-permissions=P Comma-separated permissions to grant")
     click.echo("  --version           Show version")
     click.echo("  --help              Show this help\n")
     click.echo("Commands:")
@@ -248,6 +257,7 @@ def _print_help():
                 "sessionstorage-clear",
             ],
         ),
+        ("Permissions", ["grant-permissions"]),
         ("Route", ["route", "route-list", "unroute", "network-state-set"]),
         ("Code", ["run-code"]),
         ("Tracing", ["tracing-start", "tracing-stop"]),
@@ -275,6 +285,7 @@ def main():
     config_path = None
     session_name = os.environ.get("PATCHRIGHT_CLI_SESSION", "default")
     port = DEFAULT_PORT
+    extra_opts: dict = {}
 
     # Extract options
     remaining = []
@@ -318,6 +329,45 @@ def main():
         elif arg == "--config" and i + 1 < len(argv):
             i += 1
             config_path = argv[i]
+        elif arg.startswith("--device="):
+            extra_opts["device"] = arg.split("=", 1)[1]
+        elif arg == "--device" and i + 1 < len(argv):
+            i += 1
+            extra_opts["device"] = argv[i]
+        elif arg.startswith("--viewport-size="):
+            vw, vh = arg.split("=", 1)[1].split("x", 1)
+            extra_opts["viewport"] = {"width": vw, "height": vh}
+        elif arg == "--viewport-size" and i + 1 < len(argv):
+            i += 1
+            vw, vh = argv[i].split("x", 1)
+            extra_opts["viewport"] = {"width": vw, "height": vh}
+        elif arg.startswith("--locale="):
+            extra_opts["locale"] = arg.split("=", 1)[1]
+        elif arg == "--locale" and i + 1 < len(argv):
+            i += 1
+            extra_opts["locale"] = argv[i]
+        elif arg.startswith("--timezone="):
+            extra_opts["timezone"] = arg.split("=", 1)[1]
+        elif arg == "--timezone" and i + 1 < len(argv):
+            i += 1
+            extra_opts["timezone"] = argv[i]
+        elif arg.startswith("--geolocation="):
+            lat, lon = arg.split("=", 1)[1].split(",", 1)
+            extra_opts["geolocation"] = {"lat": lat, "lon": lon}
+        elif arg == "--geolocation" and i + 1 < len(argv):
+            i += 1
+            lat, lon = argv[i].split(",", 1)
+            extra_opts["geolocation"] = {"lat": lat, "lon": lon}
+        elif arg.startswith("--user-agent="):
+            extra_opts["user-agent"] = arg.split("=", 1)[1]
+        elif arg == "--user-agent" and i + 1 < len(argv):
+            i += 1
+            extra_opts["user-agent"] = argv[i]
+        elif arg.startswith("--grant-permissions="):
+            extra_opts["grant-permissions"] = arg.split("=", 1)[1]
+        elif arg == "--grant-permissions" and i + 1 < len(argv):
+            i += 1
+            extra_opts["grant-permissions"] = argv[i]
         elif arg in ("--version", "-v"):
             click.echo(f"patchright-cli {__version__}")
             sys.exit(0)
@@ -342,16 +392,18 @@ def main():
 
     # Separate --key=value and --flag from positional args
     positional_args = []
-    extra_opts = {}
+    cmd_opts: dict = {}
     for a in args:
         if a.startswith("--") and "=" in a:
             k, v = a[2:].split("=", 1)
-            extra_opts[k] = v
+            cmd_opts[k] = v
         elif a.startswith("--"):
-            extra_opts[a[2:]] = True
+            cmd_opts[a[2:]] = True
         else:
             positional_args.append(a)
     args = positional_args
+    # Merge: global opts as base, command-level opts take precedence
+    extra_opts = {**extra_opts, **cmd_opts}
 
     # For eval/run-code: support --file=<path> and stdin via "-"
     if command in ("eval", "run-code"):
