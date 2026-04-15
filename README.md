@@ -343,29 +343,26 @@ The snapshot lists interactive elements with refs you can use in commands:
 
 ## Agent Integration
 
-Works with any AI coding agent that supports SKILL.md skills:
-
-| Agent | Install skill |
-|-------|--------------|
-| **Claude Code** | `mkdir -p ~/.claude/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.claude/skills/patchright-cli/SKILL.md` |
-| **OpenClaw** | `mkdir -p ~/.openclaw/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.openclaw/skills/patchright-cli/SKILL.md` |
-| **Codex CLI** | `mkdir -p ~/.codex/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.codex/skills/patchright-cli/SKILL.md` |
-| **Gemini CLI** | `mkdir -p ~/.gemini/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.gemini/skills/patchright-cli/SKILL.md` |
-| **OpenCode** | `mkdir -p ~/.opencode/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.opencode/skills/patchright-cli/SKILL.md` |
-| **Cursor** | Copy SKILL.md to `.cursor/skills/patchright-cli/` in your project |
-| **Windsurf** | Copy SKILL.md to `.windsurf/skills/patchright-cli/` in your project |
-| **Aider** | Copy SKILL.md to `.aider/skills/patchright-cli/` in your project |
-
-Or auto-install for all detected agents:
+Works with Claude Code, Cursor, Gemini CLI, Codex, and [40+ other agents](https://github.com/vercel-labs/skills).
 
 ```bash
-pip install patchright-cli
-patchright-cli install --skills
+# Install skill for all detected agents (recommended)
+npx skills add AhaiMk01/patchright-cli
 ```
 
-Or just tell your agent:
+<details>
+<summary><b>Other install methods</b></summary>
 
-> Install patchright-cli skill from https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md
+```bash
+# Via patchright-cli itself
+pip install patchright-cli
+patchright-cli install --skills
+
+# Or just tell your agent:
+# "Install patchright-cli skill from https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md"
+```
+
+</details>
 
 ---
 

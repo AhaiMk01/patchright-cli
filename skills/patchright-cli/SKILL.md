@@ -312,30 +312,20 @@ pip install patchright-cli
 
 ### Skill (for AI coding agents)
 
-Install the skill so your agent knows how to use patchright-cli. The same command also works to update to the latest version.
+```bash
+# Install for all detected agents (Claude Code, Cursor, Gemini, Codex, 40+ more)
+npx skills add AhaiMk01/patchright-cli
+```
 
-**macOS / Linux (bash/zsh):**
+Other methods:
 
-| Agent | Install / update command |
-|-------|--------------------------|
-| **Claude Code** | `mkdir -p ~/.claude/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.claude/skills/patchright-cli/SKILL.md` |
-| **Gemini CLI** | `mkdir -p ~/.gemini/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.gemini/skills/patchright-cli/SKILL.md` |
-| **Codex CLI** | `mkdir -p ~/.codex/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.codex/skills/patchright-cli/SKILL.md` |
-| **OpenCode** | `mkdir -p ~/.opencode/skills/patchright-cli && curl -sL https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md -o ~/.opencode/skills/patchright-cli/SKILL.md` |
+```bash
+# Via patchright-cli itself
+pip install patchright-cli && patchright-cli install --skills
 
-**Windows (PowerShell):**
-
-| Agent | Install / update command |
-|-------|--------------------------|
-| **Claude Code** | `New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.claude\skills\patchright-cli" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md" -OutFile "$env:USERPROFILE\.claude\skills\patchright-cli\SKILL.md"` |
-| **Gemini CLI** | `New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.gemini\skills\patchright-cli" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md" -OutFile "$env:USERPROFILE\.gemini\skills\patchright-cli\SKILL.md"` |
-| **Codex CLI** | `New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.codex\skills\patchright-cli" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md" -OutFile "$env:USERPROFILE\.codex\skills\patchright-cli\SKILL.md"` |
-| **OpenCode** | `New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.opencode\skills\patchright-cli" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md" -OutFile "$env:USERPROFILE\.opencode\skills\patchright-cli\SKILL.md"` |
-
-**IDE-based agents (Cursor / Windsurf / Aider):** Copy `SKILL.md` to `.<tool>/skills/patchright-cli/` in your project.
-
-**Or just tell your agent:**
-> Install patchright-cli skill from https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md
+# Or just tell your agent:
+# "Install patchright-cli skill from https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md"
+```
 
 ## Specific tasks
 
