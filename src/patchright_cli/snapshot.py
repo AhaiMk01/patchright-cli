@@ -12,7 +12,9 @@ from pathlib import Path
 from patchright_cli.ref_registry import RefRegistry
 
 
-async def take_snapshot(page, root_element=None, max_depth: int | None = None) -> tuple[str, RefRegistry]:
+async def take_snapshot(
+    page, root_element=None, max_depth: int | None = None, interactive_only: bool = False
+) -> tuple[str, RefRegistry]:
     """Take a DOM snapshot. Returns (annotated_text, registry).
 
     If root_element is provided, only snapshot the subtree under that element.
@@ -29,7 +31,7 @@ async def take_snapshot(page, root_element=None, max_depth: int | None = None) -
         return "# Empty page - no accessible elements found\n", RefRegistry()
 
     registry = RefRegistry()
-    annotated = registry.parse(aria_text, max_depth=max_depth)
+    annotated = registry.parse(aria_text, max_depth=max_depth, interactive_only=interactive_only)
     return annotated + "\n", registry
 
 

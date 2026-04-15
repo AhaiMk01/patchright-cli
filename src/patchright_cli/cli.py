@@ -89,7 +89,7 @@ COMMANDS_HELP = {
     "select": "select <ref> <value> Select dropdown option",
     "check": "check <ref>          Check checkbox/radio",
     "uncheck": "uncheck <ref>        Uncheck checkbox/radio",
-    "snapshot": "snapshot [ref]        Take accessibility snapshot [--filename=F] [--depth=N]",
+    "snapshot": "snapshot [ref]        Take accessibility snapshot [--filename=F] [--depth=N] [-i]",
     "eval": "eval <expr> [ref]     Evaluate JavaScript [--file=F or stdin]",
     "text": "text <ref|selector>  Get text content of element",
     "screenshot": "screenshot [ref]     Save screenshot [--full-page] [--filename=F]",
@@ -386,6 +386,8 @@ def main():
         elif arg == "--show-port" and i + 1 < len(argv):
             i += 1
             extra_opts["show-port"] = argv[i]
+        elif arg in ("-i", "--interactive"):
+            extra_opts["interactive"] = True
         elif arg in ("--version", "-v"):
             click.echo(f"patchright-cli {__version__}")
             sys.exit(0)

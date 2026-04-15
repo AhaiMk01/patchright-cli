@@ -15,6 +15,28 @@ if TYPE_CHECKING:
 
 _NODE_LINE_RE = re.compile(r"^\s*-\s+(\w+)(?:\s+\"([^\"]*)\")?")
 
+INTERACTIVE_ROLES = frozenset(
+    {
+        "link",
+        "button",
+        "textbox",
+        "textarea",
+        "combobox",
+        "checkbox",
+        "radio",
+        "switch",
+        "slider",
+        "tab",
+        "menuitem",
+        "option",
+        "select",
+        "listbox",
+        "searchbox",
+        "spinbutton",
+        "treeitem",
+    }
+)
+
 
 @dataclass
 class AriaRefEntry:
@@ -31,7 +53,7 @@ class RefRegistry:
         self.entries: dict[str, AriaRefEntry] = {}
         self._counter = 0
 
-    def parse(self, aria_text: str, max_depth: int | None = None) -> str:
+    def parse(self, aria_text: str, max_depth: int | None = None, interactive_only: bool = False) -> str:
         """Return annotated snapshot text with [ref=eN] tags inserted."""
         self.entries.clear()
         self._counter = 0
@@ -51,6 +73,10 @@ class RefRegistry:
                 continue
 
             role = m.group(1)
+
+            if interactive_only and role not in INTERACTIVE_ROLES:
+                result_lines.append(line)
+                continue
             name = m.group(2) or ""
 
             self._counter += 1
