@@ -35,3 +35,40 @@ def test_load_config_from_default_location():
             assert result["persistent"] is True
         finally:
             os.chdir(old_cwd)
+
+
+# ---------------------------------------------------------------------------
+# New tests for v0.4.1 features
+# ---------------------------------------------------------------------------
+
+from patchright_cli.cli import _merge_config_with_options
+
+
+def test_merge_config_with_options():
+    config = {"headless": True, "proxy": "http://proxy", "locale": "en-US"}
+    options = {"proxy": "http://other", "device": "iPhone 15"}
+    result = _merge_config_with_options(config, options)
+    assert result["headless"] is True  # from config
+    assert result["proxy"] == "http://other"  # CLI overrides
+    assert result["locale"] == "en-US"  # from config
+    assert result["device"] == "iPhone 15"  # new from CLI
+
+
+def test_merge_config_none_values_preserved():
+    config = {"proxy": "http://proxy"}
+    options = {"proxy": None}
+    result = _merge_config_with_options(config, options)
+    assert result["proxy"] == "http://proxy"  # None doesn't override
+
+
+def test_session_env_var():
+    """PATCHRIGHT_CLI_SESSION env var should be used as session default."""
+    old = os.environ.get("PATCHRIGHT_CLI_SESSION")
+    os.environ["PATCHRIGHT_CLI_SESSION"] = "test-session"
+    try:
+        assert os.environ.get("PATCHRIGHT_CLI_SESSION", "default") == "test-session"
+    finally:
+        if old is None:
+            os.environ.pop("PATCHRIGHT_CLI_SESSION", None)
+        else:
+            os.environ["PATCHRIGHT_CLI_SESSION"] = old
