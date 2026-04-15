@@ -11,11 +11,32 @@ import os
 import socket
 import struct
 import sys
+from pathlib import Path
 
 import click
 
 from patchright_cli import __version__
 from patchright_cli.daemon import DEFAULT_PORT, ensure_daemon_running
+
+
+def _load_config(config_path: str | None) -> dict:
+    """Load JSON config file. If config_path is None, try .patchright-cli/config.json in cwd."""
+    if config_path:
+        p = Path(config_path)
+    else:
+        p = Path.cwd() / ".patchright-cli" / "config.json"
+    if p.exists():
+        return json.loads(p.read_text(encoding="utf-8"))
+    return {}
+
+
+def _merge_config_with_options(config: dict, options: dict) -> dict:
+    """Merge config dict with CLI options. CLI options take precedence."""
+    merged = dict(config)
+    for k, v in options.items():
+        if v is not None:
+            merged[k] = v
+    return merged
 
 
 def _send_command(command: str, args: list, options: dict, port: int = DEFAULT_PORT) -> dict:
@@ -168,6 +189,7 @@ def _print_help():
     click.echo("  --proxy=<url>       Proxy server (e.g. http://host:port, socks5://host:port)")
     click.echo("  -s=<name>           Named session (default: 'default')")
     click.echo("  --port=<n>          Daemon port (default: 9321)")
+    click.echo("  --config=<path>     Load config from JSON file")
     click.echo("  --timeout-action=ms   Default action timeout")
     click.echo("  --timeout-navigation=ms Default navigation timeout")
     click.echo("  --version           Show version")
@@ -250,6 +272,7 @@ def main():
     persistent = False
     profile = None
     proxy = None
+    config_path = None
     session_name = os.environ.get("PATCHRIGHT_CLI_SESSION", "default")
     port = DEFAULT_PORT
 
@@ -290,6 +313,11 @@ def main():
             except ValueError:
                 click.echo(f"Invalid port value: {argv[i]}", err=True)
                 sys.exit(1)
+        elif arg.startswith("--config="):
+            config_path = arg.split("=", 1)[1]
+        elif arg == "--config" and i + 1 < len(argv):
+            i += 1
+            config_path = argv[i]
         elif arg in ("--version", "-v"):
             click.echo(f"patchright-cli {__version__}")
             sys.exit(0)
@@ -346,8 +374,9 @@ def main():
             click.echo(f"'{command}' requires a JS expression, --file=<path>, or piped stdin.", err=True)
             sys.exit(1)
 
-    # Build options dict
-    options = {"session": session_name, **extra_opts}
+    # Build options dict (config file values are overridden by explicit CLI flags)
+    config = _load_config(config_path)
+    options = {"session": session_name, **_merge_config_with_options(config, extra_opts)}
     if headless:
         options["headless"] = True
     if persistent:
