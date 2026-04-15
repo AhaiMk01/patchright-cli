@@ -7,18 +7,26 @@ description: Anti-detect browser automation using Patchright (undetected Playwri
 
 patchright-cli drives a real Chrome browser that passes bot detection (Cloudflare, Akamai, etc.). It works as a CLI: you issue commands, get back page state. This is the tool to reach for whenever regular Playwright or Chrome DevTools gets blocked.
 
-## What's new in v0.4.0
+## What's new in v0.4.1
 
-- **Native accessibility snapshots** — uses Playwright's built-in `aria_snapshot()` instead of custom DOM injection. More accurate and immune to page-script interference.
-- **Smart link clicks** — `click` on a link now navigates directly via `goto`, avoiding sticky-header timeouts and `target="_blank"` silences.
-- **Custom history stack** — `go-back` and `go-forward` now use an internal history tracker instead of the browser History API, so they work reliably on anti-detect sites that spoof history.
-- **Scroll & wait commands** — `scroll`, `scroll-to`, `wait`, and `wait-for` are now available.
-- **`text` command** — quickly grab text content of an element by ref or CSS selector.
-- **Cookie bulk import/export** — `cookie-import` and `cookie-export` for transferring cookie jars via JSON.
-- **Authenticated proxy support** — `--proxy=http://user:pass@host:port` is parsed automatically; credentials are injected via `Proxy-Authorization`.
-- **Daemon auto-restart** — the daemon respawns automatically if it isn't running, even for commands other than `open`.
-- **Idle timeout** — daemon shuts itself down after 5 minutes of inactivity to free resources.
-- **Test suite** — unit + async handler + e2e tests are included in `tests/`.
+- **`snapshot --depth=N`** — limit snapshot depth to reduce noise on complex pages.
+- **`eval` with element ref** — `eval <expr> <ref>` evaluates JS on a specific element (receives the element as the first argument).
+- **`PATCHRIGHT_CLI_SESSION` env var** — set a default session name without passing `-s` every time.
+- **Configurable timeouts** — `--timeout-action=ms` and `--timeout-navigation=ms` override Playwright's default timeouts per command.
+- **`video-chapter`** — add named chapter markers during video recording; chapters are saved as JSON alongside the video.
+- **`--config=<path>`** — load options from a JSON config file (auto-discovers `.patchright-cli/config.json` in cwd). CLI flags always override config values.
+- **Device emulation** — `--device="iPhone 15"`, `--viewport-size=WxH`, `--locale=en-US`, `--timezone=America/New_York`, `--geolocation=lat,lon`, `--user-agent=<ua>`.
+- **`grant-permissions`** — grant browser permissions (geolocation, camera, etc.) to a running session: `grant-permissions geolocation,camera --origin=https://example.com`.
+- **`attach --cdp=<url>`** — connect to an already-running Chrome instance via Chrome DevTools Protocol instead of launching a new one.
+- **`show` dashboard** — `show` starts a local web dashboard (default port 9322) that streams live screenshots of all sessions via WebSocket.
+- **`codegen` / `codegen-stop`** — record your interactions and save them as a replayable bash script.
+
+### What was new in v0.4.0
+
+- Native accessibility snapshots via `aria_snapshot()` — more accurate and immune to page-script interference.
+- Smart link clicks — `click` on a link navigates directly via `goto`.
+- Custom history stack — `go-back`/`go-forward` use an internal tracker.
+- Scroll & wait commands, `text` command, cookie import/export, authenticated proxy, daemon auto-restart, idle timeout, test suite.
 
 ## How it works: the snapshot-driven loop
 
@@ -93,12 +101,24 @@ Install the skill so your agent knows how to use patchright-cli. The same comman
 These go before the command:
 
 ```bash
---headless          # Run headless (default: headed — headed is less detectable)
---persistent        # Use persistent profile (keeps cookies/storage across sessions)
---profile=/path     # Custom profile directory
---proxy=<url>       # Proxy server (http, https, socks5) — supports user:pass@host auth
--s=mysession        # Named session (default: "default")
---port=9322         # Custom daemon port (default: 9321)
+--headless              # Run headless (default: headed — headed is less detectable)
+--persistent            # Use persistent profile (keeps cookies/storage across sessions)
+--profile=/path         # Custom profile directory
+--proxy=<url>           # Proxy server (http, https, socks5) — supports user:pass@host auth
+-s=mysession            # Named session (default: "default", or PATCHRIGHT_CLI_SESSION env var)
+--port=9322             # Custom daemon port (default: 9321)
+--config=<path>         # Load options from JSON config file
+--cdp=<url>             # Attach to Chrome via CDP endpoint (use with `attach` command)
+--device="iPhone 15"    # Emulate a device
+--viewport-size=1280x720 # Set viewport size
+--locale=en-US          # Browser locale
+--timezone=America/New_York # Timezone ID
+--geolocation=40.7,-74.0   # Geolocation override (lat,lon)
+--user-agent=<ua>       # Custom user agent string
+--grant-permissions=geolocation,camera  # Grant permissions at launch
+--timeout-action=10000  # Default action timeout (ms)
+--timeout-navigation=30000 # Default navigation timeout (ms)
+--show-port=9322        # Dashboard port (default: 9322)
 ```
 
 ---
@@ -116,6 +136,8 @@ patchright-cli open --profile=/path/to/dir     # Custom profile directory
 patchright-cli --proxy=http://host:port open   # Route traffic through HTTP proxy
 patchright-cli --proxy=socks5://host:port open # SOCKS5 proxy
 patchright-cli --proxy=http://user:pass@host:port open  # Authenticated proxy
+patchright-cli --device="iPhone 15" open       # Emulate a device
+patchright-cli attach --cdp=http://localhost:9222  # Attach to existing Chrome via CDP
 patchright-cli close                           # Close session
 ```
 
@@ -138,6 +160,7 @@ Snapshots are how you discover what's on the page. They produce a YAML tree of i
 patchright-cli snapshot                        # Full page snapshot
 patchright-cli snapshot e3                     # Subtree of a specific element
 patchright-cli snapshot --filename=snap.yml    # Save to custom path
+patchright-cli snapshot --depth=2              # Limit depth (reduces noise on complex pages)
 ```
 
 After each state-changing command (click, fill, goto, etc.), a snapshot is automatically taken and returned. You don't need to manually snapshot after every action.
@@ -245,7 +268,14 @@ patchright-cli eval --file=/tmp/check.js
 echo 'document.title' | patchright-cli eval
 ```
 
-`eval` returns the expression result. `run-code` wraps your code in `async () => { ... }` so you can use `return` and `await`.
+`eval` returns the expression result. You can also target a specific element: `eval <expr> <ref>` — the element is passed as the first argument to the expression.
+
+```bash
+# Evaluate on a specific element
+echo 'el => el.textContent' | patchright-cli eval - e5
+```
+
+`run-code` wraps your code in `async () => { ... }` so you can use `return` and `await`.
 
 ```bash
 # run-code example
@@ -445,8 +475,16 @@ patchright-cli tracing-stop                # Saves .zip to .patchright-cli/
 
 # Video (CDP screencast, requires ffmpeg for .webm output)
 patchright-cli video-start
+patchright-cli video-chapter "Login page"  # Add chapter marker during recording
+patchright-cli video-chapter "Dashboard"   # Chapters saved as JSON alongside video
 patchright-cli video-stop                  # Save as .webm (or frames if no ffmpeg)
 patchright-cli video-stop --filename=rec.webm
+
+# Codegen — record interactions as a replayable bash script
+patchright-cli codegen                     # Start recording
+# ... do your interactions (click, fill, goto, etc.) ...
+patchright-cli codegen-stop                # Stop and save script to .patchright-cli/
+patchright-cli codegen-stop script.sh      # Save to custom path
 
 # PDF
 patchright-cli pdf                         # Save page as PDF
@@ -458,6 +496,10 @@ patchright-cli upload ./photo.jpg e5       # Upload to specific input
 
 # Viewport resize
 patchright-cli resize 1920 1080
+
+# Dashboard — live session monitor
+patchright-cli show                        # Open dashboard at http://127.0.0.1:9322
+patchright-cli show --show-port=9400       # Custom port
 ```
 
 ---
@@ -469,6 +511,10 @@ patchright-cli resize 1920 1080
 patchright-cli -s=session1 open https://site-a.com --persistent
 patchright-cli -s=session2 open https://site-b.com --persistent
 
+# Or set a default session via env var
+export PATCHRIGHT_CLI_SESSION=myproject
+patchright-cli open https://example.com    # Uses "myproject" session
+
 patchright-cli list                        # List all active sessions
 patchright-cli close-all                   # Gracefully close all
 patchright-cli kill-all                    # Force-kill all + stop daemon
@@ -476,9 +522,32 @@ patchright-cli kill-all                    # Force-kill all + stop daemon
 # Delete persistent profile data
 patchright-cli delete-data                 # Delete default session's profile
 patchright-cli -s=mysession delete-data    # Delete named session's profile
+
+# Grant permissions to a running session
+patchright-cli grant-permissions geolocation,camera
+patchright-cli grant-permissions notifications --origin=https://example.com
 ```
 
 The daemon auto-starts on the first command and auto-shuts down after 5 minutes of inactivity. If it ever crashes, the next command you run will respawn it automatically.
+
+---
+
+## Config files
+
+Create `.patchright-cli/config.json` in your project directory (auto-discovered) or pass `--config=<path>`:
+
+```json
+{
+  "headless": false,
+  "persistent": true,
+  "proxy": "http://proxy:8080",
+  "device": "iPhone 15",
+  "locale": "en-US",
+  "timezone": "America/New_York"
+}
+```
+
+CLI flags always override config file values.
 
 ---
 
@@ -487,6 +556,7 @@ The daemon auto-starts on the first command and auto-shuts down after 5 minutes 
 - Uses real Chrome (not Chromium) — this is what makes it undetectable
 - Patchright patches `navigator.webdriver` and other detection vectors automatically
 - Headed by default — headless mode is more detectable, use only when necessary
-- No custom user-agent or headers — preserves Chrome's natural fingerprint
+- No custom user-agent or headers by default — preserves Chrome's natural fingerprint (use `--user-agent` and `--device` only when you need specific emulation)
 - Persistent profiles maintain realistic browser history and cookies
 - The daemon architecture means Chrome stays running between commands, behaving like a real user's browser
+- `attach --cdp` lets you connect to an existing Chrome instance — useful for debugging or controlling a browser you launched manually with `--remote-debugging-port`
