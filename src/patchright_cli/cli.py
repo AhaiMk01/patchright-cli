@@ -167,6 +167,8 @@ def _print_help():
     click.echo("  --proxy=<url>       Proxy server (e.g. http://host:port, socks5://host:port)")
     click.echo("  -s=<name>           Named session (default: 'default')")
     click.echo("  --port=<n>          Daemon port (default: 9321)")
+    click.echo("  --timeout-action=ms   Default action timeout")
+    click.echo("  --timeout-navigation=ms Default navigation timeout")
     click.echo("  --version           Show version")
     click.echo("  --help              Show this help\n")
     click.echo("Commands:")

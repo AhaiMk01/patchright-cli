@@ -294,6 +294,20 @@ async def _resolve_ref(session: Session, page, ref: str):
     return session.ref_registry.resolve(page, ref)
 
 
+async def _apply_timeouts(page, options: dict) -> None:
+    """Apply per-command timeout overrides from CLI options."""
+    if options.get("timeout-action"):
+        try:
+            page.set_default_timeout(float(options["timeout-action"]))
+        except Exception:
+            pass
+    if options.get("timeout-navigation"):
+        try:
+            page.set_default_navigation_timeout(float(options["timeout-navigation"]))
+        except Exception:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
@@ -1280,6 +1294,8 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 "success": False,
                 "output": "No page open. Run 'tab-new' to create one, or 'close' and 'open' again.",
             }
+
+        await _apply_timeouts(page, options)
 
         handler = COMMAND_HANDLERS.get(cmd)
         if handler is None:
