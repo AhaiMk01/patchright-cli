@@ -177,6 +177,8 @@ COMMANDS_HELP = {
     "close-all": "close-all            Close all sessions",
     "kill-all": "kill-all             Kill all sessions",
     "delete-data": "delete-data          Delete persistent profile",
+    # Dashboard
+    "show": "show [--port=N]       Open session dashboard in browser",
 }
 
 ALL_COMMANDS = list(COMMANDS_HELP.keys())
@@ -203,6 +205,7 @@ def _print_help():
     click.echo("  --user-agent=<ua>   Custom user agent")
     click.echo("  --grant-permissions=P Comma-separated permissions to grant")
     click.echo("  --cdp=<url>         Attach to Chrome via CDP endpoint")
+    click.echo("  --show-port=N       Dashboard port (default: 9322)")
     click.echo("  --version           Show version")
     click.echo("  --help              Show this help\n")
     click.echo("Commands:")
@@ -268,6 +271,7 @@ def _print_help():
         ("PDF", ["pdf"]),
         ("DevTools", ["console", "network"]),
         ("Session", ["list", "close-all", "kill-all", "delete-data"]),
+        ("Dashboard", ["show"]),
     ]
     for cat_name, cmds in categories:
         click.echo(f"\n  {cat_name}:")
@@ -376,6 +380,11 @@ def main():
         elif arg == "--cdp" and i + 1 < len(argv):
             i += 1
             extra_opts["cdp"] = argv[i]
+        elif arg.startswith("--show-port="):
+            extra_opts["show-port"] = arg.split("=", 1)[1]
+        elif arg == "--show-port" and i + 1 < len(argv):
+            i += 1
+            extra_opts["show-port"] = argv[i]
         elif arg in ("--version", "-v"):
             click.echo(f"patchright-cli {__version__}")
             sys.exit(0)

@@ -27,6 +27,8 @@ logger = logging.getLogger("patchright-cli.daemon")
 DEFAULT_PORT = 9321
 DEFAULT_PROFILE_DIR = str(Path.home() / ".patchright-cli" / "profiles" / "default")
 
+_dashboard_runners: dict[int, tuple] = {}
+
 # ---------------------------------------------------------------------------
 # Command handler registry
 # ---------------------------------------------------------------------------
@@ -1280,6 +1282,19 @@ async def cmd_wait_for(session: Session, page, args: list, options: dict, cwd: s
     return {"success": True, "output": f"Element is {state_arg}"}
 
 
+@register("show")
+async def cmd_show(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    from patchright_cli.dashboard import start_dashboard_server
+
+    port = int(options.get("show-port", 9322))
+    if port not in _dashboard_runners:
+        runner, url = await start_dashboard_server(state, port=port)
+        _dashboard_runners[port] = (runner, url)
+    else:
+        _, url = _dashboard_runners[port]
+    return {"success": True, "output": f"Dashboard running at {url}"}
+
+
 # ---------------------------------------------------------------------------
 # Command dispatch
 # ---------------------------------------------------------------------------
@@ -1353,6 +1368,11 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 shutil.rmtree(profile_dir, ignore_errors=True)
                 return {"success": True, "output": f"Profile data deleted for '{session_name}'."}
             return {"success": False, "output": "No persistent profile to delete."}
+
+        # Dashboard command — no session required
+        if cmd == "show":
+            handler = COMMAND_HANDLERS.get("show")
+            return await handler(None, None, args, options, cwd, state)
 
         # All other commands require an existing session
         session = state.sessions.get(session_name)

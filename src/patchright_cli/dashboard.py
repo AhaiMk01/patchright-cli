@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
 
 from aiohttp import web
-
 
 HTML = """
 <!DOCTYPE html>
