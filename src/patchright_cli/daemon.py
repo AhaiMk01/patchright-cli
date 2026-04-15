@@ -66,6 +66,7 @@ class Session:
         self._video_cdp = None
         self._video_frames: list[bytes] = []
         self._video_recording: bool = False
+        self._video_chapters: list[tuple[int, str]] = []
         self._history: list[str] = []
         self._history_index: int = -1
 
@@ -1098,6 +1099,8 @@ async def cmd_video_stop(
     frames = session._video_frames
     session._video_frames = []
     session._video_cdp = None
+    chapters = list(session._video_chapters)
+    session._video_chapters = []
 
     if not frames:
         return {"success": False, "output": "No video frames were captured."}
@@ -1106,6 +1109,13 @@ async def cmd_video_stop(
     snap_dir = base / ".patchright-cli"
     snap_dir.mkdir(parents=True, exist_ok=True)
     ts = int(time.time() * 1000)
+
+    if chapters:
+        chapters_path = snap_dir / f"video-{ts}-chapters.json"
+        chapters_path.write_text(
+            json.dumps([{"frame": f, "title": t} for f, t in chapters], indent=2),
+            encoding="utf-8",
+        )
 
     fn = options.get("filename")
     video_path = snap_dir / (fn or f"video-{ts}.webm")
@@ -1147,6 +1157,18 @@ async def cmd_video_stop(
             "success": True,
             "output": f"Saved {len(frames)} frames to {frames_dir}/ (install ffmpeg for video output)",
         }
+
+
+@register("video-chapter")
+async def cmd_video_chapter(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    if not session._video_recording:
+        return {"success": False, "output": "No video recording in progress."}
+    title = args[0] if args else "Chapter"
+    frame_index = len(session._video_frames)
+    session._video_chapters.append((frame_index, title))
+    return {"success": True, "output": f"Chapter '{title}' added at frame {frame_index}."}
 
 
 # -- PDF ---------------------------------------------------------------------

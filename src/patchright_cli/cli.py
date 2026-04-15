@@ -142,6 +142,7 @@ COMMANDS_HELP = {
     # Video
     "video-start": "video-start          Start video recording",
     "video-stop": "video-stop           Stop recording and save [--filename=F]",
+    "video-chapter": "video-chapter <title>  Add chapter marker to video",
     # PDF
     "pdf": "pdf [--filename=F]   Save page as PDF",
     # DevTools
@@ -228,7 +229,7 @@ def _print_help():
         ("Route", ["route", "route-list", "unroute", "network-state-set"]),
         ("Code", ["run-code"]),
         ("Tracing", ["tracing-start", "tracing-stop"]),
-        ("Video", ["video-start", "video-stop"]),
+        ("Video", ["video-start", "video-stop", "video-chapter"]),
         ("PDF", ["pdf"]),
         ("DevTools", ["console", "network"]),
         ("Session", ["list", "close-all", "kill-all", "delete-data"]),
