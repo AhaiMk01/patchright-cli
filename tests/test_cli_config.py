@@ -72,3 +72,41 @@ def test_session_env_var():
             os.environ.pop("PATCHRIGHT_CLI_SESSION", None)
         else:
             os.environ["PATCHRIGHT_CLI_SESSION"] = old
+
+
+def test_raw_flag_strips_page_info():
+    """--raw flag should strip ### Page and ### Snapshot decorations."""
+    output = (
+        "### Page\n"
+        "- Page URL: https://example.com/\n"
+        "- Page Title: Example\n"
+        "### Snapshot\n"
+        "[Snapshot](.patchright-cli/page-123.yml)"
+    )
+    from patchright_cli.cli import _strip_raw_output
+
+    result = _strip_raw_output(output)
+    assert result == ""
+
+
+def test_raw_flag_preserves_result_content():
+    output = '{"title": "Example"}'
+    from patchright_cli.cli import _strip_raw_output
+
+    result = _strip_raw_output(output)
+    assert result == '{"title": "Example"}'
+
+
+def test_raw_flag_strips_decorations_from_mixed():
+    output = (
+        "### Page\n"
+        "- Page URL: https://example.com/\n"
+        "- Page Title: Example\n"
+        "some actual result\n"
+        "### Snapshot\n"
+        "[Snapshot](.patchright-cli/page-123.yml)"
+    )
+    from patchright_cli.cli import _strip_raw_output
+
+    result = _strip_raw_output(output)
+    assert result == "some actual result"

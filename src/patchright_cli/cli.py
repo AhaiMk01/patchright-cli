@@ -36,6 +36,24 @@ def _merge_config_with_options(config: dict, options: dict) -> dict:
     return merged
 
 
+def _strip_raw_output(output: str) -> str:
+    """Strip page info and snapshot decorations, returning only the result value."""
+    lines = output.splitlines()
+    result_lines = []
+    skip = False
+    for line in lines:
+        if line.startswith("### Page") or line.startswith("### Snapshot"):
+            skip = True
+            continue
+        if skip and (
+            line.startswith("- Page URL:") or line.startswith("- Page Title:") or line.startswith("[Snapshot](")
+        ):
+            continue
+        skip = False
+        result_lines.append(line)
+    return "\n".join(result_lines).strip()
+
+
 def _send_command(command: str, args: list, options: dict, port: int = DEFAULT_PORT) -> dict:
     """Connect to daemon, send command, receive response."""
     msg = {
@@ -206,6 +224,7 @@ def _print_help():
     click.echo("  --grant-permissions=P Comma-separated permissions to grant")
     click.echo("  --cdp=<url>         Attach to Chrome via CDP endpoint")
     click.echo("  --show-port=N       Dashboard port (default: 9322)")
+    click.echo("  --raw               Raw output (strip page/snapshot decorations)")
     click.echo("  --version           Show version")
     click.echo("  --help              Show this help\n")
     click.echo("Commands:")
@@ -294,6 +313,7 @@ def main():
     session_name = os.environ.get("PATCHRIGHT_CLI_SESSION", "default")
     port = DEFAULT_PORT
     extra_opts: dict = {}
+    raw = False
 
     # Extract options
     remaining = []
@@ -386,6 +406,8 @@ def main():
         elif arg == "--show-port" and i + 1 < len(argv):
             i += 1
             extra_opts["show-port"] = argv[i]
+        elif arg == "--raw":
+            raw = True
         elif arg in ("-i", "--interactive"):
             extra_opts["interactive"] = True
         elif arg in ("--version", "-v"):
@@ -478,7 +500,10 @@ def main():
     # Print output
     output = response.get("output", "")
     if output:
-        click.echo(output)
+        if raw:
+            output = _strip_raw_output(output)
+        if output:
+            click.echo(output)
 
     success = response.get("success", True)
     if not success:
