@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Fixture</title>
+</head>
+<body>
+    <h1>Test Fixture</h1>
+    <form>
+        <label>Name: <input id="name" type="text" placeholder="Your name"></label>
+        <label>
+            Color:
+            <select id="color">
+                <option value="red">Red</option>
+                <option value="green">Green</option>
+                <option value="blue">Blue</option>
+            </select>
+        </label>
+        <label><input id="agree" type="checkbox"> I agree</label>
+        <button id="btn" type="button">Click me</button>
+        <p id="output"></p>
+    </form>
+    <a href="https://example.com">More information...</a>
+    <script>
+        document.getElementById('btn').addEventListener('click', function() {
+            document.getElementById('output').textContent = 'clicked';
+        });
+    </script>
+</body>
+</html>

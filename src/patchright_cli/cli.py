@@ -72,6 +72,7 @@ COMMANDS_HELP = {
     "uncheck": "uncheck <ref>        Uncheck checkbox/radio",
     "snapshot": "snapshot [ref]        Take accessibility snapshot",
     "eval": "eval <expr>          Evaluate JavaScript [--file=F or stdin]",
+    "text": "text <ref|selector>  Get text content of element",
     "screenshot": "screenshot [ref]     Save screenshot [--full-page] [--filename=F]",
     "drag": "drag <from> <to>     Drag element to target",
     "close": "close                Close browser session",
@@ -79,6 +80,8 @@ COMMANDS_HELP = {
     "go-back": "go-back              Go back",
     "go-forward": "go-forward           Go forward",
     "reload": "reload               Reload page",
+    "url": "url                  Print current URL",
+    "title": "title                Print page title",
     # Keyboard
     "press": "press <key>          Press key",
     "keydown": "keydown <key>        Key down",
@@ -88,6 +91,11 @@ COMMANDS_HELP = {
     "mousedown": "mousedown [button]   Mouse button down",
     "mouseup": "mouseup [button]     Mouse button up",
     "mousewheel": "mousewheel <dx> <dy> Scroll mouse wheel",
+    # Scroll & Wait
+    "scroll": "scroll <dx> <dy>      Scroll by pixel offset",
+    "scroll-to": "scroll-to <ref>      Scroll element into view",
+    "wait": "wait <ms>            Wait for milliseconds",
+    "wait-for": "wait-for <ref>       Wait for element to appear [--state=hidden]",
     # Tabs
     "tab-list": "tab-list             List tabs",
     "tab-new": "tab-new [url]        Open new tab",
@@ -99,6 +107,8 @@ COMMANDS_HELP = {
     "cookie-set": "cookie-set <n> <v>   Set cookie [--domain --path --expires --httpOnly --secure --sameSite]",
     "cookie-delete": "cookie-delete <name> Delete cookie",
     "cookie-clear": "cookie-clear         Clear all cookies",
+    "cookie-import": "cookie-import <file> Import cookies from JSON",
+    "cookie-export": "cookie-export [file] Export cookies to JSON",
     "localstorage-list": "localstorage-list    List localStorage",
     "localstorage-get": "localstorage-get <k> Get localStorage item",
     "localstorage-set": "localstorage-set <k> <v>  Set localStorage item",
@@ -177,14 +187,16 @@ def _print_help():
                 "uncheck",
                 "snapshot",
                 "eval",
+                "text",
                 "screenshot",
                 "drag",
                 "close",
             ],
         ),
-        ("Navigation", ["go-back", "go-forward", "reload"]),
+        ("Navigation", ["go-back", "go-forward", "reload", "url", "title"]),
         ("Keyboard", ["press", "keydown", "keyup"]),
         ("Mouse", ["mousemove", "mousedown", "mouseup", "mousewheel"]),
+        ("Scroll & Wait", ["scroll", "scroll-to", "wait", "wait-for"]),
         ("Tabs", ["tab-list", "tab-new", "tab-close", "tab-select"]),
         ("Dialog", ["dialog-accept", "dialog-dismiss"]),
         ("Upload/Resize", ["upload", "resize"]),
@@ -197,6 +209,8 @@ def _print_help():
                 "cookie-set",
                 "cookie-delete",
                 "cookie-clear",
+                "cookie-import",
+                "cookie-export",
                 "localstorage-list",
                 "localstorage-get",
                 "localstorage-set",
@@ -340,26 +354,9 @@ def main():
     if proxy:
         options["proxy"] = proxy
 
-    # Ensure daemon is running (auto-start for 'open', require for others)
+    # Ensure daemon is running (auto-start for all commands)
     try:
-        if command == "open":
-            ensure_daemon_running(port, headless)
-        else:
-            # Try connecting first; if fails, tell user to open
-            import socket as _socket
-
-            sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
-            try:
-                sock.settimeout(1)
-                sock.connect(("127.0.0.1", port))
-            except (ConnectionRefusedError, OSError, TimeoutError):
-                click.echo(
-                    f"Daemon is not running on port {port}. Run 'patchright-cli open' first.",
-                    err=True,
-                )
-                sys.exit(1)
-            finally:
-                sock.close()
+        ensure_daemon_running(port, headless)
     except RuntimeError as e:
         click.echo(str(e), err=True)
         sys.exit(1)

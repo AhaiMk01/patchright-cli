@@ -7,6 +7,19 @@ description: Anti-detect browser automation using Patchright (undetected Playwri
 
 patchright-cli drives a real Chrome browser that passes bot detection (Cloudflare, Akamai, etc.). It works as a CLI: you issue commands, get back page state. This is the tool to reach for whenever regular Playwright or Chrome DevTools gets blocked.
 
+## What's new in v0.4.0
+
+- **Native accessibility snapshots** — uses Playwright's built-in `aria_snapshot()` instead of custom DOM injection. More accurate and immune to page-script interference.
+- **Smart link clicks** — `click` on a link now navigates directly via `goto`, avoiding sticky-header timeouts and `target="_blank"` silences.
+- **Custom history stack** — `go-back` and `go-forward` now use an internal history tracker instead of the browser History API, so they work reliably on anti-detect sites that spoof history.
+- **Scroll & wait commands** — `scroll`, `scroll-to`, `wait`, and `wait-for` are now available.
+- **`text` command** — quickly grab text content of an element by ref or CSS selector.
+- **Cookie bulk import/export** — `cookie-import` and `cookie-export` for transferring cookie jars via JSON.
+- **Authenticated proxy support** — `--proxy=http://user:pass@host:port` is parsed automatically; credentials are injected via `Proxy-Authorization`.
+- **Daemon auto-restart** — the daemon respawns automatically if it isn't running, even for commands other than `open`.
+- **Idle timeout** — daemon shuts itself down after 5 minutes of inactivity to free resources.
+- **Test suite** — unit + async handler + e2e tests are included in `tests/`.
+
 ## How it works: the snapshot-driven loop
 
 Every interaction follows the same cycle:
@@ -16,7 +29,7 @@ open browser → snapshot → read refs → interact → snapshot again → repe
 ```
 
 1. **Open** a browser session — this launches a real Chrome window
-2. **Snapshot** the page — this scans the DOM and assigns refs (`e1`, `e2`, ...) to interactive elements
+2. **Snapshot** the page — this uses Playwright's accessibility tree and assigns refs (`e1`, `e2`, ...) to interactive elements
 3. **Read the snapshot** — it's a YAML file showing the element tree with refs
 4. **Interact** using refs — `click e5`, `fill e3 "hello"`, etc.
 5. **Check the result** — most commands auto-snapshot, so you get updated refs
@@ -83,7 +96,7 @@ These go before the command:
 --headless          # Run headless (default: headed — headed is less detectable)
 --persistent        # Use persistent profile (keeps cookies/storage across sessions)
 --profile=/path     # Custom profile directory
---proxy=<url>       # Proxy server (http, https, socks5)
+--proxy=<url>       # Proxy server (http, https, socks5) — supports user:pass@host auth
 -s=mysession        # Named session (default: "default")
 --port=9322         # Custom daemon port (default: 9321)
 ```
@@ -102,6 +115,7 @@ patchright-cli open --headless                 # Headless mode
 patchright-cli open --profile=/path/to/dir     # Custom profile directory
 patchright-cli --proxy=http://host:port open   # Route traffic through HTTP proxy
 patchright-cli --proxy=socks5://host:port open # SOCKS5 proxy
+patchright-cli --proxy=http://user:pass@host:port open  # Authenticated proxy
 patchright-cli close                           # Close session
 ```
 
@@ -109,9 +123,11 @@ patchright-cli close                           # Close session
 
 ```bash
 patchright-cli goto https://example.com
-patchright-cli go-back
+patchright-cli go-back                         # Uses internal history stack
 patchright-cli go-forward
 patchright-cli reload
+patchright-cli url                             # Print current URL
+patchright-cli title                           # Print page title
 ```
 
 ### Snapshots
@@ -138,6 +154,8 @@ patchright-cli hover e4
 patchright-cli drag e2 e8                      # Drag element to target
 ```
 
+`click` is smart about links: if the element (or an ancestor) is an `<a>` tag, the CLI navigates directly instead of performing a DOM click. This avoids sticky-header overlay timeouts and `target="_blank"` silences.
+
 ### Form input
 
 ```bash
@@ -152,6 +170,13 @@ patchright-cli uncheck e12
 
 `fill` targets a specific input by ref and replaces its contents. `type` types via the keyboard into whatever is focused.
 
+### Text extraction
+
+```bash
+patchright-cli text e5                         # Get text content by ref
+patchright-cli text "h1"                       # Or by raw CSS selector
+```
+
 ### Screenshots
 
 ```bash
@@ -162,6 +187,16 @@ patchright-cli screenshot --full-page          # Full scrollable page
 ```
 
 Screenshots save to `.patchright-cli/` in the current directory.
+
+### Scroll & wait
+
+```bash
+patchright-cli scroll 0 200                    # Scroll by (dx, dy) pixels
+patchright-cli scroll-to e5                    # Scroll element into view
+patchright-cli wait 500                        # Wait N milliseconds
+patchright-cli wait-for e5                     # Wait until element is visible
+patchright-cli wait-for e5 --state=hidden      # Wait until hidden
+```
 
 ### Keyboard and mouse
 
@@ -234,7 +269,7 @@ patchright-cli --proxy=http://host:port open https://example.com
 # SOCKS5 proxy
 patchright-cli --proxy=socks5://host:port open https://example.com
 
-# Authenticated proxy
+# Authenticated proxy (credentials are parsed and injected automatically)
 patchright-cli --proxy=http://user:pass@host:port open https://example.com
 
 # Combine with persistent profile and named session
@@ -275,14 +310,14 @@ patchright-cli eval --file=/tmp/extract.js
 
 ### Waiting for dynamic content
 
-The page may not be fully loaded when you snapshot. If elements are missing, try:
-
 ```bash
-# Option 1: Just snapshot again after a short pause
-# (most commands auto-wait for navigation to settle)
-patchright-cli snapshot
+# Wait for an element to appear
+patchright-cli wait-for e12
 
-# Option 2: Use run-code to wait for a specific condition
+# Or wait a fixed time
+patchright-cli wait 1000
+
+# If you need a custom condition, use run-code
 cat > /tmp/wait.js << 'JSEOF'
 for (let i = 0; i < 30; i++) {
   if (document.querySelector('.results-loaded')) return true;
@@ -334,6 +369,8 @@ patchright-cli cookie-set session_id abc123             # Set cookie (current pa
 patchright-cli cookie-set token xyz --domain=example.com --path=/ --httpOnly --secure --sameSite=Lax --expires=1735689600
 patchright-cli cookie-delete session_id
 patchright-cli cookie-clear                             # Clear all
+patchright-cli cookie-export cookies.json               # Export all cookies to JSON
+patchright-cli cookie-import cookies.json               # Import cookies from JSON
 ```
 
 ### localStorage / sessionStorage
@@ -440,6 +477,8 @@ patchright-cli kill-all                    # Force-kill all + stop daemon
 patchright-cli delete-data                 # Delete default session's profile
 patchright-cli -s=mysession delete-data    # Delete named session's profile
 ```
+
+The daemon auto-starts on the first command and auto-shuts down after 5 minutes of inactivity. If it ever crashes, the next command you run will respawn it automatically.
 
 ---
 

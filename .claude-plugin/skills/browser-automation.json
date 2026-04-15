@@ -1,0 +1,5 @@
+{
+  "name": "browser-automation",
+  "description": "Control a headful or headless Chrome browser via patchright-cli commands",
+  "documentation": "./skills/patchright-cli/SKILL.md"
+}
