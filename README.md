@@ -145,6 +145,8 @@ patchright-cli check <ref>             # Check checkbox
 patchright-cli uncheck <ref>           # Uncheck checkbox
 patchright-cli drag <from> <to>        # Drag and drop
 patchright-cli snapshot                # Accessibility snapshot
+patchright-cli snapshot -i             # Interactive elements only (recommended)
+patchright-cli snapshot --depth=3      # Limit depth
 patchright-cli snapshot <ref>          # Snapshot element subtree
 patchright-cli snapshot --filename=f   # Save to custom path
 patchright-cli eval <expr>             # Run JavaScript
@@ -269,6 +271,17 @@ patchright-cli console warning         # Filter by level
 patchright-cli console --clear         # Clear after printing
 ```
 
+### Output
+```bash
+patchright-cli --raw eval --file=s.js  # Raw output (no page/snapshot decoration)
+patchright-cli --raw snapshot > p.yml  # Pipe raw snapshot to file
+```
+
+### Setup
+```bash
+patchright-cli install --skills        # Auto-install skills for detected AI agents
+```
+
 ### Sessions
 ```bash
 patchright-cli -s=mysession open https://example.com --persistent
@@ -342,6 +355,13 @@ Works with any AI coding agent that supports SKILL.md skills:
 | **Cursor** | Copy SKILL.md to `.cursor/skills/patchright-cli/` in your project |
 | **Windsurf** | Copy SKILL.md to `.windsurf/skills/patchright-cli/` in your project |
 | **Aider** | Copy SKILL.md to `.aider/skills/patchright-cli/` in your project |
+
+Or auto-install for all detected agents:
+
+```bash
+pip install patchright-cli
+patchright-cli install --skills
+```
 
 Or just tell your agent:
 
