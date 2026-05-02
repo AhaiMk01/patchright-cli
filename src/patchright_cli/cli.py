@@ -180,12 +180,14 @@ COMMANDS_HELP = {
     "select": "select <ref> <value> Select dropdown option",
     "check": "check <ref>          Check checkbox/radio",
     "uncheck": "uncheck <ref>        Uncheck checkbox/radio",
-    "snapshot": "snapshot [ref]        Take accessibility snapshot [--filename=F] [--depth=N] [-i]",
+    "snapshot": "snapshot [ref]        Take accessibility snapshot [--filename=F] [--depth=N] [-i] [--boxes]",
     "eval": "eval <expr> [ref]     Evaluate JavaScript [--file=F or stdin]",
     "text": "text <ref|selector>  Get text content of element",
     "screenshot": "screenshot [ref]     Save screenshot [--full-page] [--filename=F]",
     "drag": "drag <from> <to>     Drag element to target",
+    "drop": "drop <ref> [--path=F] [--data=mime=value]  Drop file/data onto element",
     "close": "close                Close browser session",
+    "detach": "detach               Detach attached session (keep external browser running)",
     # Navigation
     "go-back": "go-back              Go back",
     "go-forward": "go-forward           Go forward",
@@ -260,6 +262,10 @@ COMMANDS_HELP = {
     # DevTools
     "console": "console [level]      Show console messages [--clear]",
     "network": "network              Show network requests [--static] [--clear]",
+    "requests": "requests             Alias for `network`",
+    "request": "request <id>         Show full detail for a network request [--body]",
+    "generate-locator": "generate-locator <ref>  Emit Playwright locator expression for a ref",
+    "highlight": "highlight <ref>      Show overlay on element [--style=CSS] [--hide]",
     # Session
     "list": "list                 List sessions",
     "close-all": "close-all            Close all sessions",
@@ -300,6 +306,7 @@ def _print_help():
     click.echo("  --cdp=<url>         Attach to Chrome via CDP endpoint")
     click.echo("  --show-port=N       Dashboard port (default: 9322)")
     click.echo("  --raw               Raw output (strip page/snapshot decorations)")
+    click.echo("  --json              Wrap response as JSON ({success, output, ...})")
     click.echo("  --version           Show version")
     click.echo("  --help              Show this help\n")
     click.echo("Commands:")
@@ -324,7 +331,9 @@ def _print_help():
                 "text",
                 "screenshot",
                 "drag",
+                "drop",
                 "close",
+                "detach",
             ],
         ),
         ("Navigation", ["go-back", "go-forward", "reload", "url", "title"]),
@@ -363,7 +372,7 @@ def _print_help():
         ("Tracing", ["tracing-start", "tracing-stop"]),
         ("Video", ["video-start", "video-stop", "video-chapter"]),
         ("PDF", ["pdf"]),
-        ("DevTools", ["console", "network"]),
+        ("DevTools", ["console", "network", "requests", "request", "generate-locator", "highlight"]),
         ("Session", ["list", "close-all", "kill-all", "delete-data"]),
         ("Dashboard", ["show"]),
         ("Codegen", ["codegen", "codegen-stop"]),
@@ -390,6 +399,7 @@ def main():
     port = DEFAULT_PORT
     extra_opts: dict = {}
     raw = False
+    as_json = False
 
     # Extract options
     remaining = []
@@ -484,6 +494,8 @@ def main():
             extra_opts["show-port"] = argv[i]
         elif arg == "--raw":
             raw = True
+        elif arg == "--json":
+            as_json = True
         elif arg in ("-i", "--interactive"):
             extra_opts["interactive"] = True
         elif arg in ("--version", "-v"):
@@ -579,13 +591,20 @@ def main():
 
     # Print output
     output = response.get("output", "")
-    if output:
-        if raw:
-            output = _strip_raw_output(output)
-        if output:
-            click.echo(output)
-
     success = response.get("success", True)
+
+    if as_json:
+        payload = dict(response)
+        if raw and isinstance(payload.get("output"), str):
+            payload["output"] = _strip_raw_output(payload["output"])
+        click.echo(json.dumps(payload, default=str))
+    else:
+        if output:
+            if raw:
+                output = _strip_raw_output(output)
+            if output:
+                click.echo(output)
+
     if not success:
         sys.exit(1)
 

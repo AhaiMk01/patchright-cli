@@ -54,9 +54,11 @@ def register(name: str):
 class Session:
     """A single browser session (one persistent context, multiple pages/tabs)."""
 
-    def __init__(self, name: str, context, pages: list | None = None):
+    def __init__(self, name: str, context, pages: list | None = None, browser=None, is_attached: bool = False):
         self.name = name
         self.context = context
+        self.browser = browser  # Browser handle for CDP-connected sessions (None for launch_persistent_context)
+        self.is_attached = is_attached  # True if created via `attach --cdp=...`
         self.pages: list = pages or []
         self.current_tab: int = 0
         self.ref_registry: RefRegistry | None = None
@@ -106,18 +108,50 @@ class Session:
             self._cdp_sessions[id(page)] = cdp
         except Exception:
             pass
-        page.on(
-            "request",
-            lambda req: self.network_log.append(
-                {
-                    "method": req.method,
-                    "url": req.url,
-                    "resource": req.resource_type,
-                    "ts": time.time(),
-                }
-            ),
-        )
+        page.on("request", lambda req: self._on_request(req))
+        page.on("response", lambda resp: asyncio.ensure_future(self._on_response(resp)))
         page.on("dialog", lambda dialog: self._handle_dialog(dialog))
+
+    def _on_request(self, req):
+        try:
+            entry = {
+                "id": len(self.network_log),
+                "method": req.method,
+                "url": req.url,
+                "resource": req.resource_type,
+                "ts": time.time(),
+                "request_headers": dict(req.headers or {}),
+                "post_data": req.post_data,
+                "_request": req,
+            }
+        except Exception:
+            entry = {
+                "id": len(self.network_log),
+                "method": getattr(req, "method", "?"),
+                "url": getattr(req, "url", "?"),
+                "resource": getattr(req, "resource_type", "?"),
+                "ts": time.time(),
+                "request_headers": {},
+                "post_data": None,
+                "_request": req,
+            }
+        self.network_log.append(entry)
+
+    async def _on_response(self, resp):
+        try:
+            req = resp.request
+        except Exception:
+            return
+        for entry in reversed(self.network_log):
+            if entry.get("_request") is req:
+                try:
+                    entry["status"] = resp.status
+                    entry["status_text"] = resp.status_text
+                    entry["response_headers"] = dict(resp.headers or {})
+                except Exception:
+                    pass
+                entry["_response"] = resp
+                return
 
     def _handle_dialog(self, dialog):
         """Auto-handle dialogs based on pending action or auto-dismiss."""
@@ -235,11 +269,12 @@ class DaemonState:
             perms = [p.strip() for p in grant_permissions.split(",") if p.strip()]
             context_options["permissions"] = list(set(context_options.get("permissions", []) + perms))
 
+        attached_browser = None
         if cdp_endpoint:
-            browser = await self.playwright.chromium.connect_over_cdp(
+            attached_browser = await self.playwright.chromium.connect_over_cdp(
                 cdp_endpoint, headers=cdp_headers, timeout=cdp_timeout
             )
-            context = await browser.new_context(**context_options)
+            context = await attached_browser.new_context(**context_options)
             pages = context.pages or []
             if not pages:
                 page = await context.new_page()
@@ -279,7 +314,13 @@ class DaemonState:
         if url:
             await pages[0].goto(url)
 
-        session = Session(name, context, list(pages))
+        session = Session(
+            name,
+            context,
+            list(pages),
+            browser=attached_browser,
+            is_attached=cdp_endpoint is not None,
+        )
         await session.setup_listeners()
         self.sessions[name] = session
         self.profile_dirs[name] = profile_dir
@@ -487,6 +528,68 @@ async def cmd_drag(session: Session, page, args: list, options: dict, cwd: str |
     return await _page_info(session, cwd)
 
 
+@register("drop")
+async def cmd_drop(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    """Drop files or data onto an element (simulates HTML5 drop from outside)."""
+    if not args:
+        return {"success": False, "output": "Usage: drop <ref> --path=F | --data=mime=value"}
+    elem = await _resolve_ref(session, page, args[0])
+
+    path_opt = options.get("path")
+    data_opt = options.get("data")
+    if not path_opt and not data_opt:
+        return {"success": False, "output": "drop requires --path=<file> or --data=<mime=value>"}
+
+    files: list[dict] = []
+    if path_opt:
+        import base64
+        import mimetypes
+
+        paths = [path_opt] if isinstance(path_opt, str) else list(path_opt)
+        for p in paths:
+            fp = Path(p)
+            if not fp.exists():
+                return {"success": False, "output": f"File not found: {p}"}
+            mime = mimetypes.guess_type(fp.name)[0] or "application/octet-stream"
+            files.append(
+                {
+                    "name": fp.name,
+                    "type": mime,
+                    "b64": base64.b64encode(fp.read_bytes()).decode("ascii"),
+                }
+            )
+
+    data_entries: list[tuple[str, str]] = []
+    if data_opt:
+        raw_list = [data_opt] if isinstance(data_opt, str) else list(data_opt)
+        for raw in raw_list:
+            if "=" not in raw:
+                return {"success": False, "output": f"Invalid --data (need mime=value): {raw}"}
+            mime, value = raw.split("=", 1)
+            data_entries.append((mime, value))
+
+    js = """
+    async (target, { files, dataEntries }) => {
+      const dt = new DataTransfer();
+      for (const f of files) {
+        const bytes = Uint8Array.from(atob(f.b64), c => c.charCodeAt(0));
+        dt.items.add(new File([bytes], f.name, { type: f.type }));
+      }
+      for (const [mime, value] of dataEntries) {
+        dt.setData(mime, value);
+      }
+      const evt = (type) => new DragEvent(type, {
+        bubbles: true, cancelable: true, dataTransfer: dt,
+      });
+      target.dispatchEvent(evt('dragenter'));
+      target.dispatchEvent(evt('dragover'));
+      target.dispatchEvent(evt('drop'));
+    }
+    """
+    await elem.evaluate(js, {"files": files, "dataEntries": data_entries})
+    return await _page_info(session, cwd)
+
+
 # -- Snapshot ----------------------------------------------------------------
 
 
@@ -504,6 +607,8 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
         snapshot_text, session.ref_registry = await take_snapshot(
             page, max_depth=max_depth, interactive_only=interactive_only
         )
+    if options.get("boxes"):
+        snapshot_text = await _annotate_with_boxes(page, snapshot_text, session.ref_registry)
     fn = options.get("filename")
     if fn:
         Path(fn).parent.mkdir(parents=True, exist_ok=True)
@@ -524,6 +629,111 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
         f"[Snapshot]({snap_path})",
     ]
     return {"success": True, "output": "\n".join(output_lines), "snapshot_path": snap_path}
+
+
+async def _annotate_with_boxes(page, snapshot_text: str, registry) -> str:
+    """Append `[box=x,y,w,h]` to each `[ref=eN]` line in snapshot_text.
+
+    Refs whose locator can't be measured are left unchanged.
+    """
+    if registry is None:
+        return snapshot_text
+    import re
+
+    ref_re = re.compile(r"\[ref=(e\d+)\]")
+    boxes: dict[str, str] = {}
+    for ref in registry.entries:
+        try:
+            loc = registry.resolve(page, ref)
+            box = await loc.bounding_box()
+            if box:
+                boxes[ref] = f"[box={int(box['x'])},{int(box['y'])},{int(box['width'])},{int(box['height'])}]"
+        except Exception:
+            continue
+
+    out = []
+    for line in snapshot_text.splitlines():
+        m = ref_re.search(line)
+        if m and m.group(1) in boxes:
+            line = line.rstrip() + " " + boxes[m.group(1)]
+        out.append(line)
+    return "\n".join(out)
+
+
+@register("generate-locator")
+async def cmd_generate_locator(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    """Emit a Playwright locator expression for a ref."""
+    if not args:
+        return {"success": False, "output": "Usage: generate-locator <ref>"}
+    if session.ref_registry is None:
+        return {"success": False, "output": "No snapshot taken yet. Run `snapshot` first."}
+    ref = args[0].lstrip("@")
+    entry = session.ref_registry.entries.get(ref)
+    if entry is None:
+        return {"success": False, "output": f"Ref @{ref} not found. Re-run `snapshot`."}
+
+    name_part = ""
+    if entry.name:
+        escaped = entry.name.replace("\\", "\\\\").replace("'", "\\'")
+        name_part = f", {{ name: '{escaped}', exact: true }}"
+    expr = f"getByRole('{entry.role}'{name_part})"
+    if entry.nth > 0:
+        expr += f".nth({entry.nth})"
+    return {"success": True, "output": expr}
+
+
+@register("highlight")
+async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    """Draw or remove a persistent overlay over an element.
+
+    `highlight <ref>` shows it; `highlight <ref> --hide` hides it; `highlight --hide`
+    clears all highlights on the page.
+    """
+    hide = bool(options.get("hide"))
+    style = options.get("style") or "outline: 2px solid #ff3366; outline-offset: 2px;"
+
+    if hide and not args:
+        await page.evaluate("() => document.querySelectorAll('[data-patchright-highlight]').forEach(el => el.remove())")
+        return {"success": True, "output": "All highlights cleared."}
+
+    if not args:
+        return {"success": False, "output": "Usage: highlight <ref> [--style=...] [--hide]"}
+    elem = await _resolve_ref(session, page, args[0])
+
+    if hide:
+        await elem.evaluate(
+            "el => { const id = el.getAttribute('data-patchright-hl-id');"
+            " if (id) {"
+            '   const o = document.querySelector(`[data-patchright-highlight="${id}"]`);'
+            "   if (o) o.remove();"
+            "   el.removeAttribute('data-patchright-hl-id');"
+            " } }"
+        )
+        return {"success": True, "output": f"Hid highlight on {args[0]}."}
+
+    js = """
+    (el, { style }) => {
+      const rect = el.getBoundingClientRect();
+      const id = el.getAttribute('data-patchright-hl-id') || ('h' + Math.random().toString(36).slice(2));
+      el.setAttribute('data-patchright-hl-id', id);
+      let overlay = document.querySelector(`[data-patchright-highlight="${id}"]`);
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.setAttribute('data-patchright-highlight', id);
+        overlay.style.cssText = 'position: fixed; pointer-events: none; z-index: 2147483647;';
+        document.documentElement.appendChild(overlay);
+      }
+      overlay.style.left = rect.left + 'px';
+      overlay.style.top = rect.top + 'px';
+      overlay.style.width = rect.width + 'px';
+      overlay.style.height = rect.height + 'px';
+      overlay.style.cssText += '; ' + style;
+    }
+    """
+    await elem.evaluate(js, {"style": style})
+    return {"success": True, "output": f"Highlighted {args[0]}."}
 
 
 # -- Eval / Screenshot -------------------------------------------------------
@@ -857,10 +1067,65 @@ async def cmd_network(session: Session, page, args: list, options: dict, cwd: st
     for r in session.network_log[-50:]:
         if not include_static and r["resource"] in static_types:
             continue
-        lines.append(f"{r['method']} {r['url']} [{r['resource']}]")
+        status = r.get("status")
+        status_part = f" {status}" if status is not None else ""
+        lines.append(f"#{r['id']} {r['method']}{status_part} {r['url']} [{r['resource']}]")
     if options.get("clear"):
         session.network_log.clear()
     return {"success": True, "output": "\n".join(lines) or "(no network requests)"}
+
+
+@register("request")
+async def cmd_request(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    if not args:
+        return {"success": False, "output": "Usage: request <id>"}
+    try:
+        req_id = int(args[0])
+    except ValueError:
+        return {"success": False, "output": f"Invalid request id: {args[0]}"}
+
+    entry = next((e for e in session.network_log if e["id"] == req_id), None)
+    if entry is None:
+        return {"success": False, "output": f"No request with id {req_id}. Use `network` to list."}
+
+    lines = [
+        f"### Request #{entry['id']}",
+        f"- {entry['method']} {entry['url']}",
+        f"- Resource: {entry['resource']}",
+    ]
+    status = entry.get("status")
+    if status is not None:
+        status_text = entry.get("status_text") or ""
+        lines.append(f"- Status: {status} {status_text}".rstrip())
+
+    req_headers = entry.get("request_headers") or {}
+    if req_headers:
+        lines.append("### Request Headers")
+        for k, v in req_headers.items():
+            lines.append(f"- {k}: {v}")
+
+    post_data = entry.get("post_data")
+    if post_data:
+        lines.append("### Request Body")
+        lines.append(post_data if len(post_data) < 4000 else post_data[:4000] + "\n... (truncated)")
+
+    resp_headers = entry.get("response_headers") or {}
+    if resp_headers:
+        lines.append("### Response Headers")
+        for k, v in resp_headers.items():
+            lines.append(f"- {k}: {v}")
+
+    if options.get("body"):
+        resp = entry.get("_response")
+        if resp is not None:
+            try:
+                body = await resp.text()
+                lines.append("### Response Body")
+                lines.append(body if len(body) < 8000 else body[:8000] + "\n... (truncated)")
+            except Exception as e:
+                lines.append(f"### Response Body\n(could not read: {e})")
+
+    return {"success": True, "output": "\n".join(lines)}
 
 
 @register("network-state-set")
@@ -1392,6 +1657,10 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
     options = dict(msg.get("options", {}))
     cwd = msg.get("cwd")
 
+    # `requests` is an alias for `network` (matches playwright-cli naming).
+    if cmd == "requests":
+        cmd = "network"
+
     session_name = options.pop("session", "default") or "default"
 
     try:
@@ -1481,6 +1750,25 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         if cmd == "close":
             closed = await state.close_session(session_name)
             return {"success": True, "output": f"Session '{session_name}' closed." if closed else "Session not found."}
+
+        if cmd == "detach":
+            target = state.sessions.get(session_name)
+            if target is None:
+                return {"success": False, "output": f"Session '{session_name}' not found."}
+            if not target.is_attached:
+                return {
+                    "success": False,
+                    "output": f"Session '{session_name}' was not attached. Use `close` for sessions created via `open`.",
+                }
+            state.sessions.pop(session_name, None)
+            # Disconnect from external Chrome without killing it. For CDP-attached
+            # sessions, browser.close() only severs the connection.
+            try:
+                if target.browser is not None:
+                    await target.browser.close()
+            except Exception:
+                pass
+            return {"success": True, "output": f"Detached from '{session_name}' (external browser kept running)."}
 
         if cmd == "close-all":
             names = list(state.sessions.keys())
