@@ -58,6 +58,8 @@ These go before the command:
 --timeout-action=10000  # Default action timeout (ms)
 --timeout-navigation=30000 # Default navigation timeout (ms)
 --show-port=9322        # Dashboard port (default: 9322)
+--raw                   # Strip page/snapshot decorations from output
+--json                  # Wrap full response as JSON ({success, output, ...})
 ```
 
 ---
@@ -71,7 +73,8 @@ open [url]                    # Launch browser (optionally navigate)
 open --persistent             # Keep cookies/storage between runs
 open --headless               # Headless mode
 attach --cdp=<url>            # Attach to existing Chrome via CDP
-close                         # Close session
+close                         # Close session (closes the browser)
+detach                        # Detach an attached session (keeps external browser running)
 ```
 
 ### Navigation
@@ -91,6 +94,7 @@ snapshot                      # Full page snapshot
 snapshot <ref>                # Subtree of a specific element
 snapshot --depth=N            # Limit depth
 snapshot -i                   # Interactive elements only
+snapshot --boxes              # Append [box=x,y,w,h] to each [ref=eN] line
 ```
 
 ### Interaction
@@ -102,6 +106,8 @@ click <ref> --modifiers=Alt   # Click with modifier keys
 dblclick <ref>                # Double-click
 hover <ref>                   # Hover
 drag <ref> <target-ref>       # Drag element to target
+drop <ref> --path=./file.png  # Drop file onto element (HTML5 drop from outside)
+drop <ref> --data="text/plain=hello"  # Drop arbitrary MIME data
 ```
 
 ### Form input
@@ -170,8 +176,14 @@ dialog-dismiss                # Dismiss next dialog
 ```bash
 console                       # Show console messages
 console warning               # Filter by level
-network                       # Show network requests
+network                       # Show network requests (each line is `#<id> METHOD STATUS URL`)
+requests                      # Alias for `network`
 network --static              # Include static assets
+request <id>                  # Full detail for one request (headers + body)
+request <id> --body           # Also fetch response body
+generate-locator <ref>        # Emit Playwright locator string for a ref
+highlight <ref>               # Persistent overlay on element [--style=CSS]
+highlight <ref> --hide        # Remove overlay; `highlight --hide` clears all
 ```
 
 ### Recording and capture

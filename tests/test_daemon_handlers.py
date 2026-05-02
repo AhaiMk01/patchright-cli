@@ -304,3 +304,240 @@ async def test_show_dashboard(mock_state, mock_session):
 
     assert response["success"] is True
     assert "Dashboard running at" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_drop_requires_path_or_data(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    registry = MagicMock()
+    locator = MagicMock()
+    locator.evaluate = AsyncMock()
+    registry.resolve.return_value = locator
+    mock_session.ref_registry = registry
+
+    response = await handle_command(mock_state, {"command": "drop", "args": ["e1"]})
+    assert response["success"] is False
+    assert "--path" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_drop_with_data_dispatches_drop_event(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    registry = MagicMock()
+    locator = MagicMock()
+    locator.evaluate = AsyncMock(return_value=None)
+    registry.resolve.return_value = locator
+    mock_session.ref_registry = registry
+
+    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = ("snapshot-text", registry)
+        with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
+            response = await handle_command(
+                mock_state,
+                {"command": "drop", "args": ["e1"], "options": {"data": "text/plain=hello"}},
+            )
+
+    assert response["success"] is True
+    locator.evaluate.assert_awaited_once()
+    js, payload = locator.evaluate.call_args.args
+    assert "DataTransfer" in js
+    assert payload["dataEntries"] == [("text/plain", "hello")]
+    assert payload["files"] == []
+
+
+@pytest.mark.asyncio
+async def test_drop_with_missing_file(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    registry = MagicMock()
+    locator = MagicMock()
+    locator.evaluate = AsyncMock()
+    registry.resolve.return_value = locator
+    mock_session.ref_registry = registry
+
+    response = await handle_command(
+        mock_state,
+        {"command": "drop", "args": ["e1"], "options": {"path": "/no/such/file"}},
+    )
+    assert response["success"] is False
+    assert "File not found" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_request_unknown_id(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.network_log = []
+    response = await handle_command(mock_state, {"command": "request", "args": ["7"]})
+    assert response["success"] is False
+    assert "No request" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_request_renders_entry(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.network_log = [
+        {
+            "id": 0,
+            "method": "POST",
+            "url": "https://api.example.com/v1/x",
+            "resource": "fetch",
+            "ts": 1.0,
+            "request_headers": {"Content-Type": "application/json"},
+            "post_data": '{"a":1}',
+            "status": 200,
+            "status_text": "OK",
+            "response_headers": {"X-Trace": "abc"},
+            "_request": object(),
+        }
+    ]
+    response = await handle_command(mock_state, {"command": "request", "args": ["0"]})
+    assert response["success"] is True
+    assert "POST" in response["output"]
+    assert "Status: 200 OK" in response["output"]
+    assert "Content-Type" in response["output"]
+    assert '"a":1' in response["output"]
+    assert "X-Trace" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_detach_rejects_non_attached(mock_state, mock_session):
+    mock_session.is_attached = False
+    mock_state.sessions = {"default": mock_session}
+    response = await handle_command(mock_state, {"command": "detach", "args": []})
+    assert response["success"] is False
+    assert "not attached" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_detach_disconnects_attached(mock_state, mock_session):
+    mock_session.is_attached = True
+    mock_session.browser = MagicMock()
+    mock_session.browser.close = AsyncMock()
+    mock_state.sessions = {"default": mock_session}
+    response = await handle_command(mock_state, {"command": "detach", "args": []})
+    assert response["success"] is True
+    assert "Detached" in response["output"]
+    mock_session.browser.close.assert_awaited_once()
+    assert "default" not in mock_state.sessions
+
+
+@pytest.mark.asyncio
+async def test_requests_aliases_to_network(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.network_log = [
+        {"id": 0, "method": "GET", "url": "https://x/", "resource": "document", "ts": 1.0, "status": 200},
+    ]
+    response = await handle_command(mock_state, {"command": "requests", "args": []})
+    assert response["success"] is True
+    assert "#0 GET 200" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_generate_locator_no_snapshot(mock_state, mock_session):
+    mock_session.ref_registry = None
+    mock_state.sessions = {"default": mock_session}
+    response = await handle_command(mock_state, {"command": "generate-locator", "args": ["e1"]})
+    assert response["success"] is False
+    assert "snapshot" in response["output"].lower()
+
+
+@pytest.mark.asyncio
+async def test_generate_locator_emits_role_name(mock_state, mock_session):
+    from patchright_cli.ref_registry import AriaRefEntry, RefRegistry
+
+    registry = RefRegistry()
+    registry.entries = {
+        "e1": AriaRefEntry(ref="e1", role="button", name="Sign in", nth=0),
+        "e2": AriaRefEntry(ref="e2", role="link", name="", nth=2),
+    }
+    mock_session.ref_registry = registry
+    mock_state.sessions = {"default": mock_session}
+
+    r1 = await handle_command(mock_state, {"command": "generate-locator", "args": ["e1"]})
+    assert r1["success"] is True
+    assert r1["output"] == "getByRole('button', { name: 'Sign in', exact: true })"
+
+    r2 = await handle_command(mock_state, {"command": "generate-locator", "args": ["e2"]})
+    assert r2["success"] is True
+    assert r2["output"] == "getByRole('link').nth(2)"
+
+
+@pytest.mark.asyncio
+async def test_generate_locator_escapes_quote(mock_state, mock_session):
+    from patchright_cli.ref_registry import AriaRefEntry, RefRegistry
+
+    registry = RefRegistry()
+    registry.entries = {"e1": AriaRefEntry(ref="e1", role="button", name="It's me", nth=0)}
+    mock_session.ref_registry = registry
+    mock_state.sessions = {"default": mock_session}
+
+    r = await handle_command(mock_state, {"command": "generate-locator", "args": ["e1"]})
+    assert r["success"] is True
+    assert "It\\'s me" in r["output"]
+
+
+@pytest.mark.asyncio
+async def test_highlight_clear_all(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.evaluate = AsyncMock()
+    response = await handle_command(mock_state, {"command": "highlight", "args": [], "options": {"hide": True}})
+    assert response["success"] is True
+    assert "cleared" in response["output"].lower()
+    mock_session.page.evaluate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_highlight_show(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    registry = MagicMock()
+    locator = MagicMock()
+    locator.evaluate = AsyncMock()
+    registry.resolve.return_value = locator
+    mock_session.ref_registry = registry
+
+    response = await handle_command(
+        mock_state, {"command": "highlight", "args": ["e1"], "options": {"style": "outline: 4px solid red"}}
+    )
+    assert response["success"] is True
+    locator.evaluate.assert_awaited_once()
+    js, payload = locator.evaluate.call_args.args
+    assert "data-patchright-highlight" in js
+    assert payload["style"] == "outline: 4px solid red"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_with_boxes(mock_state, mock_session):
+    from patchright_cli.ref_registry import AriaRefEntry, RefRegistry
+
+    registry = RefRegistry()
+    registry.entries = {"e1": AriaRefEntry(ref="e1", role="button", name="Go", nth=0)}
+    locator = MagicMock()
+    locator.bounding_box = AsyncMock(return_value={"x": 10, "y": 20, "width": 100, "height": 30})
+
+    mock_state.sessions = {"default": mock_session}
+
+    snap = '- button "Go" [ref=e1]'
+    with (
+        patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap,
+        patch.object(registry, "resolve", return_value=locator),
+        patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"),
+    ):
+        mock_snap.return_value = (snap, registry)
+        response = await handle_command(
+            mock_state,
+            {"command": "snapshot", "args": [], "options": {"boxes": True}},
+        )
+    assert response["success"] is True
+    assert response["snapshot_path"] == "/tmp/snap.yml"
+
+
+@pytest.mark.asyncio
+async def test_network_includes_id(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.network_log = [
+        {"id": 0, "method": "GET", "url": "https://x/", "resource": "document", "ts": 1.0, "status": 200},
+        {"id": 1, "method": "POST", "url": "https://x/api", "resource": "fetch", "ts": 1.1},
+    ]
+    response = await handle_command(mock_state, {"command": "network", "args": []})
+    assert response["success"] is True
+    assert "#0 GET 200" in response["output"]
+    assert "#1 POST" in response["output"]
