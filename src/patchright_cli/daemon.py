@@ -203,6 +203,28 @@ class Session:
         return url
 
 
+DEFAULT_MOBILE_DEVICE = "Pixel 7"
+
+
+def resolve_device_options(devices, device: str | None, mobile: bool) -> dict:
+    """Turn a device name (or `--mobile`) into browser context options.
+
+    `default_browser_type` is descriptor metadata rather than a context option;
+    passing it through raises TypeError in `launch_persistent_context`.
+
+    `--mobile` picks a Chromium-typed device on purpose. The iPhone descriptors
+    carry a Safari user agent, which on a Chrome binary is a mismatch bot
+    detection looks for -- the exact thing this project exists to avoid.
+    """
+    name = device or (DEFAULT_MOBILE_DEVICE if mobile else None)
+    if not name:
+        return {}
+    descriptor = devices.get(name)
+    if descriptor is None:
+        raise ValueError(f"Unknown device {name!r}. Use a Playwright device name, e.g. 'Pixel 7' or 'iPhone 15'.")
+    return {k: v for k, v in descriptor.items() if k != "default_browser_type"}
+
+
 class DaemonState:
     """Global daemon state holding all sessions."""
 
@@ -225,6 +247,7 @@ class DaemonState:
         proxy: str | None = None,
         url: str | None = None,
         device: str | None = None,
+        mobile: bool = False,
         viewport: dict | None = None,
         locale: str | None = None,
         timezone: str | None = None,
@@ -248,10 +271,8 @@ class DaemonState:
         Path(profile_dir).mkdir(parents=True, exist_ok=True)
 
         context_options: dict = {}
-        if device and self.playwright is not None:
-            device_descriptor = self.playwright.devices.get(device)
-            if device_descriptor:
-                context_options.update(device_descriptor)
+        if (device or mobile) and self.playwright is not None:
+            context_options.update(resolve_device_options(self.playwright.devices, device, mobile))
         if viewport:
             context_options["viewport"] = {"width": int(viewport["width"]), "height": int(viewport["height"])}
         if locale:
@@ -284,9 +305,12 @@ class DaemonState:
             launch_kwargs = {
                 "channel": "chrome",
                 "headless": use_headless,
-                "no_viewport": True,
                 "args": ["--disable-blink-features=AutomationControlled"],
             }
+            # Chrome sizes the page to the window unless a viewport is asked for.
+            # `no_viewport` and `viewport` are mutually exclusive in Playwright.
+            if "viewport" not in context_options:
+                launch_kwargs["no_viewport"] = True
             if proxy:
                 parsed = urlparse(proxy)
                 if parsed.username or parsed.password:
@@ -1723,6 +1747,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 proxy=options.get("proxy"),
                 url=url,
                 device=options.get("device"),
+                mobile=bool(options.get("mobile", False)),
                 viewport=options.get("viewport"),
                 locale=options.get("locale"),
                 timezone=options.get("timezone"),
@@ -1746,6 +1771,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 cdp_headers=options.get("cdp-headers"),
                 cdp_timeout=int(options.get("cdp-timeout", 30000)),
                 device=options.get("device"),
+                mobile=bool(options.get("mobile", False)),
                 viewport=options.get("viewport"),
                 locale=options.get("locale"),
                 timezone=options.get("timezone"),

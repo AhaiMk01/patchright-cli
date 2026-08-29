@@ -645,3 +645,63 @@ async def test_find_no_matches_succeeds(mock_state, find_session):
         response = await handle_command(mock_state, {"command": "find", "args": ["absent"], "options": {}})
     assert response["success"] is True
     assert "No matches" in response["output"]
+
+
+# -- Device / mobile emulation -----------------------------------------------
+
+
+FAKE_DEVICES = {
+    "Pixel 7": {
+        "user_agent": "Mozilla/5.0 (Linux; Android 14; Pixel 7) Mobile Safari/537.36",
+        "viewport": {"width": 412, "height": 839},
+        "device_scale_factor": 2.625,
+        "is_mobile": True,
+        "has_touch": True,
+        "default_browser_type": "chromium",
+    },
+    "iPhone 15": {
+        "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Mobile/15E148",
+        "viewport": {"width": 393, "height": 659},
+        "device_scale_factor": 3,
+        "is_mobile": True,
+        "has_touch": True,
+        "default_browser_type": "webkit",
+    },
+}
+
+
+def test_resolve_device_options_drops_default_browser_type():
+    from patchright_cli.daemon import resolve_device_options
+
+    opts = resolve_device_options(FAKE_DEVICES, "iPhone 15", False)
+    assert "default_browser_type" not in opts
+    assert opts["viewport"] == {"width": 393, "height": 659}
+    assert opts["is_mobile"] is True
+
+
+def test_resolve_device_options_mobile_uses_default_device():
+    from patchright_cli.daemon import DEFAULT_MOBILE_DEVICE, resolve_device_options
+
+    assert DEFAULT_MOBILE_DEVICE in FAKE_DEVICES
+    opts = resolve_device_options(FAKE_DEVICES, None, True)
+    assert opts["user_agent"] == FAKE_DEVICES[DEFAULT_MOBILE_DEVICE]["user_agent"]
+
+
+def test_resolve_device_options_explicit_device_wins_over_mobile():
+    from patchright_cli.daemon import resolve_device_options
+
+    opts = resolve_device_options(FAKE_DEVICES, "iPhone 15", True)
+    assert opts["viewport"] == {"width": 393, "height": 659}
+
+
+def test_resolve_device_options_no_device_is_empty():
+    from patchright_cli.daemon import resolve_device_options
+
+    assert resolve_device_options(FAKE_DEVICES, None, False) == {}
+
+
+def test_resolve_device_options_unknown_device_raises():
+    from patchright_cli.daemon import resolve_device_options
+
+    with pytest.raises(ValueError, match="Unknown device 'Nokia 3310'"):
+        resolve_device_options(FAKE_DEVICES, "Nokia 3310", False)

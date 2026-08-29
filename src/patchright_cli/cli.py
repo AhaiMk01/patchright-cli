@@ -298,6 +298,7 @@ def _print_help():
     click.echo("  --timeout-action=ms   Default action timeout")
     click.echo("  --timeout-navigation=ms Default navigation timeout")
     click.echo("  --device=<name>     Emulate a device (e.g. 'iPhone 15')")
+    click.echo("  --mobile            Emulate a generic mobile device (Pixel 7)")
     click.echo("  --viewport-size=WxH Set viewport size")
     click.echo("  --locale=<code>     Locale (e.g. en-US)")
     click.echo("  --timezone=<id>     Timezone ID")

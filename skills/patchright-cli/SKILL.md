@@ -49,6 +49,8 @@ These go before the command:
 --config=<path>         # Load options from JSON config file
 --cdp=<url>             # Attach to Chrome via CDP endpoint (use with `attach` command)
 --device="iPhone 15"    # Emulate a device
+--mobile                # Emulate a generic mobile device (Pixel 7); mobile pages
+                        # are lighter, so snapshots are smaller and cheaper
 --viewport-size=1280x720 # Set viewport size
 --locale=en-US          # Browser locale
 --timezone=America/New_York # Timezone ID
