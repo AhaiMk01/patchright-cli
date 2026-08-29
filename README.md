@@ -116,7 +116,7 @@ graph LR
 |-----------|------|
 | **Daemon** (`daemon.py`) | Long-running process managing browser sessions via Patchright. Auto-starts on first `open`. |
 | **CLI** (`cli.py`) | Thin client — connects, sends command, prints result, disconnects. Browser stays open. |
-| **Snapshot** (`snapshot.py`) | `TreeWalker`-based DOM scan assigning `data-patchright-ref` attributes for element targeting. |
+| **Snapshot** (`snapshot.py`) | Playwright `aria_snapshot()` accessibility tree, annotated with sequential `[ref=eN]` handles for element targeting. |
 
 ---
 
