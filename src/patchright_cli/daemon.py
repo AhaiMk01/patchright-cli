@@ -847,14 +847,18 @@ async def cmd_screenshot(
     snap_dir.mkdir(parents=True, exist_ok=True)
     ts = int(time.time() * 1000)
     fn = options.get("filename")
+    # One image pixel per CSS pixel by default; --hires captures at the device
+    # pixel ratio instead. They only differ under --mobile / --device, where a
+    # dpr of 2-3 makes the default capture several times larger.
+    scale = "device" if options.get("hires") else "css"
     if args and args[0].startswith("e"):
         elem = await _resolve_ref(session, page, args[0])
         filepath = snap_dir / (fn or f"element-{ts}.png")
-        await elem.screenshot(path=str(filepath))
+        await elem.screenshot(path=str(filepath), scale=scale)
     else:
         filepath = snap_dir / (fn or f"page-{ts}.png")
         full_page = bool(options.get("full-page"))
-        await page.screenshot(path=str(filepath), full_page=full_page)
+        await page.screenshot(path=str(filepath), full_page=full_page, scale=scale)
     return {"success": True, "output": f"Screenshot saved to {filepath}"}
 
 

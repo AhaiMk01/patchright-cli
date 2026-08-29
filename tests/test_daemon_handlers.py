@@ -705,3 +705,49 @@ def test_resolve_device_options_unknown_device_raises():
 
     with pytest.raises(ValueError, match="Unknown device 'Nokia 3310'"):
         resolve_device_options(FAKE_DEVICES, "Nokia 3310", False)
+
+
+# -- screenshot --hires ------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_screenshot_defaults_to_css_scale(mock_state, mock_session, tmp_path):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.screenshot = AsyncMock()
+
+    response = await handle_command(
+        mock_state, {"command": "screenshot", "args": [], "options": {}, "cwd": str(tmp_path)}
+    )
+
+    assert response["success"] is True
+    assert mock_session.page.screenshot.await_args.kwargs["scale"] == "css"
+
+
+@pytest.mark.asyncio
+async def test_screenshot_hires_uses_device_scale(mock_state, mock_session, tmp_path):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.screenshot = AsyncMock()
+
+    response = await handle_command(
+        mock_state, {"command": "screenshot", "args": [], "options": {"hires": True}, "cwd": str(tmp_path)}
+    )
+
+    assert response["success"] is True
+    assert mock_session.page.screenshot.await_args.kwargs["scale"] == "device"
+
+
+@pytest.mark.asyncio
+async def test_element_screenshot_honours_hires(mock_state, mock_session, tmp_path):
+    mock_state.sessions = {"default": mock_session}
+    registry = MagicMock()
+    locator = MagicMock()
+    locator.screenshot = AsyncMock()
+    registry.resolve.return_value = locator
+    mock_session.ref_registry = registry
+
+    response = await handle_command(
+        mock_state, {"command": "screenshot", "args": ["e1"], "options": {"hires": True}, "cwd": str(tmp_path)}
+    )
+
+    assert response["success"] is True
+    assert locator.screenshot.await_args.kwargs["scale"] == "device"

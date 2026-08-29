@@ -47,7 +47,14 @@ patchright-cli screenshot                              # Page screenshot
 patchright-cli screenshot e3                           # Element screenshot by ref
 patchright-cli screenshot --filename=page.png          # Custom filename
 patchright-cli screenshot --full-page                  # Full scrollable page
+patchright-cli screenshot --hires                      # Capture at device pixel ratio
 ```
+
+Screenshots capture one image pixel per CSS pixel. That matches the desktop
+default (device pixel ratio 1), so `--hires` only changes anything under
+`open --mobile` or `open --device=...`, where the ratio is 2-3x and `--hires`
+produces a correspondingly larger file.
+
 
 Screenshots save to `.patchright-cli/` in the current directory.
 

@@ -184,7 +184,7 @@ COMMANDS_HELP = {
     "find": "find <text>           Search snapshot [--regex] [--all] [--limit=N]",
     "eval": "eval <expr> [ref]     Evaluate JavaScript [--file=F or stdin]",
     "text": "text <ref|selector>  Get text content of element",
-    "screenshot": "screenshot [ref]     Save screenshot [--full-page] [--filename=F]",
+    "screenshot": "screenshot [ref]     Save screenshot [--full-page] [--hires] [--filename=F]",
     "drag": "drag <from> <to>     Drag element to target",
     "drop": "drop <ref> [--path=F] [--data=mime=value]  Drop file/data onto element",
     "close": "close                Close browser session",
