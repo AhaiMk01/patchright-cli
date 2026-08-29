@@ -399,6 +399,10 @@ version, so a chained run is not buried in it. Re-run
 `patchright-cli install --skills` to resync, or set
 `PATCHRIGHT_CLI_NO_SKILL_CHECK=1` to silence the check.
 
+`open` also checks PyPI once a day for a newer patchright-cli and prints a
+one-line note when there is one. Set `PATCHRIGHT_CLI_NO_VERSION_CHECK=1` to
+turn that off.
+
 ## Specific tasks
 
 * **Snapshots and element refs** [references/snapshot-refs.md](references/snapshot-refs.md)

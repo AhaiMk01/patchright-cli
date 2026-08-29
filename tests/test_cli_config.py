@@ -343,3 +343,95 @@ def test_warn_stale_skills_ignores_a_stamp_from_another_version(tmp_path, monkey
     stamp.write_text(json.dumps({"version": "0.0.1", "at": time.time()}), encoding="utf-8")
     cli._warn_stale_skills()
     assert "install --skills" in capsys.readouterr().err
+
+
+# -- PyPI version check ------------------------------------------------------
+
+
+def test_version_tuple_parses_release_segments():
+    from patchright_cli.cli import _version_tuple
+
+    assert _version_tuple("0.6.0") == (0, 6, 0)
+    assert _version_tuple("1.2") == (1, 2)
+    assert _version_tuple("0.7.0rc1") == (0, 7, 0)
+
+
+def test_version_tuple_on_garbage_is_empty():
+    from patchright_cli.cli import _version_tuple
+
+    assert _version_tuple("not-a-version") == ()
+    assert _version_tuple("") == ()
+
+
+def test_warn_outdated_reports_a_newer_release(tmp_path, monkeypatch, capsys):
+    from patchright_cli import cli
+
+    monkeypatch.delenv("PATCHRIGHT_CLI_NO_VERSION_CHECK", raising=False)
+    monkeypatch.setattr(cli, "_version_stamp", lambda: tmp_path / "v.json")
+    monkeypatch.setattr(cli, "_fetch_latest_version", lambda: "99.0.0")
+
+    cli._warn_outdated_version()
+    err = capsys.readouterr().err
+    assert "99.0.0" in err
+    assert cli.__version__ in err
+
+
+def test_warn_outdated_is_silent_when_current(tmp_path, monkeypatch, capsys):
+    from patchright_cli import cli
+
+    monkeypatch.delenv("PATCHRIGHT_CLI_NO_VERSION_CHECK", raising=False)
+    monkeypatch.setattr(cli, "_version_stamp", lambda: tmp_path / "v.json")
+    monkeypatch.setattr(cli, "_fetch_latest_version", lambda: cli.__version__)
+
+    cli._warn_outdated_version()
+    assert capsys.readouterr().err == ""
+
+
+def test_warn_outdated_respects_opt_out(tmp_path, monkeypatch, capsys):
+    from patchright_cli import cli
+
+    monkeypatch.setenv("PATCHRIGHT_CLI_NO_VERSION_CHECK", "1")
+
+    def _boom():
+        raise AssertionError("network must not be touched when opted out")
+
+    monkeypatch.setattr(cli, "_fetch_latest_version", _boom)
+    monkeypatch.setattr(cli, "_version_stamp", lambda: tmp_path / "v.json")
+
+    cli._warn_outdated_version()
+    assert capsys.readouterr().err == ""
+
+
+def test_warn_outdated_uses_the_cache_before_the_network(tmp_path, monkeypatch, capsys):
+    import json
+    import time
+
+    from patchright_cli import cli
+
+    monkeypatch.delenv("PATCHRIGHT_CLI_NO_VERSION_CHECK", raising=False)
+    stamp = tmp_path / "v.json"
+    stamp.write_text(json.dumps({"at": time.time(), "latest": "99.0.0"}), encoding="utf-8")
+    monkeypatch.setattr(cli, "_version_stamp", lambda: stamp)
+
+    def _boom():
+        raise AssertionError("cache was fresh; network must not be touched")
+
+    monkeypatch.setattr(cli, "_fetch_latest_version", _boom)
+
+    cli._warn_outdated_version()
+    assert "99.0.0" in capsys.readouterr().err
+
+
+def test_warn_outdated_survives_a_network_failure(tmp_path, monkeypatch, capsys):
+    from patchright_cli import cli
+
+    monkeypatch.delenv("PATCHRIGHT_CLI_NO_VERSION_CHECK", raising=False)
+    monkeypatch.setattr(cli, "_version_stamp", lambda: tmp_path / "v.json")
+
+    def _fail():
+        raise OSError("no route to host")
+
+    monkeypatch.setattr(cli, "_fetch_latest_version", _fail)
+
+    cli._warn_outdated_version()
+    assert capsys.readouterr().err == ""

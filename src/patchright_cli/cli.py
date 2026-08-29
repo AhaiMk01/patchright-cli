@@ -210,6 +210,88 @@ def _handle_install(args: list) -> None:
     click.echo(f"\npatchright-cli v{__version__} skills installed.")
 
 
+_VERSION_CHECK_INTERVAL = 24 * 60 * 60
+_PYPI_URL = "https://pypi.org/pypi/patchright-cli/json"
+
+
+def _version_stamp() -> Path:
+    return Path.home() / ".patchright-cli" / "version-check.json"
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    """Numeric release segments of a version, ignoring any suffix.
+
+    Returns () for anything unparseable, which compares lower than every real
+    version and so can never trigger an upgrade notice.
+    """
+    parts: list[int] = []
+    for segment in version.split("."):
+        digits = ""
+        for ch in segment:
+            if not ch.isdigit():
+                break
+            digits += ch
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+def _fetch_latest_version() -> str | None:
+    """Latest patchright-cli release on PyPI, or None."""
+    import urllib.request
+
+    with urllib.request.urlopen(_PYPI_URL, timeout=1.5) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    latest = payload.get("info", {}).get("version")
+    return latest if isinstance(latest, str) else None
+
+
+def _warn_outdated_version() -> None:
+    """Warn on stderr when a newer release is on PyPI.
+
+    Runs on `open` only, at most once a day, and the stamp is written before
+    the request so an unreachable network cannot make every open pay the
+    timeout. Any failure is silent -- a version notice is never worth breaking
+    a command over. PATCHRIGHT_CLI_NO_VERSION_CHECK=1 disables it.
+    """
+    import time
+
+    if os.environ.get("PATCHRIGHT_CLI_NO_VERSION_CHECK"):
+        return
+
+    stamp = _version_stamp()
+    try:
+        cached = json.loads(stamp.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cached = {}
+
+    latest = cached.get("latest")
+    if time.time() - float(cached.get("at", 0)) >= _VERSION_CHECK_INTERVAL or not latest:
+        try:
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            stamp.write_text(json.dumps({"at": time.time(), "latest": latest}), encoding="utf-8")
+        except OSError:
+            pass
+        try:
+            latest = _fetch_latest_version()
+        except Exception:
+            return
+        if not latest:
+            return
+        try:
+            stamp.write_text(json.dumps({"at": time.time(), "latest": latest}), encoding="utf-8")
+        except OSError:
+            pass
+
+    if _version_tuple(latest) > _version_tuple(__version__):
+        click.echo(
+            f"note: patchright-cli {latest} is available (you have {__version__}). "
+            f"Upgrade with `pip install -U patchright-cli`.",
+            err=True,
+        )
+
+
 def _send_command(command: str, args: list, options: dict, port: int = DEFAULT_PORT) -> dict:
     """Connect to daemon, send command, receive response."""
     msg = {
@@ -611,6 +693,11 @@ def main():
         sys.exit(0)
 
     _warn_stale_skills()
+
+    # Only on `open`: one browser launch already costs seconds, and this keeps
+    # the outbound request off every other command.
+    if command == "open":
+        _warn_outdated_version()
 
     # Separate --key=value and --flag from positional args
     positional_args = []
