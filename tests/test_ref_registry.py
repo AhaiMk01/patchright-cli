@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from patchright_cli.ref_registry import RefRegistry
+from patchright_cli.ref_registry import RefRegistry, render_hits
 
 
 def test_parse_simple_snapshot():
@@ -281,3 +281,131 @@ def test_search_hit_carries_ref_and_line_index():
     entry = registry.entries[hits[0].ref]
     assert hits[0].line_index == entry.line_index
     assert registry._lines[hits[0].line_index].startswith('  - link "Star this repo"')
+
+
+NESTED_YAML = (
+    "- table:\n"
+    "  - rowgroup:\n"
+    '    - row "407 points by pluc 4 hours ago | hide | 321 comments":\n'
+    '      - cell "407 points by pluc 4 hours ago | hide | 321 comments":\n'
+    '        - link "hide":\n'
+    "          - /url: hide?id=49489982\n"
+    '    - row "83 points by lioeters 4 hours ago | hide | 11 comments":\n'
+    '      - cell "83 points by lioeters 4 hours ago | hide | 11 comments":\n'
+    '        - link "hide":\n'
+    "          - /url: hide?id=49426995\n"
+)
+
+
+def test_breadcrumb_disambiguates_identical_nodes():
+    registry = RefRegistry()
+    registry.parse(NESTED_YAML)
+    hits, total = registry.search("hide")
+    assert total == 2
+    assert "pluc" in hits[0].breadcrumb
+    assert "lioeters" in hits[1].breadcrumb
+    assert hits[0].breadcrumb != hits[1].breadcrumb
+
+
+def test_breadcrumb_collapses_repeated_names():
+    # `row "X" > cell "X"` carries the same name twice; only one survives.
+    registry = RefRegistry()
+    registry.parse(NESTED_YAML)
+    hits, _ = registry.search("hide")
+    assert hits[0].breadcrumb.count("407 points") == 1
+
+
+def test_breadcrumb_truncates_long_names_with_ascii_ellipsis():
+    registry = RefRegistry()
+    registry.parse(NESTED_YAML)
+    hits, _ = registry.search("hide")
+    assert "..." in hits[0].breadcrumb
+    assert "…" not in hits[0].breadcrumb
+
+
+def test_breadcrumb_caps_ancestor_depth_at_three():
+    registry = RefRegistry()
+    registry.parse(NESTED_YAML)
+    hits, _ = registry.search("hide")
+    assert hits[0].breadcrumb.count(" > ") <= 2
+
+
+def test_breadcrumb_empty_for_root_node():
+    registry = RefRegistry()
+    registry.parse('- button "Go"')
+    hits, _ = registry.search("Go")
+    assert hits[0].breadcrumb == ""
+
+
+def test_block_includes_subtree_with_relative_indent():
+    registry = RefRegistry()
+    registry.parse(NESTED_YAML)
+    hits, _ = registry.search("hide")
+    block = hits[0].block
+    assert block[0].startswith('- link "hide"')
+    assert block[1] == "  - /url: hide?id=49489982"
+
+
+def test_block_for_leaf_is_single_line():
+    registry = RefRegistry()
+    registry.parse('- heading "Title"\n- button "Go"')
+    hits, _ = registry.search("Go")
+    assert len(hits[0].block) == 1
+
+
+def test_block_stops_at_sibling():
+    registry = RefRegistry()
+    raw = '- link "A":\n  - /url: /a\n- link "B":\n  - /url: /b'
+    registry.parse(raw)
+    hits, _ = registry.search("A")
+    assert len(hits[0].block) == 2
+    assert all("/b" not in line for line in hits[0].block)
+
+
+def test_render_hits_reports_partial_count():
+    registry = RefRegistry()
+    registry.parse(NESTED_YAML)
+    hits, total = registry.search("hide", limit=1)
+    output = render_hits(hits, total, "hide")
+    assert "1 of 2" in output
+
+
+def test_render_hits_reports_full_count():
+    registry = RefRegistry()
+    registry.parse(NESTED_YAML)
+    hits, total = registry.search("hide")
+    output = render_hits(hits, total, "hide")
+    assert "2 matches" in output
+    assert " of " not in output.splitlines()[0]
+
+
+def test_render_hits_empty_suggests_all_flag():
+    output = render_hits([], 0, "nothing")
+    assert 'No matches for "nothing"' in output
+    assert "--all" in output
+
+
+def test_render_hits_prefixes_breadcrumb_with_hash():
+    registry = RefRegistry()
+    registry.parse(NESTED_YAML)
+    hits, total = registry.search("hide")
+    output = render_hits(hits, total, "hide")
+    assert "  # " in output
+    assert "[ref=" in output
+
+
+def test_render_hits_omits_breadcrumb_line_for_root_node():
+    registry = RefRegistry()
+    registry.parse('- button "Go"')
+    hits, total = registry.search("Go")
+    output = render_hits(hits, total, "Go")
+    assert "#" not in output
+
+
+def test_render_hits_has_no_section_headers():
+    # `--raw` strips lines after a `### ` header; find output must survive it.
+    registry = RefRegistry()
+    registry.parse(NESTED_YAML)
+    hits, total = registry.search("hide")
+    output = render_hits(hits, total, "hide")
+    assert "### " not in output

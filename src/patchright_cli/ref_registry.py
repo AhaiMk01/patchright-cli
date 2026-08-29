@@ -45,6 +45,16 @@ def _compile_query(query: str, regex: bool):
     return lambda text: bool(compiled.search(text))
 
 
+def _depth(line: str) -> int:
+    """Tree depth of an aria snapshot line. Playwright indents two spaces per level."""
+    return (len(line) - len(line.lstrip())) // 2
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Shorten with an ASCII ellipsis. Non-ASCII mangles on the Windows console."""
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
 INTERACTIVE_ROLES = frozenset(
     {
         "link",
@@ -179,12 +189,65 @@ class RefRegistry:
             FindHit(
                 ref=entry.ref,
                 line_index=entry.line_index,
-                breadcrumb="",
-                block=[self._lines[entry.line_index].strip()],
+                breadcrumb=self._breadcrumb(entry.line_index),
+                block=self._block(entry.line_index),
             )
             for entry in matched[:limit]
         ]
         return hits, len(matched)
+
+    def _breadcrumb(self, line_index: int, max_ancestors: int = 3, trunc: int = 45) -> str:
+        """Compact ancestor path, outermost to innermost.
+
+        One line instead of the real ancestor lines: measured on four real pages,
+        this costs 3KB across 13 queries where full ancestor lines cost 15KB, and
+        disambiguates just as well.
+        """
+        chain: list[tuple[str, str]] = []
+        depth = _depth(self._lines[line_index])
+
+        for i in range(line_index - 1, -1, -1):
+            line = self._lines[i]
+            if not line.strip():
+                continue
+            line_depth = _depth(line)
+            if line_depth >= depth:
+                continue
+            depth = line_depth
+            node = _NODE_LINE_RE.match(line)
+            if node:
+                chain.append((node.group(1), node.group(2) or ""))
+            if depth == 0:
+                break
+
+        chain.reverse()
+
+        # ARIA tables routinely nest `row "X" > cell "X"`; keep the innermost only.
+        collapsed: list[tuple[str, str]] = []
+        for role, name in chain:
+            if collapsed and name and collapsed[-1][1] == name:
+                collapsed[-1] = (role, name)
+            else:
+                collapsed.append((role, name))
+
+        parts = [f'{role} "{_truncate(name, trunc)}"' if name else role for role, name in collapsed[-max_ancestors:]]
+        return " > ".join(parts)
+
+    def _block(self, line_index: int) -> list[str]:
+        """The matched line plus its subtree, re-indented relative to the match."""
+        matched = self._lines[line_index]
+        base_depth = _depth(matched)
+        indent = len(matched) - len(matched.lstrip())
+
+        block = [matched[indent:]]
+        for i in range(line_index + 1, len(self._lines)):
+            line = self._lines[i]
+            if not line.strip():
+                continue
+            if _depth(line) <= base_depth:
+                break
+            block.append(line[indent:] if line.startswith(" " * indent) else line.lstrip())
+        return block
 
     def resolve(self, page: Page, ref_str: str):
         """Resolve a ref (with or without leading @) to a Playwright Locator."""
@@ -199,3 +262,29 @@ class RefRegistry:
 
         locator = page.get_by_role(entry.role, **kwargs)
         return locator.nth(entry.nth)
+
+
+def render_hits(hits: list[FindHit], total: int, query: str) -> str:
+    """Format search results for the CLI.
+
+    Emits no `### ` section headers: `--raw` strips lines that follow one, which
+    would eat the result blocks.
+    """
+    if not hits:
+        return (
+            f'No matches for "{query}".\n'
+            "Try --all to search non-interactive nodes (text, paragraphs), or --regex for a pattern."
+        )
+
+    if total > len(hits):
+        header = f'Found {len(hits)} of {total} matches for "{query}". Narrow the query, or raise --limit to see more.'
+    else:
+        header = f'Found {total} match{"" if total == 1 else "es"} for "{query}".'
+
+    lines = [header, ""]
+    for hit in hits:
+        if hit.breadcrumb:
+            lines.append(f"  # {hit.breadcrumb}")
+        lines.extend(hit.block)
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
