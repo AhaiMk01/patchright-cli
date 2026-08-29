@@ -144,29 +144,30 @@ class TestE2E:
         resp = _cmd(daemon, "wait-for", args=[ref])
         assert resp["success"] is True
 
+    # `find` tests run last: the first one clicks the fixture button, which sets
+    # #output to "clicked". test_click_button above asserts that same transition,
+    # so these must not run before it.
 
-def test_find_returns_actionable_ref(daemon):
-    goto = _send_tcp(TEST_PORT, "goto", [FIXTURE_URL])
-    assert goto["success"] is True
+    def test_find_returns_actionable_ref(self, daemon):
+        goto = _cmd(daemon, "goto", args=[FIXTURE_URL])
+        assert goto["success"] is True
 
-    response = _send_tcp(TEST_PORT, "find", ["Click me"])
-    assert response["success"] is True
-    assert 'button "Click me"' in response["output"]
+        resp = _cmd(daemon, "find", args=["Click me"])
+        assert resp["success"] is True
+        assert 'button "Click me"' in resp["output"]
 
-    match = re.search(r"\[ref=(e\d+)\]", response["output"])
-    assert match is not None, f"No ref found in find output: {response['output']!r}"
-    ref = match.group(1)
-    click = _send_tcp(TEST_PORT, "click", [ref])
-    assert click["success"] is True
+        match = re.search(r"\[ref=(e\d+)\]", resp["output"])
+        assert match is not None, f"No ref found in find output: {resp['output']!r}"
 
-    text = _send_tcp(TEST_PORT, "text", ["#output"])
-    assert "clicked" in text["output"]
+        resp = _cmd(daemon, "click", args=[match.group(1)])
+        assert resp["success"] is True
+        resp = _cmd(daemon, "text", args=["#output"])
+        assert "clicked" in resp["output"]
 
+    def test_find_no_matches_is_not_an_error(self, daemon):
+        goto = _cmd(daemon, "goto", args=[FIXTURE_URL])
+        assert goto["success"] is True
 
-def test_find_no_matches_is_not_an_error(daemon):
-    goto = _send_tcp(TEST_PORT, "goto", [FIXTURE_URL])
-    assert goto["success"] is True
-
-    response = _send_tcp(TEST_PORT, "find", ["nonexistent-element"])
-    assert response["success"] is True
-    assert "No matches" in response["output"]
+        resp = _cmd(daemon, "find", args=["nonexistent-element"])
+        assert resp["success"] is True
+        assert "No matches" in resp["output"]
