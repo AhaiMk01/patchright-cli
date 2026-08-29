@@ -15,6 +15,10 @@ if TYPE_CHECKING:
 
 _NODE_LINE_RE = re.compile(r"^\s*-\s+(\w+)(?:\s+\"([^\"]*)\")?")
 
+# Matches `- role: value` lines (e.g. `- text: Star 95.3k`), whose accessible
+# name is unquoted. Used only for search text, never for locator resolution.
+_VALUE_LINE_RE = re.compile(r"^\s*-\s+\w+:\s*(.+)$")
+
 INTERACTIVE_ROLES = frozenset(
     {
         "link",
@@ -44,6 +48,8 @@ class AriaRefEntry:
     role: str
     name: str
     nth: int
+    line_index: int = -1
+    search_text: str = ""
 
 
 class RefRegistry:
@@ -52,11 +58,13 @@ class RefRegistry:
     def __init__(self) -> None:
         self.entries: dict[str, AriaRefEntry] = {}
         self._counter = 0
+        self._lines: list[str] = []
 
     def parse(self, aria_text: str, max_depth: int | None = None, interactive_only: bool = False) -> str:
         """Return annotated snapshot text with [ref=eN] tags inserted."""
         self.entries.clear()
         self._counter = 0
+        self._lines = []
         seen: dict[tuple[str, str], int] = {}
         result_lines: list[str] = []
 
@@ -86,9 +94,23 @@ class RefRegistry:
             nth = seen.get(key, 0)
             seen[key] = nth + 1
 
-            self.entries[ref] = AriaRefEntry(ref=ref, role=role, name=name, nth=nth)
+            search_text = name
+            if not search_text:
+                value_match = _VALUE_LINE_RE.match(line)
+                if value_match:
+                    search_text = value_match.group(1).strip().strip('"')
+
+            self.entries[ref] = AriaRefEntry(
+                ref=ref,
+                role=role,
+                name=name,
+                nth=nth,
+                line_index=len(result_lines),
+                search_text=search_text,
+            )
             result_lines.append(f"{line.rstrip()} [ref={ref}]")
 
+        self._lines = result_lines
         return "\n".join(result_lines)
 
     def resolve(self, page: Page, ref_str: str):

@@ -135,3 +135,48 @@ def test_parse_interactive_false_same_as_default():
     count_explicit = len(registry2.entries)
 
     assert count_default == count_explicit == 3
+
+
+def test_parse_retains_annotated_lines():
+    registry = RefRegistry()
+    raw = '- navigation "Main"\n  - link "Home"\n  - link "About"'
+    result = registry.parse(raw)
+    assert registry._lines == result.splitlines()
+    assert len(registry._lines) == 3
+
+
+def test_parse_records_line_index():
+    registry = RefRegistry()
+    raw = '- navigation "Main"\n  - link "Home"\n  - link "About"'
+    registry.parse(raw)
+    assert registry.entries["e1"].line_index == 0
+    assert registry.entries["e2"].line_index == 1
+    assert registry.entries["e3"].line_index == 2
+
+
+def test_parse_line_index_counts_skipped_lines():
+    # Property lines get no ref but still occupy a slot in _lines.
+    registry = RefRegistry()
+    raw = '- link "Home"\n  - /url: /home\n- button "Go"'
+    registry.parse(raw)
+    assert registry.entries["e1"].line_index == 0
+    assert registry.entries["e2"].line_index == 2
+
+
+def test_parse_search_text_falls_back_to_value():
+    # `- text: Star 95.3k` has no quoted name; the value after the colon is
+    # what a search should match, but entry.name must stay empty so that
+    # resolve() does not pass a bogus name to get_by_role().
+    registry = RefRegistry()
+    raw = '- link "Home"\n- text: Star 95.3k'
+    registry.parse(raw)
+    assert registry.entries["e1"].search_text == "Home"
+    assert registry.entries["e2"].name == ""
+    assert registry.entries["e2"].search_text == "Star 95.3k"
+
+
+def test_parse_resets_lines_between_calls():
+    registry = RefRegistry()
+    registry.parse('- link "A"\n- link "B"')
+    registry.parse('- button "C"')
+    assert registry._lines == ['- button "C" [ref=e1]']
