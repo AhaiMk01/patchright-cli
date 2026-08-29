@@ -97,6 +97,39 @@ snapshot -i                   # Interactive elements only
 snapshot --boxes              # Append [box=x,y,w,h] to each [ref=eN] line
 ```
 
+### Searching instead of snapshotting
+
+On a large page, `find` is the cheaper first move — a full snapshot of a
+Wikipedia article is ~87k tokens; `find` returns a few hundred.
+
+```bash
+patchright-cli find "Sign in"              # substring, case-insensitive
+patchright-cli find --regex "sign (in|up)" # regex, case-insensitive
+patchright-cli find --regex "/Sign In/"    # slash form carries flags (i, m, s)
+patchright-cli find "price" --all          # include text/paragraph nodes
+patchright-cli find "hide" --limit=50      # default limit is 20
+```
+
+`find` searches links, buttons, inputs and headings by default — the things
+you can act on. Use `--all` when you are looking for page *content* rather
+than a control.
+
+Each hit prints a `#` breadcrumb showing where it sits, so identical
+controls stay distinguishable:
+
+```
+  # table > rowgroup > cell "407 points by pluc 4 hours ago | hide | 321 ..."
+- link "hide": [ref=e49]
+  - /url: hide?id=49489982
+```
+
+Refs from `find` are numbered across the whole page and are immediately
+usable with `click`, `fill`, and the rest. They stay valid until the next
+`snapshot` or `find`.
+
+When output says `Found 20 of 340 matches`, narrow the query rather than
+raising `--limit`.
+
 ### Interaction
 
 ```bash

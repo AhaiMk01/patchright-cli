@@ -149,6 +149,10 @@ patchright-cli snapshot -i             # Interactive elements only (recommended)
 patchright-cli snapshot --depth=3      # Limit depth
 patchright-cli snapshot <ref>          # Snapshot element subtree
 patchright-cli snapshot --filename=f   # Save to custom path
+patchright-cli find "text"             # Search snapshot for text
+patchright-cli find --regex "a|b"      # Search by regex
+patchright-cli find "text" --all       # Include text/paragraph nodes
+patchright-cli find "text" --limit=50  # Cap hits (default 20)
 patchright-cli eval <expr>             # Run JavaScript
 patchright-cli eval --file=script.js   # Run JS from file
 patchright-cli run-code <code>         # Run JS with return value

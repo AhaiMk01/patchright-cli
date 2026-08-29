@@ -541,3 +541,99 @@ async def test_network_includes_id(mock_state, mock_session):
     assert response["success"] is True
     assert "#0 GET 200" in response["output"]
     assert "#1 POST" in response["output"]
+
+
+@pytest.fixture
+def find_session(mock_session):
+    from patchright_cli.ref_registry import RefRegistry
+
+    registry = RefRegistry()
+    registry.parse('- banner:\n  - link "Sign in"\n  - link "Sign up"\n  - text: Signal strength\n')
+    mock_session.ref_registry = registry
+    return mock_session
+
+
+def _patch_snapshot(registry):
+    """take_snapshot is patched to return a pre-parsed registry, so no browser is needed."""
+    return patch(
+        "patchright_cli.daemon.take_snapshot",
+        AsyncMock(return_value=("ignored", registry)),
+    )
+
+
+@pytest.mark.asyncio
+async def test_find_returns_matches(mock_state, find_session):
+    mock_state.sessions = {"default": find_session}
+    with _patch_snapshot(find_session.ref_registry):
+        response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {}})
+    assert response["success"] is True
+    assert "Sign in" in response["output"]
+    assert "Sign up" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_find_excludes_text_nodes_by_default(mock_state, find_session):
+    mock_state.sessions = {"default": find_session}
+    with _patch_snapshot(find_session.ref_registry):
+        response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {}})
+    assert "Signal strength" not in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_find_all_flag_includes_text_nodes(mock_state, find_session):
+    mock_state.sessions = {"default": find_session}
+    with _patch_snapshot(find_session.ref_registry):
+        response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {"all": True}})
+    assert "Signal strength" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_find_without_query_fails(mock_state, find_session):
+    mock_state.sessions = {"default": find_session}
+    response = await handle_command(mock_state, {"command": "find", "args": [], "options": {}})
+    assert response["success"] is False
+    assert "requires a search term" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_find_invalid_regex_fails(mock_state, find_session):
+    mock_state.sessions = {"default": find_session}
+    with _patch_snapshot(find_session.ref_registry):
+        response = await handle_command(
+            mock_state, {"command": "find", "args": ["Sign (unclosed"], "options": {"regex": True}}
+        )
+    assert response["success"] is False
+    assert "Invalid regex" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_find_invalid_limit_fails(mock_state, find_session):
+    mock_state.sessions = {"default": find_session}
+    response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {"limit": "abc"}})
+    assert response["success"] is False
+    assert "Invalid --limit" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_find_zero_limit_fails(mock_state, find_session):
+    mock_state.sessions = {"default": find_session}
+    response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {"limit": "0"}})
+    assert response["success"] is False
+    assert "Invalid --limit" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_find_rejects_pattern_given_twice(mock_state, find_session):
+    mock_state.sessions = {"default": find_session}
+    response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {"regex": "Sign"}})
+    assert response["success"] is False
+    assert "not both" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_find_no_matches_succeeds(mock_state, find_session):
+    mock_state.sessions = {"default": find_session}
+    with _patch_snapshot(find_session.ref_registry):
+        response = await handle_command(mock_state, {"command": "find", "args": ["absent"], "options": {}})
+    assert response["success"] is True
+    assert "No matches" in response["output"]

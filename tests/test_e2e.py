@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import socket
 import struct
 import time
@@ -142,3 +143,24 @@ class TestE2E:
         ref = _find_ref(snap, "button")
         resp = _cmd(daemon, "wait-for", args=[ref])
         assert resp["success"] is True
+
+
+def test_find_returns_actionable_ref(daemon):
+    _send_tcp(TEST_PORT, "goto", [FIXTURE_URL])
+    response = _send_tcp(TEST_PORT, "find", ["Click me"])
+    assert response["success"] is True
+    assert 'button "Click me"' in response["output"]
+
+    ref = re.search(r"\[ref=(e\d+)\]", response["output"]).group(1)
+    click = _send_tcp(TEST_PORT, "click", [ref])
+    assert click["success"] is True
+
+    text = _send_tcp(TEST_PORT, "text", ["#output"])
+    assert "clicked" in text["output"]
+
+
+def test_find_no_matches_is_not_an_error(daemon):
+    _send_tcp(TEST_PORT, "goto", [FIXTURE_URL])
+    response = _send_tcp(TEST_PORT, "find", ["nonexistent-element"])
+    assert response["success"] is True
+    assert "No matches" in response["output"]

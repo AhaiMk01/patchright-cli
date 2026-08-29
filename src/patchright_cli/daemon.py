@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import signal
 import struct
 import subprocess
@@ -19,7 +20,7 @@ import traceback
 from pathlib import Path
 from urllib.parse import urlparse
 
-from patchright_cli.ref_registry import RefRegistry
+from patchright_cli.ref_registry import RefRegistry, render_hits
 from patchright_cli.snapshot import save_snapshot, take_snapshot
 
 logger = logging.getLogger("patchright-cli.daemon")
@@ -658,6 +659,48 @@ async def _annotate_with_boxes(page, snapshot_text: str, registry) -> str:
             line = line.rstrip() + " " + boxes[m.group(1)]
         out.append(line)
     return "\n".join(out)
+
+
+@register("find")
+async def cmd_find(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    regex_option = options.get("regex", False)
+    if isinstance(regex_option, str):
+        if args:
+            return {
+                "success": False,
+                "output": "Give the pattern as --regex=<pattern> or as a positional argument, not both.",
+            }
+        query, use_regex = regex_option, True
+    else:
+        query, use_regex = (args[0] if args else None), bool(regex_option)
+
+    if not query:
+        return {
+            "success": False,
+            "output": "find requires a search term. Usage: find <text> [--regex] [--all] [--limit=N]",
+        }
+
+    raw_limit = options.get("limit", 20)
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError):
+        return {"success": False, "output": f"Invalid --limit value: {raw_limit!r}. Expected a positive integer."}
+    if limit < 1:
+        return {"success": False, "output": f"Invalid --limit value: {limit}. Expected a positive integer."}
+
+    # Refs are numbered across the whole tree, so they agree with `snapshot`.
+    _, session.ref_registry = await take_snapshot(page)
+    if not session.ref_registry.entries:
+        return {"success": True, "output": "# Empty page - no accessible elements found"}
+
+    try:
+        hits, total = session.ref_registry.search(
+            query, regex=use_regex, all_roles=bool(options.get("all", False)), limit=limit
+        )
+    except re.error as exc:
+        return {"success": False, "output": f"Invalid regex {query!r}: {exc}"}
+
+    return {"success": True, "output": render_hits(hits, total, query)}
 
 
 @register("generate-locator")

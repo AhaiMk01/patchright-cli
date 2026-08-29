@@ -84,3 +84,45 @@ patchright-cli click e5          # Triggers dynamic load
 patchright-cli wait 1000         # Wait for content
 patchright-cli snapshot          # Get fresh refs
 ```
+
+## `find` — searching the snapshot
+
+```
+find <text>              Substring match on the accessible name, case-insensitive
+find --regex <pattern>   Regex match; bare patterns are case-insensitive
+find --regex "/p/ims"    Slash form; supported flags are i, m, s
+find --all               Search every node, not just interactive roles + heading
+find --limit=N           Cap rendered hits (default 20)
+```
+
+### What gets searched
+
+By default, roles in `SEARCHABLE_ROLES` — every interactive role plus
+`heading`. This is deliberate: role filtering is the single biggest lever on
+output size. Measured across 13 queries on four real pages it cut hits 4.3x
+(729 to 168); on one Wikipedia query, 442 hits became 53.
+
+Matching runs against a node's accessible name. For unnamed nodes such as
+`- text: Star 95.3k`, the value after the colon is used instead. Property
+lines like `- /url: ...` are not nodes and never match.
+
+### Output
+
+Per hit: a `  # ancestor > ancestor > parent` breadcrumb (3 deep, names cut at
+45 characters, repeated names collapsed), then the matched node with its ref,
+then its subtree.
+
+`find` prints inline and writes no `.yml` file. `snapshot` still writes one.
+
+### Divergence from playwright-cli
+
+playwright-cli's `find` searches all nodes and returns grep-style +/-3 lines of
+context. This one defaults to interactive roles and returns the matched
+subtree with a breadcrumb. On identical queries the measured output was 13KB
+here against 37KB there. `--all` recovers playwright-cli's broader search.
+
+### When hits are truncated
+
+`Found 20 of 340 matches` means the query is too broad. Narrow it — a longer
+substring, or a regex anchored with `\b`. Raising `--limit` just buys more
+tokens for the same ambiguity.
