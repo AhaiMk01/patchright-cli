@@ -77,6 +77,89 @@ def _get_bundled_skills_dir() -> Path | None:
     return None
 
 
+def _read_skill_text(path: Path) -> str | None:
+    """Read a SKILL.md, normalising line endings. None when it is not there."""
+    try:
+        return path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    except OSError:
+        return None
+
+
+def _stale_skill_installs(agents: list[tuple[str, Path]] | None = None) -> list[tuple[str, Path]]:
+    """Installed skill copies that no longer match the bundled one.
+
+    Line endings are normalised first -- git and editors rewrite them, and a
+    CRLF copy of an identical skill is not stale.
+    """
+    source = _get_bundled_skills_dir()
+    if source is None:
+        return []
+    bundled = _read_skill_text(source / "SKILL.md")
+    if bundled is None:
+        return []
+
+    stale = []
+    for name, agent_dir in _detect_agent_dirs() if agents is None else agents:
+        target = agent_dir / "skills" / "patchright-cli"
+        installed = _read_skill_text(target / "SKILL.md")
+        if installed is not None and installed != bundled:
+            stale.append((name, target))
+    return stale
+
+
+_SKILL_WARN_INTERVAL = 24 * 60 * 60
+
+
+def _skill_check_stamp() -> Path:
+    return Path.home() / ".patchright-cli" / "skill-check.json"
+
+
+def _skill_warning_is_throttled() -> bool:
+    """True when this version already warned within the last interval.
+
+    Every command is its own process, so an unthrottled warning would repeat
+    on each link of a chain and bury the command output an agent is reading.
+    """
+    import time
+
+    stamp = _skill_check_stamp()
+    try:
+        data = json.loads(stamp.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    if data.get("version") == __version__ and time.time() - float(data.get("at", 0)) < _SKILL_WARN_INTERVAL:
+        return True
+    try:
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(json.dumps({"version": __version__, "at": time.time()}), encoding="utf-8")
+    except OSError:
+        pass
+    return False
+
+
+def _warn_stale_skills() -> None:
+    """Warn on stderr when an installed skill is older than this build.
+
+    An agent reading a stale SKILL.md will use commands and flags that no
+    longer match the tool. Warns at most once a day per version; set
+    PATCHRIGHT_CLI_NO_SKILL_CHECK=1 to silence it entirely.
+    """
+    if os.environ.get("PATCHRIGHT_CLI_NO_SKILL_CHECK"):
+        return
+    try:
+        stale = _stale_skill_installs()
+    except Exception:
+        return
+    if not stale or _skill_warning_is_throttled():
+        return
+    for name, target in stale:
+        click.echo(
+            f"warning: {name} skill at {target} does not match patchright-cli v{__version__}. "
+            f"Run `patchright-cli install --skills` to update it.",
+            err=True,
+        )
+
+
 def _install_skills_to_dir(target: Path) -> None:
     """Copy SKILL.md and references/ to target directory."""
     import shutil
@@ -526,6 +609,8 @@ def main():
     if command == "install":
         _handle_install(args + [k if v is True else f"{k}={v}" for k, v in extra_opts.items()])
         sys.exit(0)
+
+    _warn_stale_skills()
 
     # Separate --key=value and --flag from positional args
     positional_args = []

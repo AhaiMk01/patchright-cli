@@ -201,3 +201,145 @@ def test_install_skills_copies_files(tmp_path):
     assert (target / "SKILL.md").exists()
     assert (target / "references").is_dir()
     assert (target / "references" / "snapshot-refs.md").exists()
+
+
+# -- Installed-skill staleness check -----------------------------------------
+
+
+def _make_install(root, name, text):
+    target = root / name / "skills" / "patchright-cli"
+    target.mkdir(parents=True)
+    (target / "SKILL.md").write_text(text, encoding="utf-8")
+    return target
+
+
+def test_stale_skill_installs_flags_mismatch(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from patchright_cli import cli
+
+    bundled = tmp_path / "bundled"
+    bundled.mkdir()
+    (bundled / "SKILL.md").write_text("current skill\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "_get_bundled_skills_dir", lambda: bundled)
+
+    old = _make_install(tmp_path, "agent-old", "outdated skill\n")
+    _make_install(tmp_path, "agent-current", "current skill\n")
+
+    stale = cli._stale_skill_installs(
+        [("Old", Path(tmp_path / "agent-old")), ("Current", Path(tmp_path / "agent-current"))]
+    )
+
+    assert stale == [("Old", old)]
+
+
+def test_stale_skill_installs_ignores_line_ending_differences(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from patchright_cli import cli
+
+    bundled = tmp_path / "bundled"
+    bundled.mkdir()
+    (bundled / "SKILL.md").write_text("line one\nline two\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "_get_bundled_skills_dir", lambda: bundled)
+
+    target = tmp_path / "agent" / "skills" / "patchright-cli"
+    target.mkdir(parents=True)
+    (target / "SKILL.md").write_bytes(b"line one\r\nline two\r\n")
+
+    assert cli._stale_skill_installs([("Agent", Path(tmp_path / "agent"))]) == []
+
+
+def test_stale_skill_installs_skips_agents_without_the_skill(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from patchright_cli import cli
+
+    bundled = tmp_path / "bundled"
+    bundled.mkdir()
+    (bundled / "SKILL.md").write_text("current skill\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "_get_bundled_skills_dir", lambda: bundled)
+
+    (tmp_path / "agent").mkdir()
+    assert cli._stale_skill_installs([("Agent", Path(tmp_path / "agent"))]) == []
+
+
+def test_stale_skill_installs_no_bundled_source(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from patchright_cli import cli
+
+    monkeypatch.setattr(cli, "_get_bundled_skills_dir", lambda: None)
+    assert cli._stale_skill_installs([("Agent", Path(tmp_path))]) == []
+
+
+def test_warn_stale_skills_respects_opt_out(tmp_path, monkeypatch, capsys):
+    from patchright_cli import cli
+
+    monkeypatch.setenv("PATCHRIGHT_CLI_NO_SKILL_CHECK", "1")
+    monkeypatch.setattr(cli, "_stale_skill_installs", lambda *a: [("Agent", tmp_path)])
+
+    cli._warn_stale_skills()
+    assert capsys.readouterr().err == ""
+
+
+def test_warn_stale_skills_writes_to_stderr(tmp_path, monkeypatch, capsys):
+    from patchright_cli import cli
+
+    monkeypatch.delenv("PATCHRIGHT_CLI_NO_SKILL_CHECK", raising=False)
+    monkeypatch.setattr(cli, "_stale_skill_installs", lambda *a: [("Agent", tmp_path)])
+    monkeypatch.setattr(cli, "_skill_check_stamp", lambda: tmp_path / "stamp.json")
+
+    cli._warn_stale_skills()
+    err = capsys.readouterr().err
+    assert str(tmp_path) in err
+    assert "install --skills" in err
+
+
+def test_warn_stale_skills_throttles_repeat_warnings(tmp_path, monkeypatch, capsys):
+    from patchright_cli import cli
+
+    monkeypatch.delenv("PATCHRIGHT_CLI_NO_SKILL_CHECK", raising=False)
+    monkeypatch.setattr(cli, "_stale_skill_installs", lambda *a: [("Agent", tmp_path)])
+    monkeypatch.setattr(cli, "_skill_check_stamp", lambda: tmp_path / "stamp.json")
+
+    cli._warn_stale_skills()
+    assert "install --skills" in capsys.readouterr().err
+
+    cli._warn_stale_skills()
+    assert capsys.readouterr().err == ""
+
+
+def test_warn_stale_skills_warns_again_once_the_stamp_is_stale(tmp_path, monkeypatch, capsys):
+    import json
+    import time
+
+    from patchright_cli import cli
+
+    monkeypatch.delenv("PATCHRIGHT_CLI_NO_SKILL_CHECK", raising=False)
+    monkeypatch.setattr(cli, "_stale_skill_installs", lambda *a: [("Agent", tmp_path)])
+    stamp = tmp_path / "stamp.json"
+    monkeypatch.setattr(cli, "_skill_check_stamp", lambda: stamp)
+
+    stamp.write_text(
+        json.dumps({"version": cli.__version__, "at": time.time() - cli._SKILL_WARN_INTERVAL - 1}),
+        encoding="utf-8",
+    )
+    cli._warn_stale_skills()
+    assert "install --skills" in capsys.readouterr().err
+
+
+def test_warn_stale_skills_ignores_a_stamp_from_another_version(tmp_path, monkeypatch, capsys):
+    import json
+    import time
+
+    from patchright_cli import cli
+
+    monkeypatch.delenv("PATCHRIGHT_CLI_NO_SKILL_CHECK", raising=False)
+    monkeypatch.setattr(cli, "_stale_skill_installs", lambda *a: [("Agent", tmp_path)])
+    stamp = tmp_path / "stamp.json"
+    monkeypatch.setattr(cli, "_skill_check_stamp", lambda: stamp)
+
+    stamp.write_text(json.dumps({"version": "0.0.1", "at": time.time()}), encoding="utf-8")
+    cli._warn_stale_skills()
+    assert "install --skills" in capsys.readouterr().err

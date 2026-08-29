@@ -393,6 +393,12 @@ pip install patchright-cli && patchright-cli install --skills
 # "Install patchright-cli skill from https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/skills/patchright-cli/SKILL.md"
 ```
 
+When an installed copy of this skill drifts from the tool version,
+patchright-cli prints a one-line warning on stderr -- once a day per
+version, so a chained run is not buried in it. Re-run
+`patchright-cli install --skills` to resync, or set
+`PATCHRIGHT_CLI_NO_SKILL_CHECK=1` to silence the check.
+
 ## Specific tasks
 
 * **Snapshots and element refs** [references/snapshot-refs.md](references/snapshot-refs.md)
