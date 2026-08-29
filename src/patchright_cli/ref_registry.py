@@ -19,6 +19,32 @@ _NODE_LINE_RE = re.compile(r"^\s*-\s+(\w+)(?:\s+\"([^\"]*)\")?")
 # name is unquoted. Used only for search text, never for locator resolution.
 _VALUE_LINE_RE = re.compile(r"^\s*-\s+\w+:\s*(.+)$")
 
+# `/pattern/flags` form, matching playwright-cli's convention.
+_SLASH_PATTERN_RE = re.compile(r"^/(.*)/([ims]*)$", re.S)
+_REGEX_FLAGS = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL}
+
+
+def _compile_query(query: str, regex: bool):
+    """Return a predicate over a node's search text. Raises re.error on a bad pattern."""
+    if not regex:
+        needle = query.lower()
+        return lambda text: needle in text.lower()
+
+    slash_match = _SLASH_PATTERN_RE.match(query)
+    if slash_match:
+        pattern, flag_chars = slash_match.group(1), slash_match.group(2)
+    else:
+        # A bare pattern is case-insensitive, matching the substring default.
+        pattern, flag_chars = query, "i"
+
+    flags = 0
+    for char in flag_chars:
+        flags |= _REGEX_FLAGS[char]
+
+    compiled = re.compile(pattern, flags)
+    return lambda text: bool(compiled.search(text))
+
+
 INTERACTIVE_ROLES = frozenset(
     {
         "link",
@@ -41,6 +67,11 @@ INTERACTIVE_ROLES = frozenset(
     }
 )
 
+# Roles `find` searches by default. Headings earn a place because they are the
+# landmarks agents orient by on content pages. Deliberately a separate constant:
+# adding "heading" to INTERACTIVE_ROLES would silently change `snapshot -i`.
+SEARCHABLE_ROLES = INTERACTIVE_ROLES | {"heading"}
+
 
 @dataclass
 class AriaRefEntry:
@@ -50,6 +81,16 @@ class AriaRefEntry:
     nth: int
     line_index: int = -1
     search_text: str = ""
+
+
+@dataclass
+class FindHit:
+    """One `find` match: the node, where it sits, and what to print for it."""
+
+    ref: str
+    line_index: int
+    breadcrumb: str
+    block: list[str]
 
 
 class RefRegistry:
@@ -112,6 +153,38 @@ class RefRegistry:
 
         self._lines = result_lines
         return "\n".join(result_lines)
+
+    def search(
+        self,
+        query: str,
+        *,
+        regex: bool = False,
+        all_roles: bool = False,
+        limit: int = 20,
+    ) -> tuple[list[FindHit], int]:
+        """Find nodes whose accessible text matches `query`.
+
+        Returns (hits, total_matches). `hits` is capped at `limit`; `total_matches`
+        is not, so callers can tell the user how much was withheld.
+        """
+        predicate = _compile_query(query, regex)
+
+        matched = [
+            entry
+            for entry in self.entries.values()
+            if (all_roles or entry.role in SEARCHABLE_ROLES) and entry.search_text and predicate(entry.search_text)
+        ]
+
+        hits = [
+            FindHit(
+                ref=entry.ref,
+                line_index=entry.line_index,
+                breadcrumb="",
+                block=[self._lines[entry.line_index].strip()],
+            )
+            for entry in matched[:limit]
+        ]
+        return hits, len(matched)
 
     def resolve(self, page: Page, ref_str: str):
         """Resolve a ref (with or without leading @) to a Playwright Locator."""

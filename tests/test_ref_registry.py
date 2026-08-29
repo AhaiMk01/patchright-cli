@@ -1,6 +1,9 @@
 """Unit tests for RefRegistry."""
 
+import re
 from unittest.mock import MagicMock
+
+import pytest
 
 from patchright_cli.ref_registry import RefRegistry
 
@@ -180,3 +183,101 @@ def test_parse_resets_lines_between_calls():
     registry.parse('- link "A"\n- link "B"')
     registry.parse('- button "C"')
     assert registry._lines == ['- button "C" [ref=e1]']
+
+
+SEARCH_YAML = (
+    "- banner:\n"
+    '  - heading "Get Started"\n'
+    '  - link "Star this repo"\n'
+    "    - /url: /star\n"
+    "  - text: 95.3k stars\n"
+    "- main:\n"
+    '  - button "Star"\n'
+    "  - paragraph: Starting is easy\n"
+)
+
+
+def test_search_substring_is_case_insensitive():
+    registry = RefRegistry()
+    registry.parse(SEARCH_YAML)
+    hits, total = registry.search("star")
+    refs = [h.ref for h in hits]
+    assert total == 3  # heading "Get Started", link "Star this repo", button "Star"
+    assert len(refs) == 3
+
+
+def test_search_excludes_non_interactive_roles_by_default():
+    registry = RefRegistry()
+    registry.parse(SEARCH_YAML)
+    hits, _ = registry.search("star")
+    roles = {registry.entries[h.ref].role for h in hits}
+    assert "text" not in roles
+    assert "paragraph" not in roles
+    assert roles == {"heading", "link", "button"}
+
+
+def test_search_all_roles_includes_text_nodes():
+    registry = RefRegistry()
+    registry.parse(SEARCH_YAML)
+    hits, total = registry.search("star", all_roles=True)
+    roles = {registry.entries[h.ref].role for h in hits}
+    assert total == 5  # + text "95.3k stars" + paragraph "Starting is easy"
+    assert "text" in roles
+    assert "paragraph" in roles
+
+
+def test_search_ignores_property_lines():
+    # `- /url: /star` contains "star" but is not a node and must not match.
+    registry = RefRegistry()
+    registry.parse(SEARCH_YAML)
+    hits, _ = registry.search("/star", all_roles=True)
+    assert hits == []
+
+
+def test_search_regex_bare_pattern_is_case_insensitive():
+    registry = RefRegistry()
+    registry.parse(SEARCH_YAML)
+    hits, total = registry.search("star (this|repo)", regex=True)
+    assert total == 1
+    assert registry.entries[hits[0].ref].name == "Star this repo"
+
+
+def test_search_regex_slash_form_honours_flags():
+    registry = RefRegistry()
+    registry.parse(SEARCH_YAML)
+    sensitive, _ = registry.search("/star this/", regex=True)
+    insensitive, _ = registry.search("/star this/i", regex=True)
+    assert sensitive == []
+    assert len(insensitive) == 1
+
+
+def test_search_invalid_regex_raises():
+    registry = RefRegistry()
+    registry.parse(SEARCH_YAML)
+    with pytest.raises(re.error):
+        registry.search("star (unclosed", regex=True)
+
+
+def test_search_limit_caps_hits_but_not_total():
+    registry = RefRegistry()
+    registry.parse(SEARCH_YAML)
+    hits, total = registry.search("star", limit=2)
+    assert len(hits) == 2
+    assert total == 3
+
+
+def test_search_no_matches_returns_empty():
+    registry = RefRegistry()
+    registry.parse(SEARCH_YAML)
+    hits, total = registry.search("nonexistent")
+    assert hits == []
+    assert total == 0
+
+
+def test_search_hit_carries_ref_and_line_index():
+    registry = RefRegistry()
+    registry.parse(SEARCH_YAML)
+    hits, _ = registry.search("Star this repo")
+    entry = registry.entries[hits[0].ref]
+    assert hits[0].line_index == entry.line_index
+    assert registry._lines[hits[0].line_index].startswith('  - link "Star this repo"')
