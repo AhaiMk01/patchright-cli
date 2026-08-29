@@ -27,6 +27,30 @@ patchright-cli video-stop
 
 Chapters are saved as a JSON file alongside the video.
 
+### Action callouts
+
+Label each action in the recording as it happens: a badge naming the action
+and the element, plus a ring around the target.
+
+```bash
+patchright-cli video-start
+patchright-cli video-show-actions                      # 600ms, top-right
+patchright-cli video-show-actions --duration=1200 --position=bottom-left
+patchright-cli click e5                                # renders: click button "Sign in"
+patchright-cli video-hide-actions                      # stop annotating
+patchright-cli video-stop
+```
+
+`--position` takes `top-left`, `top-right`, `bottom-left`, or `bottom-right`.
+
+The callout is drawn *before* the action, because a click can navigate away
+or detach the element. It is `pointer-events: none` and `aria-hidden`, so it
+neither blocks the interaction nor shows up in `snapshot`.
+
+Callouts are only drawn while a recording is running -- the flag persists
+across `video-start` / `video-stop`, but outside a recording the page is left
+alone.
+
 ## Codegen (interaction recording)
 
 Record your browser interactions and save them as a replayable bash script:

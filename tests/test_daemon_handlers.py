@@ -29,6 +29,8 @@ def mock_session():
     session.page.url = "https://example.com"
     session.page.title = AsyncMock(return_value="Example")
     session._codegen = None
+    session._video_recording = False
+    session._video_show_actions = None
     return session
 
 
@@ -751,3 +753,154 @@ async def test_element_screenshot_honours_hires(mock_state, mock_session, tmp_pa
 
     assert response["success"] is True
     assert locator.screenshot.await_args.kwargs["scale"] == "device"
+
+
+# -- video-show-actions / video-hide-actions ---------------------------------
+
+
+@pytest.mark.asyncio
+async def test_video_show_actions_defaults(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session._video_show_actions = None
+
+    response = await handle_command(mock_state, {"command": "video-show-actions", "args": [], "options": {}})
+
+    assert response["success"] is True
+    assert mock_session._video_show_actions == {"duration": 600, "position": "top-right"}
+
+
+@pytest.mark.asyncio
+async def test_video_show_actions_accepts_duration_and_position(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session._video_show_actions = None
+
+    response = await handle_command(
+        mock_state,
+        {"command": "video-show-actions", "args": [], "options": {"duration": "1200", "position": "bottom-left"}},
+    )
+
+    assert response["success"] is True
+    assert mock_session._video_show_actions == {"duration": 1200, "position": "bottom-left"}
+
+
+@pytest.mark.asyncio
+async def test_video_show_actions_rejects_unknown_position(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session._video_show_actions = None
+
+    response = await handle_command(
+        mock_state, {"command": "video-show-actions", "args": [], "options": {"position": "middle"}}
+    )
+
+    assert response["success"] is False
+    assert "middle" in response["output"]
+    assert mock_session._video_show_actions is None
+
+
+@pytest.mark.asyncio
+async def test_video_show_actions_rejects_bare_duration_flag(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session._video_show_actions = None
+
+    response = await handle_command(
+        mock_state, {"command": "video-show-actions", "args": [], "options": {"duration": True}}
+    )
+
+    assert response["success"] is False
+    assert mock_session._video_show_actions is None
+
+
+@pytest.mark.asyncio
+async def test_video_hide_actions_clears_the_flag(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session._video_show_actions = {"duration": 600, "position": "top-right"}
+    mock_session.page.evaluate = AsyncMock()
+
+    response = await handle_command(mock_state, {"command": "video-hide-actions", "args": [], "options": {}})
+
+    assert response["success"] is True
+    assert mock_session._video_show_actions is None
+
+
+@pytest.mark.asyncio
+async def test_action_callout_is_skipped_when_not_recording(mock_session):
+    from patchright_cli.daemon import _draw_action_callout
+
+    mock_session._video_show_actions = {"duration": 600, "position": "top-right"}
+    mock_session._video_recording = False
+    page = MagicMock()
+    page.evaluate = AsyncMock()
+
+    await _draw_action_callout(mock_session, page, "click", ["e1"])
+
+    page.evaluate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_action_callout_is_skipped_when_disabled(mock_session):
+    from patchright_cli.daemon import _draw_action_callout
+
+    mock_session._video_show_actions = None
+    mock_session._video_recording = True
+    page = MagicMock()
+    page.evaluate = AsyncMock()
+
+    await _draw_action_callout(mock_session, page, "click", ["e1"])
+
+    page.evaluate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_action_callout_names_the_target_element(mock_session):
+    from patchright_cli.daemon import _draw_action_callout
+
+    mock_session._video_show_actions = {"duration": 600, "position": "top-right"}
+    mock_session._video_recording = True
+
+    entry = MagicMock()
+    entry.role = "button"
+    entry.name = "Sign in"
+    registry = MagicMock()
+    registry.entries = {"e1": entry}
+    locator = MagicMock()
+    locator.bounding_box = AsyncMock(return_value={"x": 1, "y": 2, "width": 3, "height": 4})
+    registry.resolve.return_value = locator
+    mock_session.ref_registry = registry
+
+    page = MagicMock()
+    page.evaluate = AsyncMock()
+
+    await _draw_action_callout(mock_session, page, "click", ["e1"])
+
+    payload = page.evaluate.await_args.args[1]
+    assert payload["label"] == 'click button "Sign in"'
+    assert payload["box"] == {"x": 1, "y": 2, "width": 3, "height": 4}
+    assert payload["duration"] == 600
+    assert payload["position"] == "top-right"
+
+
+@pytest.mark.asyncio
+async def test_action_callout_ignores_non_action_commands(mock_session):
+    from patchright_cli.daemon import _draw_action_callout
+
+    mock_session._video_show_actions = {"duration": 600, "position": "top-right"}
+    mock_session._video_recording = True
+    page = MagicMock()
+    page.evaluate = AsyncMock()
+
+    await _draw_action_callout(mock_session, page, "snapshot", [])
+
+    page.evaluate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_action_callout_never_breaks_the_action(mock_session):
+    from patchright_cli.daemon import _draw_action_callout
+
+    mock_session._video_show_actions = {"duration": 600, "position": "top-right"}
+    mock_session._video_recording = True
+    mock_session.ref_registry = None
+    page = MagicMock()
+    page.evaluate = AsyncMock(side_effect=RuntimeError("execution context destroyed"))
+
+    await _draw_action_callout(mock_session, page, "press", ["Enter"])

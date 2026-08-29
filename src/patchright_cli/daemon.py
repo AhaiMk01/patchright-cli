@@ -72,6 +72,7 @@ class Session:
         self._video_frames: list[bytes] = []
         self._video_recording: bool = False
         self._video_chapters: list[tuple[int, str]] = []
+        self._video_show_actions: dict | None = None
         self._history: list[str] = []
         self._history_index: int = -1
         self._codegen: list[str] | None = None
@@ -1578,6 +1579,134 @@ async def cmd_video_chapter(
     return {"success": True, "output": f"Chapter '{title}' added at frame {frame_index}."}
 
 
+_VIDEO_ACTION_LABELS = {
+    "click": "click",
+    "dblclick": "double-click",
+    "fill": "fill",
+    "type": "type",
+    "hover": "hover",
+    "select": "select",
+    "check": "check",
+    "uncheck": "uncheck",
+    "press": "press",
+    "upload": "upload",
+    "drag": "drag",
+    "drop": "drop",
+}
+
+_CALLOUT_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
+
+_ACTION_CALLOUT_JS = """
+(opts) => {
+  const { label, box, duration, position } = opts;
+  document.querySelectorAll('[data-patchright-callout]').forEach(el => el.remove());
+
+  const layer = document.createElement('div');
+  layer.setAttribute('data-patchright-callout', '1');
+  layer.setAttribute('aria-hidden', 'true');
+  layer.style.cssText =
+    'position: fixed; inset: 0; pointer-events: none; z-index: 2147483647;';
+
+  const badge = document.createElement('div');
+  const [vert, horiz] = position.split('-');
+  badge.style.cssText =
+    'position: fixed; ' + vert + ': 12px; ' + horiz + ': 12px;' +
+    'padding: 6px 12px; border-radius: 8px; background: rgba(0,0,0,0.78);' +
+    'color: #fff; font: 500 13px/1.4 system-ui, sans-serif; max-width: 60vw;' +
+    'overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+  badge.textContent = label;
+  layer.appendChild(badge);
+
+  if (box) {
+    const ring = document.createElement('div');
+    ring.style.cssText =
+      'position: fixed; left: ' + box.x + 'px; top: ' + box.y + 'px;' +
+      'width: ' + box.width + 'px; height: ' + box.height + 'px;' +
+      'border: 2px solid #ff3366; border-radius: 4px;' +
+      'box-shadow: 0 0 0 9999px rgba(0,0,0,0.12);';
+    layer.appendChild(ring);
+  }
+
+  document.documentElement.appendChild(layer);
+  setTimeout(() => layer.remove(), duration);
+}
+"""
+
+
+async def _draw_action_callout(session: Session, page, cmd: str, args: list) -> None:
+    """Overlay a callout naming the action about to run and ringing its target.
+
+    Drawn before the action, because a click can navigate away or detach the
+    element. Only while a recording is running: the overlay mutates the live
+    page, and outside a recording nobody asked for that. Never raises -- an
+    annotation must not be able to fail the action it is describing.
+    """
+    config = session._video_show_actions
+    if not config or not session._video_recording:
+        return
+    label = _VIDEO_ACTION_LABELS.get(cmd)
+    if label is None:
+        return
+
+    box = None
+    ref = args[0] if args and re.fullmatch(r"e\d+", str(args[0])) else None
+    if ref and session.ref_registry is not None:
+        entry = session.ref_registry.entries.get(ref)
+        if entry is not None:
+            label = f"{label} {entry.role}" + (f' "{entry.name}"' if entry.name else "")
+            try:
+                box = await session.ref_registry.resolve(page, ref).bounding_box()
+            except Exception:
+                box = None
+
+    try:
+        await page.evaluate(
+            _ACTION_CALLOUT_JS,
+            {"label": label, "box": box, "duration": config["duration"], "position": config["position"]},
+        )
+    except Exception:
+        pass
+
+
+@register("video-show-actions")
+async def cmd_video_show_actions(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    """Annotate every subsequent action with an on-page callout in the recording."""
+    position = options.get("position", "top-right")
+    if position not in _CALLOUT_POSITIONS:
+        return {
+            "success": False,
+            "output": f"Invalid --position value: {position!r}. Expected one of {', '.join(_CALLOUT_POSITIONS)}.",
+        }
+
+    raw_duration = options.get("duration", 600)
+    if isinstance(raw_duration, bool):
+        return {"success": False, "output": "Give --duration a value in milliseconds, e.g. --duration=600."}
+    try:
+        duration = int(raw_duration)
+    except (TypeError, ValueError):
+        return {"success": False, "output": f"Invalid --duration value: {raw_duration!r}. Expected milliseconds."}
+    if duration < 1:
+        return {"success": False, "output": f"Invalid --duration value: {duration}. Expected milliseconds."}
+
+    session._video_show_actions = {"duration": duration, "position": position}
+    return {"success": True, "output": f"Action callouts on ({duration}ms, {position})."}
+
+
+@register("video-hide-actions")
+async def cmd_video_hide_actions(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    """Stop annotating actions and clear any callout still on the page."""
+    session._video_show_actions = None
+    try:
+        await page.evaluate("() => document.querySelectorAll('[data-patchright-callout]').forEach(el => el.remove())")
+    except Exception:
+        pass
+    return {"success": True, "output": "Action callouts off."}
+
+
 # -- PDF ---------------------------------------------------------------------
 
 
@@ -1882,6 +2011,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         if handler is None:
             return {"success": False, "output": f"Unknown command: {cmd}"}
 
+        await _draw_action_callout(session, page, cmd, args)
         result = await handler(session, page, args, options, cwd, state)
         if result.get("success") and session._codegen is not None and cmd in _CODEGEN_RECORDABLE:
             args_quoted = [f'"{a}"' if " " in a else a for a in args]

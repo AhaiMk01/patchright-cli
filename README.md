@@ -259,6 +259,8 @@ patchright-cli tracing-stop            # Saves .zip trace file
 patchright-cli video-start             # Start video recording (CDP screencast)
 patchright-cli video-stop              # Stop and save video (requires ffmpeg for .webm)
 patchright-cli video-stop --filename=recording.webm
+patchright-cli video-show-actions       # Annotate each action in the recording
+patchright-cli video-hide-actions       # Stop annotating actions
 patchright-cli pdf --filename=page.pdf
 ```
 

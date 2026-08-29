@@ -245,6 +245,8 @@ highlight <ref> --hide        # Remove overlay; `highlight --hide` clears all
 ```bash
 screenshot / pdf              # Static capture
 video-start / video-stop      # Video recording
+video-show-actions            # Label each action in the recording [--duration=ms] [--position=P]
+video-hide-actions            # Stop labelling actions
 tracing-start / tracing-stop  # Playwright trace
 codegen / codegen-stop        # Record interactions as script
 resize <w> <h>                # Viewport resize
