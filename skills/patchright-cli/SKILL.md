@@ -35,6 +35,25 @@ patchright-cli snapshot          # read refs from output
 patchright-cli click e5          # use discovered ref
 ```
 
+## Shell quoting
+
+Quote any URL containing `&`. Unquoted, the shell eats it before patchright-cli
+sees it:
+
+```bash
+# WRONG -- PowerShell 7 treats `&` as the background operator: the command is
+# detached and everything after `&` is run as a separate command.
+# cmd.exe treats it as a command separator. Either way the URL is truncated.
+patchright-cli goto https://example.com/search?q=cats&page=2
+
+# RIGHT -- on any shell
+patchright-cli goto "https://example.com/search?q=cats&page=2"
+```
+
+The same applies to `#` (a bash comment), spaces, and `%` (expanded by
+cmd.exe), and to any argument holding shell metacharacters. Quoting always
+works; leave it on.
+
 ## Global options
 
 These go before the command:
