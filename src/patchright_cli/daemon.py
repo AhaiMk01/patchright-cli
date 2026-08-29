@@ -682,6 +682,8 @@ async def cmd_find(session: Session, page, args: list, options: dict, cwd: str |
 
     raw_limit = options.get("limit", 20)
     try:
+        if isinstance(raw_limit, bool):
+            raise TypeError
         limit = int(raw_limit)
     except (TypeError, ValueError):
         return {"success": False, "output": f"Invalid --limit value: {raw_limit!r}. Expected a positive integer."}

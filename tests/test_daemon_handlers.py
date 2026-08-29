@@ -623,6 +623,14 @@ async def test_find_zero_limit_fails(mock_state, find_session):
 
 
 @pytest.mark.asyncio
+async def test_find_bare_limit_flag_fails(mock_state, find_session):
+    mock_state.sessions = {"default": find_session}
+    response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {"limit": True}})
+    assert response["success"] is False
+    assert "Invalid --limit" in response["output"]
+
+
+@pytest.mark.asyncio
 async def test_find_rejects_pattern_given_twice(mock_state, find_session):
     mock_state.sessions = {"default": find_session}
     response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {"regex": "Sign"}})

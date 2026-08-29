@@ -119,7 +119,11 @@ then its subtree.
 playwright-cli's `find` searches all nodes and returns grep-style +/-3 lines of
 context. This one defaults to interactive roles and returns the matched
 subtree with a breadcrumb. On identical queries the measured output was 13KB
-here against 37KB there. `--all` recovers playwright-cli's broader search.
+here against 37KB there. `--all` widens the search to every node like
+playwright-cli's does, but each hit still renders as a full subtree rather
+than +/-3 lines of context — on content-heavy pages a matching container can
+print its entire subtree, plus its matching descendants again as their own
+hits (Hacker News `find "comments"` returned 45% of the page this way).
 
 ### When hits are truncated
 

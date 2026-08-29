@@ -146,12 +146,16 @@ class TestE2E:
 
 
 def test_find_returns_actionable_ref(daemon):
-    _send_tcp(TEST_PORT, "goto", [FIXTURE_URL])
+    goto = _send_tcp(TEST_PORT, "goto", [FIXTURE_URL])
+    assert goto["success"] is True
+
     response = _send_tcp(TEST_PORT, "find", ["Click me"])
     assert response["success"] is True
     assert 'button "Click me"' in response["output"]
 
-    ref = re.search(r"\[ref=(e\d+)\]", response["output"]).group(1)
+    match = re.search(r"\[ref=(e\d+)\]", response["output"])
+    assert match is not None, f"No ref found in find output: {response['output']!r}"
+    ref = match.group(1)
     click = _send_tcp(TEST_PORT, "click", [ref])
     assert click["success"] is True
 
@@ -160,7 +164,9 @@ def test_find_returns_actionable_ref(daemon):
 
 
 def test_find_no_matches_is_not_an_error(daemon):
-    _send_tcp(TEST_PORT, "goto", [FIXTURE_URL])
+    goto = _send_tcp(TEST_PORT, "goto", [FIXTURE_URL])
+    assert goto["success"] is True
+
     response = _send_tcp(TEST_PORT, "find", ["nonexistent-element"])
     assert response["success"] is True
     assert "No matches" in response["output"]

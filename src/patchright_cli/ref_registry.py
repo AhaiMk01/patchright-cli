@@ -277,7 +277,7 @@ def render_hits(hits: list[FindHit], total: int, query: str) -> str:
         )
 
     if total > len(hits):
-        header = f'Found {len(hits)} of {total} matches for "{query}". Narrow the query, or raise --limit to see more.'
+        header = f'Found {len(hits)} of {total} matches for "{query}". Narrow the query to reduce ambiguity.'
     else:
         header = f'Found {total} match{"" if total == 1 else "es"} for "{query}".'
 
