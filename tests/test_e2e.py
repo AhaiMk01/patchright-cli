@@ -171,3 +171,28 @@ class TestE2E:
         resp = _cmd(daemon, "find", args=["nonexistent-element"])
         assert resp["success"] is True
         assert "No matches" in resp["output"]
+
+    def test_snapshot_scoped_by_css_selector(self, daemon):
+        goto = _cmd(daemon, "goto", args=[FIXTURE_URL])
+        assert goto["success"] is True
+
+        full = _read_snapshot(daemon)
+        resp = _cmd(daemon, "snapshot", options={"selector": "#color"})
+        assert resp["success"] is True
+        scoped = Path(resp["snapshot_path"]).read_text(encoding="utf-8")
+
+        assert "combobox" in scoped
+        assert "heading" not in scoped
+        assert len(scoped) < len(full)
+
+    def test_snapshot_selector_without_a_match_fails(self, daemon):
+        resp = _cmd(daemon, "snapshot", options={"selector": "#not-on-this-page"})
+        assert resp["success"] is False
+        assert "#not-on-this-page" in resp["output"]
+
+    def test_wait_for_url_pattern_matches_current_page(self, daemon):
+        goto = _cmd(daemon, "goto", args=[FIXTURE_URL])
+        assert goto["success"] is True
+
+        resp = _cmd(daemon, "wait", options={"url": "**/fixture.html"})
+        assert resp["success"] is True

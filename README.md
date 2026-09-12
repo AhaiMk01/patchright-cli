@@ -149,6 +149,7 @@ patchright-cli drag <from> <to>        # Drag and drop
 patchright-cli snapshot                # Accessibility snapshot
 patchright-cli snapshot -i             # Interactive elements only (recommended)
 patchright-cli snapshot --depth=3      # Limit depth
+patchright-cli snapshot --selector=CSS  # Snapshot a CSS-scoped subtree
 patchright-cli snapshot <ref>          # Snapshot element subtree
 patchright-cli snapshot --filename=f   # Save to custom path
 patchright-cli find "text"             # Search snapshot for text

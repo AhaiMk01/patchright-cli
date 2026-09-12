@@ -206,6 +206,42 @@ class Session:
 
 DEFAULT_MOBILE_DEVICE = "Pixel 7"
 
+# The daemon owns a live browser and its login state, so it should outlive an
+# agent that pauses to think. 30 minutes matches camoufox-cli.
+DEFAULT_IDLE_TIMEOUT = 1800.0
+IDLE_TIMEOUT_ENV = "PATCHRIGHT_CLI_IDLE_TIMEOUT"
+
+
+def _parse_idle_timeout(value) -> float:
+    """Seconds of idleness before the daemon exits. Raises ValueError if unusable.
+
+    `bool` is rejected explicitly: it subclasses `int`, so a bare `--timeout`
+    flag would otherwise parse as 1 second and kill the daemon immediately.
+    """
+    if isinstance(value, bool):
+        raise ValueError("Give --timeout a value in seconds, e.g. --timeout=1800.")
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid --timeout value: {value!r}. Expected seconds.") from None
+    if seconds <= 0:
+        raise ValueError(f"Invalid --timeout value: {seconds}. Expected a positive number of seconds.")
+    return seconds
+
+
+def resolve_idle_timeout(env_value: str | None) -> float:
+    """Idle timeout from the environment, falling back to the default.
+
+    An unusable value falls back rather than raising: the daemon runs detached
+    with no stderr anyone reads, so refusing to start would look like a hang.
+    """
+    if env_value is None:
+        return DEFAULT_IDLE_TIMEOUT
+    try:
+        return _parse_idle_timeout(env_value)
+    except ValueError:
+        return DEFAULT_IDLE_TIMEOUT
+
 
 def resolve_device_options(devices, device: str | None, mobile: bool) -> dict:
     """Turn a device name (or `--mobile`) into browser context options.
@@ -234,7 +270,7 @@ class DaemonState:
         self.profile_dirs: dict[str, str] = {}
         self.playwright = None
         self.default_headless: bool = False
-        self.idle_timeout: float = 300.0
+        self.idle_timeout: float = resolve_idle_timeout(os.environ.get(IDLE_TIMEOUT_ENV))
         self.last_activity: float = time.monotonic()
         self.shutdown_event: asyncio.Event | None = None
 
@@ -624,7 +660,29 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
     element_ref = args[0] if args else None
     max_depth = int(options["depth"]) if options.get("depth") is not None else None
     interactive_only = bool(options.get("interactive", False))
-    if element_ref:
+
+    selector = options.get("selector")
+    if selector is not None:
+        if not isinstance(selector, str):
+            return {"success": False, "output": 'Give --selector a CSS selector, e.g. --selector="#main".'}
+        if element_ref:
+            return {"success": False, "output": "snapshot takes either a ref or --selector=<css>, not both."}
+
+    if selector:
+        # take_snapshot swallows locator errors into an empty tree, so check the
+        # match here -- "no such element" and "element has no content" are
+        # different answers and the caller needs to tell them apart.
+        scoped = page.locator(selector)
+        try:
+            matches = await scoped.count()
+        except Exception as exc:
+            return {"success": False, "output": f"Invalid selector {selector!r}: {exc}"}
+        if not matches:
+            return {"success": False, "output": f"No element matches {selector!r} on this page."}
+        snapshot_text, session.ref_registry = await take_snapshot(
+            page, root_element=scoped, max_depth=max_depth, interactive_only=interactive_only
+        )
+    elif element_ref:
         elem = await _resolve_ref(session, page, element_ref)
         snapshot_text, session.ref_registry = await take_snapshot(
             page, root_element=elem, max_depth=max_depth, interactive_only=interactive_only
@@ -1740,8 +1798,48 @@ async def cmd_scroll_to(session: Session, page, args: list, options: dict, cwd: 
     return {"success": True, "output": "Scrolled element into view"}
 
 
+_URL_SLASH_RE = re.compile(r"^/(.*)/([ims]*)$", re.S)
+_URL_REGEX_FLAGS = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL}
+
+
+def _url_pattern(value: str):
+    """A URL pattern for `wait --url`: a glob, or `/pattern/flags` as a regex.
+
+    Playwright globs do not let `*` cross a `/`, so `*/dashboard` never matches
+    a real URL and `**/dashboard` is what people mean. The regex form is the
+    escape hatch when that rule gets in the way. Raises ValueError on a broken
+    pattern rather than silently falling back to a glob.
+    """
+    match = _URL_SLASH_RE.match(value)
+    if match is None:
+        return value
+    body, flag_chars = match.group(1), match.group(2)
+    flags = 0
+    for ch in flag_chars:
+        flags |= _URL_REGEX_FLAGS[ch]
+    try:
+        return re.compile(body, flags)
+    except re.error as exc:
+        raise ValueError(f"Invalid URL regex {value!r}: {exc}") from None
+
+
 @register("wait")
 async def cmd_wait(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    url_pattern = options.get("url")
+    if url_pattern is not None:
+        if not isinstance(url_pattern, str):
+            return {"success": False, "output": 'Give --url a pattern, e.g. --url="*/dashboard".'}
+        if args:
+            return {
+                "success": False,
+                "output": "wait takes either a duration in ms or --url=<pattern>, not both.",
+            }
+        try:
+            pattern = _url_pattern(url_pattern)
+        except ValueError as exc:
+            return {"success": False, "output": str(exc)}
+        await page.wait_for_url(pattern)
+        return {"success": True, "output": f"URL matched {url_pattern}"}
     ms = int(args[0]) if args else 0
     await asyncio.sleep(ms / 1000)
     return {"success": True, "output": f"Waited {ms}ms"}
@@ -1864,6 +1962,13 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         cmd = "network"
 
     session_name = options.pop("session", "default") or "default"
+
+    raw_idle_timeout = options.pop("timeout", None)
+    if raw_idle_timeout is not None:
+        try:
+            state.idle_timeout = _parse_idle_timeout(raw_idle_timeout)
+        except ValueError as exc:
+            return {"success": False, "output": str(exc)}
 
     try:
         # -- Session / lifecycle commands -----------------------------------

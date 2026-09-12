@@ -904,3 +904,204 @@ async def test_action_callout_never_breaks_the_action(mock_session):
     page.evaluate = AsyncMock(side_effect=RuntimeError("execution context destroyed"))
 
     await _draw_action_callout(mock_session, page, "press", ["Enter"])
+
+
+# -- Daemon idle timeout -----------------------------------------------------
+
+
+def test_parse_idle_timeout_accepts_seconds():
+    from patchright_cli.daemon import _parse_idle_timeout
+
+    assert _parse_idle_timeout("900") == 900.0
+    assert _parse_idle_timeout(60) == 60.0
+
+
+def test_parse_idle_timeout_rejects_a_bare_flag():
+    from patchright_cli.daemon import _parse_idle_timeout
+
+    with pytest.raises(ValueError):
+        _parse_idle_timeout(True)
+
+
+def test_parse_idle_timeout_rejects_non_positive_and_garbage():
+    from patchright_cli.daemon import _parse_idle_timeout
+
+    for bad in ("abc", 0, -5):
+        with pytest.raises(ValueError):
+            _parse_idle_timeout(bad)
+
+
+def test_resolve_idle_timeout_prefers_the_environment():
+    from patchright_cli.daemon import DEFAULT_IDLE_TIMEOUT, resolve_idle_timeout
+
+    assert resolve_idle_timeout("900") == 900.0
+    assert resolve_idle_timeout(None) == DEFAULT_IDLE_TIMEOUT
+    assert resolve_idle_timeout("nonsense") == DEFAULT_IDLE_TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_timeout_option_updates_the_daemon(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_state.idle_timeout = 1800.0
+
+    response = await handle_command(mock_state, {"command": "url", "args": [], "options": {"timeout": "900"}})
+
+    assert response["success"] is True
+    assert mock_state.idle_timeout == 900.0
+
+
+@pytest.mark.asyncio
+async def test_invalid_timeout_option_is_reported(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_state.idle_timeout = 1800.0
+
+    response = await handle_command(mock_state, {"command": "url", "args": [], "options": {"timeout": True}})
+
+    assert response["success"] is False
+    assert mock_state.idle_timeout == 1800.0
+
+
+@pytest.mark.asyncio
+async def test_timeout_option_does_not_reach_the_handler(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_state.idle_timeout = 1800.0
+    mock_session.page.screenshot = AsyncMock()
+
+    response = await handle_command(
+        mock_state, {"command": "screenshot", "args": [], "options": {"timeout": "900"}, "cwd": None}
+    )
+
+    assert response["success"] is True
+    assert "timeout" not in mock_session.page.screenshot.await_args.kwargs
+
+
+# -- wait --url --------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wait_for_url_pattern(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.wait_for_url = AsyncMock()
+
+    response = await handle_command(mock_state, {"command": "wait", "args": [], "options": {"url": "*/dashboard"}})
+
+    assert response["success"] is True
+    mock_session.page.wait_for_url.assert_awaited_once_with("*/dashboard")
+
+
+@pytest.mark.asyncio
+async def test_wait_rejects_a_bare_url_flag(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.wait_for_url = AsyncMock()
+
+    response = await handle_command(mock_state, {"command": "wait", "args": [], "options": {"url": True}})
+
+    assert response["success"] is False
+    mock_session.page.wait_for_url.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_wait_rejects_url_together_with_a_duration(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.wait_for_url = AsyncMock()
+
+    response = await handle_command(mock_state, {"command": "wait", "args": ["500"], "options": {"url": "*/done"}})
+
+    assert response["success"] is False
+    mock_session.page.wait_for_url.assert_not_awaited()
+
+
+# -- snapshot --selector -----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_snapshot_scoped_to_a_css_selector(mock_state, mock_session, tmp_path):
+    mock_state.sessions = {"default": mock_session}
+    scoped = MagicMock()
+    scoped.count = AsyncMock(return_value=2)
+    mock_session.page.locator = MagicMock(return_value=scoped)
+
+    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = ("scoped-text", MagicMock())
+        response = await handle_command(
+            mock_state,
+            {"command": "snapshot", "args": [], "options": {"selector": "#main"}, "cwd": str(tmp_path)},
+        )
+
+    assert response["success"] is True
+    mock_session.page.locator.assert_called_once_with("#main")
+    assert mock_snap.await_args.kwargs["root_element"] is scoped
+
+
+@pytest.mark.asyncio
+async def test_snapshot_selector_matching_nothing_is_an_error(mock_state, mock_session, tmp_path):
+    mock_state.sessions = {"default": mock_session}
+    scoped = MagicMock()
+    scoped.count = AsyncMock(return_value=0)
+    mock_session.page.locator = MagicMock(return_value=scoped)
+
+    response = await handle_command(
+        mock_state,
+        {"command": "snapshot", "args": [], "options": {"selector": "#nope"}, "cwd": str(tmp_path)},
+    )
+
+    assert response["success"] is False
+    assert "#nope" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_rejects_a_bare_selector_flag(mock_state, mock_session, tmp_path):
+    mock_state.sessions = {"default": mock_session}
+
+    response = await handle_command(
+        mock_state,
+        {"command": "snapshot", "args": [], "options": {"selector": True}, "cwd": str(tmp_path)},
+    )
+
+    assert response["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_snapshot_rejects_selector_together_with_a_ref(mock_state, mock_session, tmp_path):
+    mock_state.sessions = {"default": mock_session}
+
+    response = await handle_command(
+        mock_state,
+        {"command": "snapshot", "args": ["e1"], "options": {"selector": "#main"}, "cwd": str(tmp_path)},
+    )
+
+    assert response["success"] is False
+
+
+def test_url_pattern_passes_globs_through():
+    from patchright_cli.daemon import _url_pattern
+
+    assert _url_pattern("**/dashboard") == "**/dashboard"
+
+
+def test_url_pattern_compiles_the_slash_form():
+    import re as _re
+
+    from patchright_cli.daemon import _url_pattern
+
+    compiled = _url_pattern("/dash(board)?$/i")
+    assert isinstance(compiled, _re.Pattern)
+    assert compiled.search("https://app.example.com/DASHBOARD")
+
+
+def test_url_pattern_rejects_a_broken_regex():
+    from patchright_cli.daemon import _url_pattern
+
+    with pytest.raises(ValueError):
+        _url_pattern("/dash(/")
+
+
+@pytest.mark.asyncio
+async def test_wait_reports_a_broken_url_regex(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.wait_for_url = AsyncMock()
+
+    response = await handle_command(mock_state, {"command": "wait", "args": [], "options": {"url": "/dash(/"}})
+
+    assert response["success"] is False
+    mock_session.page.wait_for_url.assert_not_awaited()

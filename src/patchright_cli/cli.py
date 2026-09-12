@@ -345,7 +345,7 @@ COMMANDS_HELP = {
     "select": "select <ref> <value> Select dropdown option",
     "check": "check <ref>          Check checkbox/radio",
     "uncheck": "uncheck <ref>        Uncheck checkbox/radio",
-    "snapshot": "snapshot [ref]        Take accessibility snapshot [--filename=F] [--depth=N] [-i] [--boxes]",
+    "snapshot": "snapshot [ref]        Take accessibility snapshot [--selector=CSS] [--filename=F] [--depth=N] [-i] [--boxes]",
     "find": "find <text>           Search snapshot [--regex] [--all] [--limit=N]",
     "eval": "eval <expr> [ref]     Evaluate JavaScript [--file=F or stdin]",
     "text": "text <ref|selector>  Get text content of element",
@@ -372,7 +372,7 @@ COMMANDS_HELP = {
     # Scroll & Wait
     "scroll": "scroll <dx> <dy>      Scroll by pixel offset",
     "scroll-to": "scroll-to <ref>      Scroll element into view",
-    "wait": "wait <ms>            Wait for milliseconds",
+    "wait": "wait <ms>            Wait for milliseconds, or --url=<glob|/regex/> for a URL",
     "wait-for": "wait-for <ref>       Wait for element to appear [--state=hidden]",
     # Tabs
     "tab-list": "tab-list             List tabs",
@@ -462,8 +462,6 @@ def _print_help():
     click.echo("  -s=<name>           Named session (default: 'default')")
     click.echo("  --port=<n>          Daemon port (default: 9321)")
     click.echo("  --config=<path>     Load config from JSON file")
-    click.echo("  --timeout-action=ms   Default action timeout")
-    click.echo("  --timeout-navigation=ms Default navigation timeout")
     click.echo("  --device=<name>     Emulate a device (e.g. 'iPhone 15')")
     click.echo("  --mobile            Emulate a generic mobile device (Pixel 7)")
     click.echo("  --viewport-size=WxH Set viewport size")
@@ -477,7 +475,11 @@ def _print_help():
     click.echo("  --raw               Raw output (strip page/snapshot decorations)")
     click.echo("  --json              Wrap response as JSON ({success, output, ...})")
     click.echo("  --version           Show version")
-    click.echo("  --help              Show this help\n")
+    click.echo("  --help              Show this help")
+    click.echo("\nThese go after the command, not before:")
+    click.echo("  --timeout=<seconds>   Daemon idle timeout before it exits (default: 1800)")
+    click.echo("  --timeout-action=ms   Default action timeout")
+    click.echo("  --timeout-navigation=ms Default navigation timeout\n")
     click.echo("Commands:")
     # Group by category
     categories = [

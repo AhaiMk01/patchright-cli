@@ -76,11 +76,19 @@ These go before the command:
 --geolocation=40.7,-74.0   # Geolocation override (lat,lon)
 --user-agent=<ua>       # Custom user agent string
 --grant-permissions=geolocation,camera  # Grant permissions at launch
---timeout-action=10000  # Default action timeout (ms)
---timeout-navigation=30000 # Default navigation timeout (ms)
 --show-port=9322        # Dashboard port (default: 9322)
 --raw                   # Strip page/snapshot decorations from output
 --json                  # Wrap full response as JSON ({success, output, ...})
+```
+
+These go *after* the command instead:
+
+```bash
+--timeout=1800          # Daemon idle timeout in seconds before it exits and
+                        # takes the browser (and its login) with it. Default 1800.
+                        # Also settable up front via $PATCHRIGHT_CLI_IDLE_TIMEOUT.
+--timeout-action=10000  # Default action timeout (ms)
+--timeout-navigation=30000 # Default navigation timeout (ms)
 ```
 
 ---
@@ -113,6 +121,8 @@ title                         # Print page title
 ```bash
 snapshot                      # Full page snapshot
 snapshot <ref>                # Subtree of a specific element
+snapshot --selector="#main"   # Subtree of a CSS selector -- no ref needed, so
+                              # this works before the first snapshot
 snapshot --depth=N            # Limit depth
 snapshot -i                   # Interactive elements only
 snapshot --boxes              # Append [box=x,y,w,h] to each [ref=eN] line
@@ -192,6 +202,9 @@ screenshot --filename=F       # Custom filename
 scroll <dx> <dy>              # Scroll by pixels
 scroll-to <ref>               # Scroll element into view
 wait <ms>                     # Wait N milliseconds
+wait --url="**/dashboard"     # Wait until the URL matches -- the right tool
+                              # after a login or any redirect. `*` does NOT
+                              # cross a `/`, so use `**`; `/regex/i` also works
 wait-for <ref>                # Wait until element visible
 wait-for <ref> --state=hidden # Wait until hidden
 press <key>                   # Keypress (Enter, ArrowDown, etc.)
@@ -334,6 +347,7 @@ patchright-cli click e5                   # This click triggers the dialog
 ```bash
 patchright-cli wait-for e12               # Wait for element
 patchright-cli wait 1000                  # Fixed wait
+patchright-cli wait --url="**/dashboard"  # Wait for a redirect to land
 # For custom conditions, use run-code (see references/running-code.md)
 ```
 
