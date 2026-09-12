@@ -74,7 +74,10 @@ patchright-cli --tab orders-audit close      # frees one tab only
 ```
 
 `close` releases the tab it is addressed to and the session ends when the last
-tab closes, so concurrent agents clean up without coordinating. A command
+tab closes, so concurrent agents clean up without coordinating. A session opened
+only through `--tab` has no default tab in use, so closing the named tabs ends
+it; one opened with a plain `open` keeps its default tab until that is closed
+too. A command
 addressed to a tab that was never opened is an error rather than a silent
 fallback to the default tab -- a typo in a tab name should not quietly drive
 someone else's page.

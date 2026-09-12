@@ -154,7 +154,7 @@ async def test_show_annotate_returns_the_submitted_feedback(annotate_session, tm
     monkeypatch.setattr(daemon_mod, "_dashboard_runners", {})
     monkeypatch.setattr("patchright_cli.dashboard.start_dashboard_server", fake_start)
     monkeypatch.setattr(
-        daemon_mod, "take_snapshot", AsyncMock(return_value=("- button \"Ship it\" [ref=e1]", MagicMock()))
+        daemon_mod, "take_snapshot", AsyncMock(return_value=('- button "Ship it" [ref=e1]', MagicMock()))
     )
 
     async def submit_soon():
@@ -164,9 +164,7 @@ async def test_show_annotate_returns_the_submitted_feedback(annotate_session, tm
 
     asyncio.ensure_future(submit_soon())
 
-    result = await daemon_mod.cmd_show(
-        session, page, [], {"annotate": True, "wait": "5"}, str(tmp_path), state
-    )
+    result = await daemon_mod.cmd_show(session, page, [], {"annotate": True, "wait": "5"}, str(tmp_path), state)
 
     assert result["success"] is True
     assert "tighten the spacing" in result["output"]
@@ -206,9 +204,7 @@ async def test_show_without_annotate_does_not_block(annotate_session, tmp_path, 
     monkeypatch.setattr(daemon_mod, "_dashboard_runners", {})
     monkeypatch.setattr("patchright_cli.dashboard.start_dashboard_server", fake_start)
 
-    result = await asyncio.wait_for(
-        daemon_mod.cmd_show(session, page, [], {}, str(tmp_path), state), timeout=1
-    )
+    result = await asyncio.wait_for(daemon_mod.cmd_show(session, page, [], {}, str(tmp_path), state), timeout=1)
 
     assert result["success"] is True
     assert "127.0.0.1:9322" in result["output"]
@@ -281,3 +277,48 @@ async def test_annotation_target_does_not_leak_the_page_object():
     state = _state()
     token, _ = state.open_annotation("work", "inbox", MagicMock())
     assert state.annotation_target(token) == {"session": "work", "tab": "inbox"}
+
+
+# -- Hardening from the review ----------------------------------------------
+
+
+def test_decode_annotation_image_rejects_a_non_string():
+    from patchright_cli.dashboard import decode_annotation_image
+
+    for bad in (123, [], {}, True, object()):
+        with pytest.raises(ValueError):
+            decode_annotation_image(bad)
+
+
+@pytest.mark.asyncio
+async def test_annotate_submit_rejects_a_non_object_body():
+    from aiohttp import web
+
+    from patchright_cli.dashboard import annotate_submit
+
+    request = MagicMock()
+    request.app = {"dashboard_state": _state()}
+    for body in (None, [], "a string", 7):
+        request.json = AsyncMock(return_value=body)
+        with pytest.raises(web.HTTPBadRequest):
+            await annotate_submit(request)
+
+
+@pytest.mark.asyncio
+async def test_full_page_capture_uses_css_scale():
+    """Device-scale full-page captures blew past the POST body limit."""
+    from patchright_cli.dashboard import annotate_shot
+
+    state = _state()
+    page = MagicMock()
+    page.screenshot = AsyncMock(return_value=bytes((0x89,)) + b"PNG")
+    token, _ = state.open_annotation("default", "default", page)
+
+    request = MagicMock()
+    request.app = {"dashboard_state": state}
+    request.match_info = {"token": token}
+
+    await annotate_shot(request)
+
+    assert page.screenshot.await_args.kwargs["scale"] == "css"
+    assert page.screenshot.await_args.kwargs["full_page"] is True

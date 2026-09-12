@@ -1,5 +1,6 @@
 """Unit tests for per-tab session state."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -268,3 +269,127 @@ async def test_tab_list_names_the_owning_tab(state_with_session):
 
     assert response["success"] is True
     assert "inbox" in response["output"]
+
+
+# -- Concurrency isolation ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_two_tasks_do_not_share_the_active_tab():
+    """The bug this guards: active_tab was one mutable field shared by every
+    connection task, so a command that suspended came back writing into
+    whichever tab had been activated in the meantime."""
+    session = _session()
+    await session.open_tab("alpha")
+    await session.open_tab("beta")
+
+    started = asyncio.Event()
+    released = asyncio.Event()
+
+    async def slow_alpha():
+        session.activate_tab("alpha")
+        started.set()
+        await released.wait()
+        # Post-await write: must land on alpha, not on whoever ran meanwhile.
+        session.ref_registry = "alpha-refs"
+        session.push_history("https://alpha.test")
+        return session.ref_registry
+
+    async def quick_beta():
+        await started.wait()
+        session.activate_tab("beta")
+        session.ref_registry = "beta-refs"
+        session.push_history("https://beta.test")
+        released.set()
+        return session.ref_registry
+
+    a, b = await asyncio.gather(slow_alpha(), quick_beta())
+
+    assert a == "alpha-refs"
+    assert b == "beta-refs"
+    assert session.tabs["alpha"].ref_registry == "alpha-refs"
+    assert session.tabs["beta"].ref_registry == "beta-refs"
+    assert session.tabs["alpha"].history == ["https://alpha.test"]
+    assert session.tabs["beta"].history == ["https://beta.test"]
+
+
+@pytest.mark.asyncio
+async def test_activation_does_not_leak_across_sessions():
+    first = _session()
+    second = _session()
+    second.name = "other"
+    await first.open_tab("inbox")
+
+    first.activate_tab("inbox")
+    first.ref_registry = "first-inbox"
+
+    # `second` has no tab called inbox; it must fall back to its own default.
+    assert second.active_tab.name == DEFAULT_TAB
+    assert second.ref_registry is None
+
+
+@pytest.mark.asyncio
+async def test_activation_is_scoped_to_the_task_that_set_it():
+    session = _session()
+    await session.open_tab("inbox")
+
+    async def inner():
+        session.activate_tab("inbox")
+        return session.active_tab.name
+
+    assert await asyncio.create_task(inner()) == "inbox"
+    # The parent task never activated it, so it still sees the default.
+    assert session.active_tab.name == DEFAULT_TAB
+
+
+# -- Default tab lifecycle ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_closing_the_default_tab_leaves_it_reopenable():
+    session = _session()
+    await session.open_tab("inbox")
+
+    assert await session.close_tab(DEFAULT_TAB) is True
+    # The implicit default must still resolve -- `open` looks it up directly.
+    assert DEFAULT_TAB in session.tabs
+    session.activate_tab(DEFAULT_TAB)
+
+
+@pytest.mark.asyncio
+async def test_an_unused_default_tab_does_not_keep_the_session_alive():
+    session = _session()
+    session.default_in_use = False
+    await session.open_tab("inbox")
+
+    assert await session.close_tab("inbox") is False
+
+
+@pytest.mark.asyncio
+async def test_a_used_default_tab_does_keep_the_session_alive():
+    session = _session()
+    await session.open_tab("inbox")
+
+    assert await session.close_tab("inbox") is True
+
+
+@pytest.mark.asyncio
+async def test_closing_default_then_the_last_named_tab_ends_the_session():
+    session = _session()
+    await session.open_tab("inbox")
+
+    assert await session.close_tab(DEFAULT_TAB) is True
+    assert await session.close_tab("inbox") is False
+
+
+@pytest.mark.asyncio
+async def test_close_tab_shifts_current_tab_when_an_earlier_page_goes():
+    first, second, third = _fake_page("a"), _fake_page("b"), _fake_page("c")
+    session = _session([first, second, third])
+    session.current_tab = 2
+    session.tabs["early"] = Tab("early", first)
+
+    await session.close_tab("early")
+
+    # current_tab must follow the page it pointed at, not silently clamp.
+    assert session.page is third

@@ -488,3 +488,55 @@ def test_socket_timeout_never_drops_below_the_default():
 
     assert _socket_timeout("show", {"annotate": True, "wait": "5"}) == DEFAULT_SOCKET_TIMEOUT
     assert _socket_timeout("show", {"annotate": True, "wait": "nonsense"}) == DEFAULT_SOCKET_TIMEOUT
+
+
+# -- Global flag parsing -----------------------------------------------------
+
+
+def _captured_options(argv, monkeypatch):
+    """Run main() with the socket stubbed out and return the options it sent."""
+    import sys
+
+    from patchright_cli import cli
+
+    seen = {}
+
+    def fake_send(command, args, options, port=0):
+        seen["command"] = command
+        seen["args"] = args
+        seen["options"] = options
+        return {"success": True, "output": ""}
+
+    monkeypatch.setattr(cli, "_send_command", fake_send)
+    monkeypatch.setattr(cli, "ensure_daemon_running", lambda *a, **k: False)
+    monkeypatch.setattr(cli, "_warn_stale_skills", lambda: None)
+    monkeypatch.setattr(cli, "_warn_outdated_version", lambda: None)
+    monkeypatch.setattr(cli, "_load_config", lambda p: {})
+    monkeypatch.setattr(sys, "argv", ["patchright-cli"] + argv)
+    cli.main()
+    return seen
+
+
+def test_mobile_is_accepted_before_the_command(monkeypatch):
+    """SKILL.md and --help both list --mobile in the pre-command block."""
+    seen = _captured_options(["--mobile", "open", "https://example.com"], monkeypatch)
+    assert seen["command"] == "open"
+    assert seen["args"] == ["https://example.com"]
+    assert seen["options"].get("mobile") is True
+
+
+def test_mobile_after_the_command_still_works(monkeypatch):
+    seen = _captured_options(["open", "https://example.com", "--mobile"], monkeypatch)
+    assert seen["command"] == "open"
+    assert seen["options"].get("mobile") is True
+
+
+def test_tab_is_accepted_in_both_forms(monkeypatch):
+    assert _captured_options(["--tab=inbox", "url"], monkeypatch)["options"]["tab"] == "inbox"
+    assert _captured_options(["--tab", "inbox", "url"], monkeypatch)["options"]["tab"] == "inbox"
+
+
+def test_timeout_action_is_not_swallowed_by_a_global_branch(monkeypatch):
+    seen = _captured_options(["click", "e1", "--timeout-action=5000"], monkeypatch)
+    assert seen["options"]["tab"] == "default"
+    assert seen["options"]["timeout-action"] == "5000"

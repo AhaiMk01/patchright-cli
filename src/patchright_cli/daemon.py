@@ -7,6 +7,7 @@ on TCP port 9321 for JSON commands from the CLI client.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -29,6 +30,7 @@ DEFAULT_PORT = 9321
 DEFAULT_PROFILE_DIR = str(Path.home() / ".patchright-cli" / "profiles" / "default")
 
 _dashboard_runners: dict[int, tuple] = {}
+_dashboard_lock = asyncio.Lock()
 
 # ---------------------------------------------------------------------------
 # Command handler registry
@@ -53,6 +55,11 @@ def register(name: str):
 
 
 DEFAULT_TAB = "default"
+
+# Which (session, tab) the current task is working in. A ContextVar rather than
+# a field on Session because the daemon serves each CLI connection as its own
+# asyncio Task, and a Task inherits a private copy of the context.
+_ACTIVE_TAB: contextvars.ContextVar = contextvars.ContextVar("patchright_active_tab", default=None)
 
 
 class Tab:
@@ -87,13 +94,17 @@ class Session:
         self.pages: list = pages or []
         self.current_tab: int = 0
         self.tabs: dict[str, Tab] = {DEFAULT_TAB: Tab(DEFAULT_TAB)}
-        self.active_tab: Tab = self.tabs[DEFAULT_TAB]
+        # Whether anyone actually works in the implicit default tab. A session
+        # opened only through `--tab` never touches it, and an untouched default
+        # must not keep the browser alive after the last named tab closes.
+        self.default_in_use: bool = True
         self.console_messages: list[dict] = []
         self.network_log: list[dict] = []
         self._pending_dialog_action: tuple | None = None
         self._profile_dir: str | None = None
         self._cdp_sessions: dict[int, object] = {}
         self._video_cdp = None
+        self._video_page = None
         self._video_frames: list[bytes] = []
         self._video_recording: bool = False
         self._video_chapters: list[tuple[int, str]] = []
@@ -246,10 +257,40 @@ class Session:
 
     # -- tab lifecycle ------------------------------------------------------
 
+    @property
+    def active_tab(self) -> Tab:
+        """The tab this task is working in.
+
+        Read from a ContextVar rather than an instance field. The daemon serves
+        each CLI connection as its own asyncio Task, and a Task gets a private
+        copy of the context, so two agents can be mid-command at once without
+        seeing each other's binding. As a plain field this was a shared pointer:
+        whoever activated last owned every post-await write, so a command that
+        suspended came back storing its refs and history on someone else's tab.
+
+        The binding carries the session name so a tab name cannot be honoured
+        against a different session that happens to use the same name.
+        """
+        bound = _ACTIVE_TAB.get()
+        if bound is not None and bound[0] == self.name:
+            tab = self.tabs.get(bound[1])
+            if tab is not None:
+                return tab
+        return self._ensure_default_tab()
+
+    def _ensure_default_tab(self) -> Tab:
+        """The default tab, recreated if it was closed. Never raises."""
+        tab = self.tabs.get(DEFAULT_TAB)
+        if tab is None:
+            tab = Tab(DEFAULT_TAB)
+            self.tabs[DEFAULT_TAB] = tab
+        return tab
+
     def activate_tab(self, name: str) -> Tab:
-        """Route subsequent state access to `name`. Raises KeyError if unknown."""
-        self.active_tab = self.tabs[name]
-        return self.active_tab
+        """Route this task's state access to `name`. Raises KeyError if unknown."""
+        tab = self.tabs[name]
+        _ACTIVE_TAB.set((self.name, name))
+        return tab
 
     async def open_tab(self, name: str) -> Tab:
         """Return the named tab, giving it a fresh page on first use."""
@@ -274,21 +315,36 @@ class Session:
         False means the caller closed the last tab and the session itself
         should go, which is how concurrent agents clean up without having to
         coordinate: each closes its own, and the last one out ends the browser.
+
+        The implicit default tab does not count towards "still open" unless
+        someone actually works in it -- otherwise a `--tab`-only workflow could
+        close every tab it opened and still leave a browser running forever.
         """
         tab = self.tabs.pop(name)
         page = tab.page
         if page is not None:
             self._cdp_sessions.pop(id(page), None)
             if page in self.pages:
+                removed_index = self.pages.index(page)
                 self.pages.remove(page)
+                # Follow the page current_tab pointed at. Clamping alone silently
+                # reassigns the default caller to its neighbour when an earlier
+                # page is the one that went.
+                if removed_index < self.current_tab:
+                    self.current_tab -= 1
+            self.current_tab = max(0, min(self.current_tab, len(self.pages) - 1))
             try:
                 await page.close()
             except Exception:
                 pass
-            self.current_tab = max(0, min(self.current_tab, len(self.pages) - 1))
-        if self.active_tab is tab:
-            self.active_tab = self.tabs.get(DEFAULT_TAB) or Tab(DEFAULT_TAB)
-        return bool(self.tabs)
+
+        if name == DEFAULT_TAB:
+            # `open` looks the default up by key, so it has to keep existing.
+            self.default_in_use = False
+            self._ensure_default_tab()
+
+        named = [key for key in self.tabs if key != DEFAULT_TAB]
+        return bool(named) or self.default_in_use
 
     def push_history(self, url: str) -> None:
         """Record a URL in our navigation history."""
@@ -1118,11 +1174,23 @@ async def cmd_tab_new(session: Session, page, args: list, options: dict, cwd: st
 @register("tab-close")
 async def cmd_tab_close(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     idx = int(args[0]) if args else session.current_tab
-    if 0 <= idx < len(session.pages):
-        p = session.pages.pop(idx)
-        session._cdp_sessions.pop(id(p), None)
-        await p.close()
-        session.current_tab = max(0, min(session.current_tab, len(session.pages) - 1))
+    if not (0 <= idx < len(session.pages)):
+        return {"success": False, "output": f"Invalid tab index: {idx}"}
+
+    page = session.pages[idx]
+    # The page may belong to a named tab. Closing it out from under that tab
+    # would leave the tab pointing at a dead page, so route through close_tab.
+    owner = next((name for name, tab in session.tabs.items() if tab.page is page), None)
+    if owner is not None:
+        await session.close_tab(owner)
+        return {"success": True, "output": f"Tab {idx} closed (was tab '{owner}')."}
+
+    session.pages.pop(idx)
+    session._cdp_sessions.pop(id(page), None)
+    if idx < session.current_tab:
+        session.current_tab -= 1
+    session.current_tab = max(0, min(session.current_tab, len(session.pages) - 1))
+    await page.close()
     return {"success": True, "output": f"Tab {idx} closed."}
 
 
@@ -1654,6 +1722,7 @@ async def cmd_video_start(
         return {"success": False, "output": "Video recording is already in progress."}
     cdp = await page.context.new_cdp_session(page)
     session._video_cdp = cdp
+    session._video_page = page
     session._video_frames = []
     session._video_recording = True
 
@@ -1682,6 +1751,7 @@ async def cmd_video_stop(
     frames = session._video_frames
     session._video_frames = []
     session._video_cdp = None
+    session._video_page = None
     chapters = list(session._video_chapters)
     session._video_chapters = []
 
@@ -1819,6 +1889,10 @@ async def _draw_action_callout(session: Session, page, cmd: str, args: list) -> 
     config = session._video_show_actions
     if not config or not session._video_recording:
         return
+    # The screencast is bound to one page. Drawing on a different tab's page
+    # would mutate a page nobody is recording and never appear in the video.
+    if getattr(session, "_video_page", None) is not None and page is not session._video_page:
+        return
     label = _VIDEO_ACTION_LABELS.get(cmd)
     if label is None:
         return
@@ -1945,7 +2019,10 @@ async def cmd_wait(session: Session, page, args: list, options: dict, cwd: str |
     url_pattern = options.get("url")
     if url_pattern is not None:
         if not isinstance(url_pattern, str):
-            return {"success": False, "output": 'Give --url a pattern, e.g. --url="*/dashboard".'}
+            return {
+                "success": False,
+                "output": 'Give --url a pattern, e.g. --url="**/dashboard" (a single * never crosses a /).',
+            }
         if args:
             return {
                 "success": False,
@@ -1975,11 +2052,14 @@ async def cmd_show(session: Session, page, args: list, options: dict, cwd: str |
     from patchright_cli.dashboard import decode_annotation_image, start_dashboard_server
 
     port = int(options.get("show-port", 9322))
-    if port not in _dashboard_runners:
-        runner, url, dashboard_state = await start_dashboard_server(state, port=port)
-        _dashboard_runners[port] = (runner, url, dashboard_state)
-    else:
-        _, url, dashboard_state = _dashboard_runners[port]
+    # Check-then-create across an await: two `show` commands arriving together
+    # both missed the cache and both bound the port, leaking a server.
+    async with _dashboard_lock:
+        if port not in _dashboard_runners:
+            runner, url, dashboard_state = await start_dashboard_server(state, port=port)
+            _dashboard_runners[port] = (runner, url, dashboard_state)
+        else:
+            _, url, dashboard_state = _dashboard_runners[port]
 
     if not options.get("annotate"):
         return {"success": True, "output": f"Dashboard running at {url}"}
@@ -1998,6 +2078,17 @@ async def cmd_show(session: Session, page, args: list, options: dict, cwd: str |
 
     # The command blocks until the reviewer submits, so it cannot print the link
     # first -- open it for them instead. --no-open is for headless machines.
+    # The single-response protocol means the URL cannot be printed before the
+    # wait, so write it where the operator can find it either way.
+    base = Path(cwd) if cwd else Path.cwd()
+    link_path = base / ".patchright-cli" / "annotate-url.txt"
+    try:
+        link_path.parent.mkdir(parents=True, exist_ok=True)
+        link_path.write_text(review_url + "\n", encoding="utf-8")
+    except OSError:
+        link_path = None
+    logger.info("Annotation review page: %s", review_url)
+
     if not options.get("no-open"):
         try:
             import webbrowser
@@ -2166,13 +2257,17 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             headless = options.get("headless", False)
             if options.get("headed"):
                 headless = False
+            named_tab = tab_name != DEFAULT_TAB
+            existed = session_name in state.sessions
             session = await state.get_or_create_session(
                 session_name,
                 headless=headless,
                 persistent=options.get("persistent", True),
                 profile=options.get("profile"),
                 proxy=options.get("proxy"),
-                url=url,
+                # A named tab navigates its own page below. Letting the launch
+                # also load the URL on the context's first page fetched it twice.
+                url=None if named_tab else url,
                 device=options.get("device"),
                 mobile=bool(options.get("mobile", False)),
                 viewport=options.get("viewport"),
@@ -2182,10 +2277,17 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 user_agent=options.get("user-agent") or options.get("userAgent"),
                 grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
             )
-            if tab_name != DEFAULT_TAB:
+            if named_tab:
+                if not existed:
+                    # Nobody asked for the default tab, so it must not keep the
+                    # session alive once the named tabs are all closed.
+                    session.default_in_use = False
                 tab = await session.open_tab(tab_name)
                 if url:
                     await tab.page.goto(url)
+            else:
+                session.default_in_use = True
+                session._ensure_default_tab()
             session.activate_tab(tab_name)
             if session.page:
                 session.push_history(session.page.url)

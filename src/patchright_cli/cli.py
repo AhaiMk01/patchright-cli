@@ -474,7 +474,7 @@ COMMANDS_HELP = {
     "kill-all": "kill-all             Kill all sessions",
     "delete-data": "delete-data          Delete persistent profile",
     # Dashboard
-    "show": "show [--port=N]       Open session dashboard [--annotate] [--wait=S] [--no-open]",
+    "show": "show                 Open session dashboard [--show-port=N] [--annotate] [--wait=S] [--no-open]",
     # Codegen
     "codegen": "codegen [file]        Start recording interactions",
     "codegen-stop": "codegen-stop [file]   Stop recording and save script",
@@ -659,6 +659,8 @@ def main():
         elif arg == "--config" and i + 1 < len(argv):
             i += 1
             config_path = argv[i]
+        elif arg == "--mobile":
+            extra_opts["mobile"] = True
         elif arg.startswith("--device="):
             extra_opts["device"] = arg.split("=", 1)[1]
         elif arg == "--device" and i + 1 < len(argv):

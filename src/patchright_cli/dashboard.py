@@ -11,6 +11,9 @@ from aiohttp import web
 
 PNG_MAGIC = bytes((0x89,)) + b"PNG"
 
+# Upper bound on a submitted annotation body (image + notes, base64-inflated).
+ANNOTATION_MAX_BYTES = 48 * 1024 * 1024
+
 
 def decode_annotation_image(value: str | None) -> bytes | None:
     """Decode a submitted PNG. None when the reviewer sent no image.
@@ -19,6 +22,12 @@ def decode_annotation_image(value: str | None) -> bytes | None:
     trusted: a bad base64 blob or a non-PNG is a ValueError, not something
     written to disk under a .png name.
     """
+    if value is None:
+        return None
+    # Type before emptiness: an empty list is falsy, and treating it as "nothing
+    # submitted" would let a malformed body pass as a valid no-image review.
+    if not isinstance(value, str):
+        raise ValueError(f"Annotation image must be a base64 string, got {type(value).__name__}.")
     if not value:
         return None
     if value.startswith("data:"):
@@ -360,7 +369,11 @@ async def annotate_shot(request: web.Request):
     if page is None:
         raise web.HTTPNotFound(text="No page is waiting for this annotation.")
     try:
-        data = await page.screenshot(type="png", full_page=True)
+        # scale="css" keeps the capture at one image pixel per CSS pixel. Under
+        # a device profile the default is the device pixel ratio, which on a
+        # long page produced an image the browser then posted back well over the
+        # server's body limit -- the submit failed and the reviewer's work was lost.
+        data = await page.screenshot(type="png", full_page=True, scale="css")
     except Exception as exc:
         raise web.HTTPServiceUnavailable(text=f"Could not capture the page: {exc}") from None
     return web.Response(body=data, content_type="image/png")
@@ -372,6 +385,11 @@ async def annotate_submit(request: web.Request):
         payload = await request.json()
     except Exception:
         raise web.HTTPBadRequest(text="Expected a JSON body.") from None
+
+    # The body comes from a browser page; a bare list or string would otherwise
+    # reach .get() and surface as a 500 instead of a refusal.
+    if not isinstance(payload, dict):
+        raise web.HTTPBadRequest(text="Expected a JSON object.")
 
     token = payload.get("token") or ""
     try:
@@ -404,7 +422,10 @@ async def websocket_handler(request: web.Request):
 
 async def start_dashboard_server(daemon_state, port: int = 9322):
     dashboard_state = DashboardState(daemon_state)
-    app = web.Application()
+    # A full-page annotated PNG re-encoded as a base64 data URL comfortably
+    # exceeds aiohttp's 1 MiB default, which rejected the submit with a 413 the
+    # reviewer never saw. Bounded, not unbounded: the body is still untrusted.
+    app = web.Application(client_max_size=ANNOTATION_MAX_BYTES)
     app["dashboard_state"] = dashboard_state
     app.router.add_get("/", index)
     app.router.add_get("/annotate", annotate_page)

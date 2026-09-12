@@ -413,7 +413,9 @@ patchright-cli show --annotate --no-open        # headless box: do not launch a 
 ```
 
 The command **blocks** until they submit, so it opens the review link for them
-rather than printing it. You get back the annotated screenshot saved under
+rather than printing it. The link is also written to
+`.patchright-cli/annotate-url.txt`, which is how you get it when `--no-open`
+suppressed the browser. You get back the annotated screenshot saved under
 `.patchright-cli/`, their notes, and a fresh snapshot of the page -- enough to
 act on the feedback without asking follow-up questions.
 
