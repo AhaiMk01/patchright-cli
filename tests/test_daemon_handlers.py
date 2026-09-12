@@ -297,7 +297,7 @@ async def test_show_dashboard(mock_state, mock_session):
     mock_url = "http://localhost:9322"
 
     mock_dashboard_module = MagicMock()
-    mock_dashboard_module.start_dashboard_server = AsyncMock(return_value=(mock_runner, mock_url))
+    mock_dashboard_module.start_dashboard_server = AsyncMock(return_value=(mock_runner, mock_url, MagicMock()))
 
     import patchright_cli.daemon as daemon_mod
 

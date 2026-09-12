@@ -306,6 +306,26 @@ def _warn_outdated_version() -> None:
         )
 
 
+DEFAULT_SOCKET_TIMEOUT = 120
+ANNOTATE_SOCKET_MARGIN = 30
+
+
+def _socket_timeout(command: str, options: dict) -> float:
+    """How long to wait on the daemon for this command.
+
+    `show --annotate` blocks on a person, so the default would hang up while
+    they are still drawing. Everything else keeps the generous-but-finite
+    default, which is what catches a wedged daemon.
+    """
+    if command != "show" or not options.get("annotate"):
+        return DEFAULT_SOCKET_TIMEOUT
+    try:
+        wait = float(options.get("wait", 300))
+    except (TypeError, ValueError):
+        return DEFAULT_SOCKET_TIMEOUT
+    return max(DEFAULT_SOCKET_TIMEOUT, wait + ANNOTATE_SOCKET_MARGIN)
+
+
 def _send_command(command: str, args: list, options: dict, port: int = DEFAULT_PORT) -> dict:
     """Connect to daemon, send command, receive response."""
     msg = {
@@ -317,7 +337,7 @@ def _send_command(command: str, args: list, options: dict, port: int = DEFAULT_P
     data = json.dumps(msg).encode("utf-8")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(120)  # generous timeout for slow operations
+    sock.settimeout(_socket_timeout(command, options))
     try:
         sock.connect(("127.0.0.1", port))
         sock.sendall(struct.pack("!I", len(data)) + data)
@@ -454,7 +474,7 @@ COMMANDS_HELP = {
     "kill-all": "kill-all             Kill all sessions",
     "delete-data": "delete-data          Delete persistent profile",
     # Dashboard
-    "show": "show [--port=N]       Open session dashboard in browser",
+    "show": "show [--port=N]       Open session dashboard [--annotate] [--wait=S] [--no-open]",
     # Codegen
     "codegen": "codegen [file]        Start recording interactions",
     "codegen-stop": "codegen-stop [file]   Stop recording and save script",

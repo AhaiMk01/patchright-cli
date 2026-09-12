@@ -316,6 +316,10 @@ class Session:
 
 DEFAULT_MOBILE_DEVICE = "Pixel 7"
 
+# `show --annotate` waits on a human, so the window is minutes rather than the
+# seconds a browser action gets. The CLI stretches its socket timeout to match.
+DEFAULT_ANNOTATE_WAIT = 300.0
+
 # The daemon owns a live browser and its login state, so it should outlive an
 # agent that pauses to think. 30 minutes matches camoufox-cli.
 DEFAULT_IDLE_TIMEOUT = 1800.0
@@ -1968,15 +1972,85 @@ async def cmd_wait_for(session: Session, page, args: list, options: dict, cwd: s
 
 @register("show")
 async def cmd_show(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    from patchright_cli.dashboard import start_dashboard_server
+    from patchright_cli.dashboard import decode_annotation_image, start_dashboard_server
 
     port = int(options.get("show-port", 9322))
     if port not in _dashboard_runners:
-        runner, url = await start_dashboard_server(state, port=port)
-        _dashboard_runners[port] = (runner, url)
+        runner, url, dashboard_state = await start_dashboard_server(state, port=port)
+        _dashboard_runners[port] = (runner, url, dashboard_state)
     else:
-        _, url = _dashboard_runners[port]
-    return {"success": True, "output": f"Dashboard running at {url}"}
+        _, url, dashboard_state = _dashboard_runners[port]
+
+    if not options.get("annotate"):
+        return {"success": True, "output": f"Dashboard running at {url}"}
+
+    try:
+        wait_seconds = float(options.get("wait", DEFAULT_ANNOTATE_WAIT))
+    except (TypeError, ValueError):
+        return {"success": False, "output": f"Invalid --wait value: {options.get('wait')!r}. Expected seconds."}
+    if wait_seconds <= 0:
+        return {"success": False, "output": f"Invalid --wait value: {wait_seconds}. Expected seconds."}
+
+    session_name = getattr(session, "name", "default")
+    tab_name = session.active_tab.name if getattr(session, "active_tab", None) else DEFAULT_TAB
+    token, waiter = dashboard_state.open_annotation(session_name, tab_name, page)
+    review_url = f"{url}/annotate?token={token}"
+
+    # The command blocks until the reviewer submits, so it cannot print the link
+    # first -- open it for them instead. --no-open is for headless machines.
+    if not options.get("no-open"):
+        try:
+            import webbrowser
+
+            webbrowser.open(review_url)
+        except Exception:
+            pass
+
+    try:
+        payload = await asyncio.wait_for(waiter, timeout=wait_seconds)
+    except (TimeoutError, asyncio.TimeoutError):
+        dashboard_state.cancel_annotation(token)
+        return {
+            "success": False,
+            "output": (
+                f"No annotation arrived within {wait_seconds:g}s. The review page was {review_url}\n"
+                f"Raise the window with `show --annotate --wait=<seconds>`."
+            ),
+        }
+    except asyncio.CancelledError:
+        dashboard_state.cancel_annotation(token)
+        raise
+
+    lines = [f"### Annotation from {review_url}"]
+    notes = (payload.get("notes") or "").strip()
+    lines.append(f"- Shapes drawn: {payload.get('shapes', 0)}")
+
+    result: dict = {"success": True}
+    try:
+        image = decode_annotation_image(payload.get("image"))
+    except ValueError as exc:
+        image = None
+        lines.append(f"- Image discarded: {exc}")
+    if image:
+        base = Path(cwd) if cwd else Path.cwd()
+        snap_dir = base / ".patchright-cli"
+        snap_dir.mkdir(parents=True, exist_ok=True)
+        image_path = snap_dir / f"annotation-{int(time.time() * 1000)}.png"
+        image_path.write_bytes(image)
+        result["annotation_path"] = str(image_path)
+        lines.append(f"- Annotated screenshot: {image_path}")
+
+    lines.append("### Notes")
+    lines.append(notes if notes else "(none)")
+
+    snapshot_text, session.ref_registry = await take_snapshot(page)
+    snap_path = save_snapshot(snapshot_text, cwd)
+    lines.append("### Snapshot")
+    lines.append(f"[Snapshot]({snap_path})")
+
+    result["output"] = "\n".join(lines)
+    result["snapshot_path"] = snap_path
+    return result
 
 
 _CODEGEN_RECORDABLE = {
@@ -2152,8 +2226,8 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 return {"success": True, "output": f"Profile data deleted for '{session_name}'."}
             return {"success": False, "output": "No persistent profile to delete."}
 
-        # Dashboard command — no session required
-        if cmd == "show":
+        # Dashboard command — no session required, unless it is annotating a page
+        if cmd == "show" and not options.get("annotate"):
             handler = COMMAND_HANDLERS.get("show")
             return await handler(None, None, args, options, cwd, state)
 

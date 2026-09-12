@@ -465,3 +465,26 @@ def test_soften_output_encoding_tolerates_streams_that_cannot():
             raise OSError("not a tty")
 
     _soften_output_encoding(NoReconfigure(), Raises())
+
+
+# -- Socket timeout ----------------------------------------------------------
+
+
+def test_socket_timeout_default_for_ordinary_commands():
+    from patchright_cli.cli import DEFAULT_SOCKET_TIMEOUT, _socket_timeout
+
+    assert _socket_timeout("click", {}) == DEFAULT_SOCKET_TIMEOUT
+    assert _socket_timeout("show", {}) == DEFAULT_SOCKET_TIMEOUT
+
+
+def test_socket_timeout_outlasts_an_annotation_wait():
+    from patchright_cli.cli import ANNOTATE_SOCKET_MARGIN, _socket_timeout
+
+    assert _socket_timeout("show", {"annotate": True, "wait": "600"}) == 600 + ANNOTATE_SOCKET_MARGIN
+
+
+def test_socket_timeout_never_drops_below_the_default():
+    from patchright_cli.cli import DEFAULT_SOCKET_TIMEOUT, _socket_timeout
+
+    assert _socket_timeout("show", {"annotate": True, "wait": "5"}) == DEFAULT_SOCKET_TIMEOUT
+    assert _socket_timeout("show", {"annotate": True, "wait": "nonsense"}) == DEFAULT_SOCKET_TIMEOUT

@@ -311,6 +311,7 @@ codegen / codegen-stop        # Record interactions as script
 resize <w> <h>                # Viewport resize
 upload <file> [ref]           # File upload
 show                          # Live dashboard
+show --annotate               # Ask a human to mark up the page and wait for it
 ```
 
 ### Storage
@@ -398,6 +399,27 @@ patchright-cli wait --url="**/dashboard"  # Wait for a redirect to land
 ```
 
 ---
+
+## Asking a human what to change
+
+`show --annotate` is for design and UI review: it opens a page in the user's
+browser showing a live capture of the current page, they draw on it and write
+what they want changed, and the command returns their drawing plus their notes.
+
+```bash
+patchright-cli show --annotate                  # waits up to 5 minutes
+patchright-cli show --annotate --wait=900       # give them longer
+patchright-cli show --annotate --no-open        # headless box: do not launch a browser
+```
+
+The command **blocks** until they submit, so it opens the review link for them
+rather than printing it. You get back the annotated screenshot saved under
+`.patchright-cli/`, their notes, and a fresh snapshot of the page -- enough to
+act on the feedback without asking follow-up questions.
+
+Reach for it when the decision is aesthetic or subjective and you would
+otherwise be guessing: which of two layouts, where an element belongs, whether
+spacing reads right. Do not use it for anything you can check yourself.
 
 ## Anti-detect notes
 
