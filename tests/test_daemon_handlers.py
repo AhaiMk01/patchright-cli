@@ -31,6 +31,8 @@ def mock_session():
     session._codegen = None
     session._video_recording = False
     session._video_show_actions = None
+    session.tabs = {"default": MagicMock()}
+    session.activate_tab = MagicMock()
     return session
 
 

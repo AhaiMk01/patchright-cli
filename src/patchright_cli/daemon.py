@@ -52,6 +52,30 @@ def register(name: str):
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_TAB = "default"
+
+
+class Tab:
+    """One caller's view of a session: a page, its refs, and its own history.
+
+    Everything here is per-caller. Two agents sharing a session must not see
+    each other's refs or push each other's history, which is the whole point of
+    `--tab`. Everything else -- the browser, its fingerprint, cookies, console
+    and network logs -- stays on the Session, shared on purpose.
+
+    `page is None` means "follow the session's current_tab", which is how the
+    default tab keeps working with the index-based tab-select commands.
+    """
+
+    def __init__(self, name: str, page=None):
+        self.name = name
+        self.page = page
+        self.ref_registry: RefRegistry | None = None
+        self.history: list[str] = []
+        self.history_index: int = -1
+        self.codegen: list[str] | None = None
+
+
 class Session:
     """A single browser session (one persistent context, multiple pages/tabs)."""
 
@@ -62,7 +86,8 @@ class Session:
         self.is_attached = is_attached  # True if created via `attach --cdp=...`
         self.pages: list = pages or []
         self.current_tab: int = 0
-        self.ref_registry: RefRegistry | None = None
+        self.tabs: dict[str, Tab] = {DEFAULT_TAB: Tab(DEFAULT_TAB)}
+        self.active_tab: Tab = self.tabs[DEFAULT_TAB]
         self.console_messages: list[dict] = []
         self.network_log: list[dict] = []
         self._pending_dialog_action: tuple | None = None
@@ -73,9 +98,6 @@ class Session:
         self._video_recording: bool = False
         self._video_chapters: list[tuple[int, str]] = []
         self._video_show_actions: dict | None = None
-        self._history: list[str] = []
-        self._history_index: int = -1
-        self._codegen: list[str] | None = None
 
     # -- internal helpers ---------------------------------------------------
 
@@ -176,16 +198,104 @@ class Session:
 
     @property
     def page(self):
+        pinned = self.active_tab.page
+        if pinned is not None:
+            return pinned
         if not self.pages:
             return None
         idx = max(0, min(self.current_tab, len(self.pages) - 1))
         return self.pages[idx]
 
+    # -- per-tab state, proxied to the active tab ---------------------------
+    #
+    # Handlers read `session.ref_registry` and friends without knowing which
+    # caller they are serving. Routing lives in one place (activate_tab) rather
+    # than in every handler.
+
+    @property
+    def ref_registry(self) -> RefRegistry | None:
+        return self.active_tab.ref_registry
+
+    @ref_registry.setter
+    def ref_registry(self, value) -> None:
+        self.active_tab.ref_registry = value
+
+    @property
+    def _history(self) -> list[str]:
+        return self.active_tab.history
+
+    @_history.setter
+    def _history(self, value: list[str]) -> None:
+        self.active_tab.history = value
+
+    @property
+    def _history_index(self) -> int:
+        return self.active_tab.history_index
+
+    @_history_index.setter
+    def _history_index(self, value: int) -> None:
+        self.active_tab.history_index = value
+
+    @property
+    def _codegen(self) -> list[str] | None:
+        return self.active_tab.codegen
+
+    @_codegen.setter
+    def _codegen(self, value: list[str] | None) -> None:
+        self.active_tab.codegen = value
+
+    # -- tab lifecycle ------------------------------------------------------
+
+    def activate_tab(self, name: str) -> Tab:
+        """Route subsequent state access to `name`. Raises KeyError if unknown."""
+        self.active_tab = self.tabs[name]
+        return self.active_tab
+
+    async def open_tab(self, name: str) -> Tab:
+        """Return the named tab, giving it a fresh page on first use."""
+        existing = self.tabs.get(name)
+        if existing is not None:
+            return existing
+        # _on_new_page advances current_tab for every page the context opens.
+        # A named tab owns its page outright, so letting it move that pointer
+        # would silently reassign whichever page the default caller was on.
+        previous = self.current_tab
+        page = await self.context.new_page()
+        if page not in self.pages:
+            self.pages.append(page)
+        self.current_tab = min(previous, max(0, len(self.pages) - 1))
+        tab = Tab(name, page)
+        self.tabs[name] = tab
+        return tab
+
+    async def close_tab(self, name: str) -> bool:
+        """Close one tab's page. Returns whether any tab is still open.
+
+        False means the caller closed the last tab and the session itself
+        should go, which is how concurrent agents clean up without having to
+        coordinate: each closes its own, and the last one out ends the browser.
+        """
+        tab = self.tabs.pop(name)
+        page = tab.page
+        if page is not None:
+            self._cdp_sessions.pop(id(page), None)
+            if page in self.pages:
+                self.pages.remove(page)
+            try:
+                await page.close()
+            except Exception:
+                pass
+            self.current_tab = max(0, min(self.current_tab, len(self.pages) - 1))
+        if self.active_tab is tab:
+            self.active_tab = self.tabs.get(DEFAULT_TAB) or Tab(DEFAULT_TAB)
+        return bool(self.tabs)
+
     def push_history(self, url: str) -> None:
         """Record a URL in our navigation history."""
         self._history = self._history[: self._history_index + 1]
-        self._history.append(url)
-        self._history_index = len(self._history) - 1
+        history = self._history
+        history.append(url)
+        self._history_index = len(history) - 1
 
     async def go_back(self) -> str | None:
         if self._history_index <= 0:
@@ -978,14 +1088,17 @@ async def cmd_mousewheel(
 
 @register("tab-list")
 async def cmd_tab_list(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    owners = {id(tab.page): name for name, tab in session.tabs.items() if tab.page is not None}
     lines = ["### Tabs"]
     for i, p in enumerate(session.pages):
-        marker = " *" if i == session.current_tab else ""
+        marker = " *" if p is session.page else ""
+        owner = owners.get(id(p))
+        label = f" ({owner})" if owner else ""
         try:
             t = await p.title()
         except Exception:
             t = ""
-        lines.append(f"  [{i}]{marker} {p.url} — {t}")
+        lines.append(f"  [{i}]{marker}{label} {p.url} — {t}")
     return {"success": True, "output": "\n".join(lines)}
 
 
@@ -1963,6 +2076,8 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
 
     session_name = options.pop("session", "default") or "default"
 
+    tab_name = options.pop("tab", DEFAULT_TAB) or DEFAULT_TAB
+
     raw_idle_timeout = options.pop("timeout", None)
     if raw_idle_timeout is not None:
         try:
@@ -1993,6 +2108,11 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 user_agent=options.get("user-agent") or options.get("userAgent"),
                 grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
             )
+            if tab_name != DEFAULT_TAB:
+                tab = await session.open_tab(tab_name)
+                if url:
+                    await tab.page.goto(url)
+            session.activate_tab(tab_name)
             if session.page:
                 session.push_history(session.page.url)
             return await _page_info(session, cwd)
@@ -2057,6 +2177,14 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             return {"success": True, "output": "\n".join(lines)}
 
         if cmd == "close":
+            # `close` releases the tab it is addressed to. The browser goes when
+            # the last tab does, so concurrent agents clean up without having to
+            # coordinate -- each closes its own and the last one out ends it.
+            if tab_name not in session.tabs:
+                return {"success": False, "output": f"Tab '{tab_name}' is not open in session '{session_name}'."}
+            remaining = await session.close_tab(tab_name)
+            if remaining:
+                return {"success": True, "output": f"Tab '{tab_name}' closed; {len(session.tabs)} tab(s) still open."}
             closed = await state.close_session(session_name)
             return {"success": True, "output": f"Session '{session_name}' closed." if closed else "Session not found."}
 
@@ -2104,6 +2232,24 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 state.shutdown_event.set()
             return {"success": True, "output": f"Killed {len(names)} session(s) and stopping daemon."}
 
+        handler = COMMAND_HANDLERS.get(cmd)
+        if handler is None:
+            return {"success": False, "output": f"Unknown command: {cmd}"}
+
+        # Route to the caller's tab last, so it cannot shadow an unknown command
+        # or the page-less commands above, and re-read the page afterwards --
+        # activation is what decides which page `session.page` resolves to.
+        if tab_name not in session.tabs:
+            return {
+                "success": False,
+                "output": (
+                    f"Tab '{tab_name}' is not open in session '{session_name}'. "
+                    f"Run `patchright-cli --tab {tab_name} open <url>` first."
+                ),
+            }
+        session.activate_tab(tab_name)
+        page = session.page
+
         if page is None:
             return {
                 "success": False,
@@ -2111,10 +2257,6 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             }
 
         await _apply_timeouts(page, options)
-
-        handler = COMMAND_HANDLERS.get(cmd)
-        if handler is None:
-            return {"success": False, "output": f"Unknown command: {cmd}"}
 
         await _draw_action_callout(session, page, cmd, args)
         result = await handler(session, page, args, options, cwd, state)

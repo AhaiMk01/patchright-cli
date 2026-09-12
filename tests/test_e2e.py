@@ -196,3 +196,38 @@ class TestE2E:
 
         resp = _cmd(daemon, "wait", options={"url": "**/fixture.html"})
         assert resp["success"] is True
+
+    # Tab tests run last: they add pages to the shared session, and the
+    # index-based tests above assume only the fixture page is open.
+
+    def test_named_tabs_keep_independent_refs(self, daemon):
+        goto = _cmd(daemon, "goto", args=[FIXTURE_URL])
+        assert goto["success"] is True
+
+        opened = _cmd(daemon, "open", args=["data:text/html,<button>Archive</button>"], options={"tab": "inbox"})
+        assert opened["success"] is True
+
+        inbox = _cmd(daemon, "find", args=["Archive"], options={"tab": "inbox"})
+        assert inbox["success"] is True
+        assert 'button "Archive"' in inbox["output"]
+
+        # The default tab still sees the fixture, not the tab's page.
+        default = _cmd(daemon, "find", args=["Click me"])
+        assert default["success"] is True
+        assert 'button "Click me"' in default["output"]
+
+        listing = _cmd(daemon, "tab-list")
+        assert "(inbox)" in listing["output"]
+
+    def test_command_for_an_unopened_tab_fails(self, daemon):
+        resp = _cmd(daemon, "url", options={"tab": "never-opened"})
+        assert resp["success"] is False
+        assert "never-opened" in resp["output"]
+
+    def test_closing_a_named_tab_leaves_the_session_open(self, daemon):
+        resp = _cmd(daemon, "close", options={"tab": "inbox"})
+        assert resp["success"] is True
+        assert "still open" in resp["output"]
+
+        still_there = _cmd(daemon, "url")
+        assert still_there["success"] is True

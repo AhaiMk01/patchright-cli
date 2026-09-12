@@ -435,3 +435,33 @@ def test_warn_outdated_survives_a_network_failure(tmp_path, monkeypatch, capsys)
 
     cli._warn_outdated_version()
     assert capsys.readouterr().err == ""
+
+
+# -- Console encoding --------------------------------------------------------
+
+
+def test_soften_output_encoding_replaces_instead_of_raising():
+    from patchright_cli.cli import _soften_output_encoding
+
+    calls = []
+
+    class Stream:
+        def reconfigure(self, **kwargs):
+            calls.append(kwargs)
+
+    a, b = Stream(), Stream()
+    _soften_output_encoding(a, b)
+    assert calls == [{"errors": "replace"}, {"errors": "replace"}]
+
+
+def test_soften_output_encoding_tolerates_streams_that_cannot():
+    from patchright_cli.cli import _soften_output_encoding
+
+    class NoReconfigure:
+        pass
+
+    class Raises:
+        def reconfigure(self, **kwargs):
+            raise OSError("not a tty")
+
+    _soften_output_encoding(NoReconfigure(), Raises())

@@ -61,6 +61,27 @@ patchright-cli delete-data                 # Delete default session's profile da
 patchright-cli -s=mysession delete-data    # Delete named session's profile data
 ```
 
+## Concurrent tabs (shared identity)
+
+`--tab <name>` is the cheaper unit of concurrency: one browser, one login, but
+a page, ref registry and navigation history per caller.
+
+```bash
+patchright-cli --tab orders-audit open https://app.example.com/a
+patchright-cli --tab user-export open https://app.example.com/b
+patchright-cli tab-list                      # labelled by owning tab
+patchright-cli --tab orders-audit close      # frees one tab only
+```
+
+`close` releases the tab it is addressed to and the session ends when the last
+tab closes, so concurrent agents clean up without coordinating. A command
+addressed to a tab that was never opened is an error rather than a silent
+fallback to the default tab -- a typo in a tab name should not quietly drive
+someone else's page.
+
+Named tabs are pinned to their own page, so `tab-select` and popups cannot move
+them. The default tab still follows the index-based `tab-select`.
+
 ## Concurrent sessions
 
 You can run multiple sessions simultaneously for parallel workflows:

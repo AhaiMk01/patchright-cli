@@ -236,6 +236,44 @@ tab-select <index>            # Switch to tab
 tab-close [index]             # Close tab
 ```
 
+### Parallel agents: --tab
+
+`--tab <name>` gives a caller its own page, its own refs and its own history
+inside one shared browser -- same fingerprint, same cookies, same login. It is
+the cheap way to parallelise: one Chrome total, not one per agent.
+
+```bash
+patchright-cli --tab inbox-scan open https://app.example.com/inbox
+patchright-cli --tab report-pull open https://app.example.com/reports
+patchright-cli --tab inbox-scan snapshot     # refs belong to this tab only
+patchright-cli tab-list                      # every tab, labelled by owner
+patchright-cli --tab inbox-scan close        # frees this tab; browser stays
+```
+
+**Choose the name once, with a shell-generated suffix.** Nothing enforces
+uniqueness -- two agents on the same name share one page and clobber each
+other. Do not invent the random part yourself; LLM-chosen "random" characters
+collide.
+
+```bash
+TAB="price-scan-$(openssl rand -hex 2)" && echo "$TAB"
+patchright-cli --tab "$TAB" open https://example.com
+# reuse that exact printed name in every later command
+```
+
+`$PATCHRIGHT_CLI_TAB` sets it for a whole shell, the way `$PATCHRIGHT_CLI_SESSION`
+does for sessions.
+
+Cleanup needs no coordination: every agent runs `close` addressed to its own
+tab, and the browser exits when the last tab goes.
+
+**`--tab` vs `-s`.** `--tab` shares identity, one browser (~50-150MB per extra
+tab), for agents acting as the same logged-in user. `-s` isolates identity --
+its own profile, cookies and fingerprint, a full Chrome each (~300-500MB) --
+for multi-account work. Tabs share one browser process, so commands from
+different tabs queue behind a slow navigation; separate sessions run fully in
+parallel.
+
 ### Dialogs
 
 Dialogs must be pre-armed *before* the action that triggers them:

@@ -19,6 +19,20 @@ from patchright_cli import __version__
 from patchright_cli.daemon import DEFAULT_PORT, ensure_daemon_running
 
 
+def _soften_output_encoding(*streams) -> None:
+    """Make unencodable characters print as `?` instead of killing the command.
+
+    Windows consoles default to a legacy code page (GBK on this machine), and a
+    single character outside it raised UnicodeEncodeError from click.echo --
+    losing a whole page snapshot over one glyph.
+    """
+    for stream in streams:
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass
+
+
 def _load_config(config_path: str | None) -> dict:
     """Load JSON config file. If config_path is None, try .patchright-cli/config.json in cwd."""
     p = Path(config_path) if config_path else Path.cwd() / ".patchright-cli" / "config.json"
@@ -460,6 +474,8 @@ def _print_help():
     click.echo("  --profile=<path>    Custom profile directory")
     click.echo("  --proxy=<url>       Proxy server (e.g. http://host:port, socks5://host:port)")
     click.echo("  -s=<name>           Named session (default: 'default')")
+    click.echo("  --tab=<name>        Named tab inside the session: shared browser,")
+    click.echo("                      cookies and fingerprint; own page, refs and history")
     click.echo("  --port=<n>          Daemon port (default: 9321)")
     click.echo("  --config=<path>     Load config from JSON file")
     click.echo("  --device=<name>     Emulate a device (e.g. 'iPhone 15')")
@@ -559,6 +575,7 @@ def _print_help():
 
 def main():
     """Entry point for the CLI."""
+    _soften_output_encoding(sys.stdout, sys.stderr)
     argv = sys.argv[1:]
 
     # Parse global options manually (before the command)
@@ -568,6 +585,8 @@ def main():
     proxy = None
     config_path = None
     session_name = os.environ.get("PATCHRIGHT_CLI_SESSION", "default")
+
+    tab_name = os.environ.get("PATCHRIGHT_CLI_TAB", "default")
     port = DEFAULT_PORT
     extra_opts: dict = {}
     raw = False
@@ -592,6 +611,11 @@ def main():
         elif arg == "--proxy" and i + 1 < len(argv):
             i += 1
             proxy = argv[i]
+        elif arg.startswith("--tab="):
+            tab_name = arg.split("=", 1)[1]
+        elif arg == "--tab" and i + 1 < len(argv):
+            i += 1
+            tab_name = argv[i]
         elif arg.startswith("-s="):
             session_name = arg.split("=", 1)[1]
         elif arg == "-s" and i + 1 < len(argv):
@@ -741,7 +765,7 @@ def main():
 
     # Build options dict (config file values are overridden by explicit CLI flags)
     config = _load_config(config_path)
-    options = {"session": session_name, **_merge_config_with_options(config, extra_opts)}
+    options = {"session": session_name, "tab": tab_name, **_merge_config_with_options(config, extra_opts)}
     if headless:
         options["headless"] = True
     if persistent:

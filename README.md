@@ -129,6 +129,7 @@ patchright-cli open [url]              # Launch browser
 patchright-cli open --persistent       # With persistent profile
 patchright-cli open --headless         # Run headless
 patchright-cli open --profile=<path>   # Custom profile directory
+patchright-cli --tab <name> open <url> # Named tab: shared browser, own page/refs
 patchright-cli open --mobile           # Emulate a generic mobile device (Pixel 7)
 patchright-cli open --device="Pixel 5" # Emulate a specific Playwright device
 patchright-cli goto <url>              # Navigate
