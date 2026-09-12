@@ -9,6 +9,14 @@ patchright-cli drives a real Chrome browser that passes bot detection (Cloudflar
 
 ## Quick start
 
+If `patchright-cli` is not on PATH yet, install it first -- one of:
+
+```bash
+uvx patchright-cli --version                 # run without installing
+pip install patchright-cli                   # or install it
+python -m patchright install chromium        # then fetch the browser, once
+```
+
 ```bash
 patchright-cli open https://example.com     # launch browser + navigate
 patchright-cli snapshot                      # get element refs
