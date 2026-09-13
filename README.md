@@ -174,6 +174,10 @@ patchright-cli close                   # Close session
 patchright-cli go-back
 patchright-cli go-forward
 patchright-cli reload
+patchright-cli wait 500                 # Wait a fixed number of milliseconds
+patchright-cli wait --url="**/dashboard" # Wait for the URL to match (`*` never crosses a `/`)
+patchright-cli wait-for <ref>           # Wait until an element is visible
+patchright-cli wait-for <ref> --state=hidden
 ```
 
 ### Keyboard / Mouse

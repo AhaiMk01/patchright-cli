@@ -26,6 +26,7 @@ patchright-cli snapshot --interactive          # Same as -i
 | Flag | Effect |
 |------|--------|
 | `[ref]` | Show only the subtree rooted at the given ref |
+| `--selector=<css>` | Show only the subtree under a CSS selector. Must match exactly one element |
 | `--depth=N` | Limit depth of the tree (useful for complex pages) |
 | `-i` / `--interactive` | Show only interactive elements (buttons, links, inputs) |
 | `--filename=F` | Save snapshot to a custom file path |
@@ -73,6 +74,15 @@ Some elements are hidden or overlapped. Try:
 - `wait-for <ref>` to wait until the element appears
 - `snapshot -i` to see only interactive elements
 - `snapshot <ref>` to inspect a subtree for nested elements
+- `snapshot --selector="#main"` to scope by CSS when you have no ref yet
+
+### Refs from a scoped snapshot
+
+A scoped snapshot -- `snapshot <ref>` or `snapshot --selector=<css>` -- numbers
+its refs from `e1` within that subtree, and those refs resolve inside the same
+subtree. They are not the numbers a full-page `snapshot` would give, so do not
+mix refs from a scoped snapshot with refs from a full one: take a fresh
+snapshot at the scope you intend to work in.
 
 ### Too many elements in snapshot
 Use `--depth=N` to limit tree depth, or snapshot a specific subtree with `snapshot <ref>`. The `-i` flag also helps by filtering to interactive elements only.

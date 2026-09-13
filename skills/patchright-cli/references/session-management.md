@@ -83,7 +83,9 @@ fallback to the default tab -- a typo in a tab name should not quietly drive
 someone else's page.
 
 Named tabs are pinned to their own page, so `tab-select` and popups cannot move
-them. The default tab still follows the index-based `tab-select`.
+them; `tab-select` addressed to a named tab is refused rather than silently
+moving somebody else's page. The default tab still follows the index-based
+`tab-select`.
 
 ## Concurrent sessions
 
@@ -119,7 +121,10 @@ You can also grant permissions at launch with `--grant-permissions=geolocation,c
 
 ## Daemon behavior
 
-The daemon auto-starts on the first command and auto-shuts down after 5 minutes of inactivity. If it ever crashes, the next command will respawn it automatically.
+The daemon auto-starts on the first command and auto-shuts down after 30 minutes of inactivity
+(`--timeout=<seconds>` after the command, or `$PATCHRIGHT_CLI_IDLE_TIMEOUT` up front). A command
+that is still running does not count as inactivity, so a long `show --annotate` will not be cut
+short. If the daemon ever crashes, the next command respawns it automatically.
 
 ## Cleanup best practices
 

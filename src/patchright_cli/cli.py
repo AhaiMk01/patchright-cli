@@ -421,7 +421,7 @@ COMMANDS_HELP = {
     "tab-list": "tab-list             List tabs",
     "tab-new": "tab-new [url]        Open new tab",
     "tab-close": "tab-close [index]    Close tab",
-    "tab-select": "tab-select <index>   Switch to tab",
+    "tab-select": "tab-select <index>   Switch to tab (default tab only)",
     # Storage
     "cookie-list": "cookie-list          List cookies [--domain=D] [--path=P]",
     "cookie-get": "cookie-get <name>    Get cookie",

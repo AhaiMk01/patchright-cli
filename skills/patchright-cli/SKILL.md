@@ -129,7 +129,8 @@ title                         # Print page title
 ```bash
 snapshot                      # Full page snapshot
 snapshot <ref>                # Subtree of a specific element
-snapshot --selector="#main"   # Subtree of a CSS selector -- no ref needed, so
+snapshot --selector="#main"   # Subtree of a CSS selector -- must match exactly
+                              # one element. No ref needed, so
                               # this works before the first snapshot
 snapshot --depth=N            # Limit depth
 snapshot -i                   # Interactive elements only
@@ -232,7 +233,8 @@ mousewheel <dx> <dy>          # Scroll wheel
 ```bash
 tab-list                      # List open tabs
 tab-new <url>                 # Open new tab
-tab-select <index>            # Switch to tab
+tab-select <index>            # Switch to tab (default tab only; a --tab
+                              # caller is pinned to its own page)
 tab-close [index]             # Close tab
 ```
 
