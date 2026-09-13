@@ -225,7 +225,12 @@ class TestE2E:
         assert "never-opened" in resp["output"]
 
     def test_closing_a_named_tab_leaves_the_session_open(self, daemon):
-        resp = _cmd(daemon, "close", options={"tab": "inbox"})
+        # Open the tab this test closes rather than relying on a sibling test
+        # having created it -- that made the test order load-bearing.
+        opened = _cmd(daemon, "open", args=["data:text/html,<p>scratch</p>"], options={"tab": "scratch"})
+        assert opened["success"] is True
+
+        resp = _cmd(daemon, "close", options={"tab": "scratch"})
         assert resp["success"] is True
         assert "still open" in resp["output"]
 

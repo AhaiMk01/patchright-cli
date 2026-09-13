@@ -30,7 +30,7 @@ async def take_snapshot(
     if not aria_text or not aria_text.strip():
         return "# Empty page - no accessible elements found\n", RefRegistry()
 
-    registry = RefRegistry()
+    registry = RefRegistry(root=root_element)
     annotated = registry.parse(aria_text, max_depth=max_depth, interactive_only=interactive_only)
     return annotated + "\n", registry
 

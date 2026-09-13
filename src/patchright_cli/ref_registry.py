@@ -13,7 +13,27 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from patchright.async_api import Page
 
-_NODE_LINE_RE = re.compile(r"^\s*-\s+(\w+)(?:\s+\"([^\"]*)\")?")
+_NODE_LINE_RE = re.compile(r"^\s*-\s+(\w+)(?:\s+\"((?:[^\"\\]|\\.)*)\")?")
+
+
+def _unescape_name(raw: str) -> str:
+    """Undo the JSON escaping Playwright applies to an accessible name.
+
+    A name containing a quote arrives as `- button "Say \\"hi\\""`; matching it
+    naively truncated at the first inner quote and produced a locator that
+    matched nothing.
+    """
+    out = []
+    i = 0
+    while i < len(raw):
+        if raw[i] == "\\" and i + 1 < len(raw):
+            out.append(raw[i + 1])
+            i += 2
+        else:
+            out.append(raw[i])
+            i += 1
+    return "".join(out)
+
 
 # Matches `- role: value` lines (e.g. `- text: Star 95.3k`), whose accessible
 # name is unquoted. Used only for search text, never for locator resolution.
@@ -106,10 +126,15 @@ class FindHit:
 class RefRegistry:
     """Annotates an aria snapshot with refs and resolves them back to Playwright locators."""
 
-    def __init__(self) -> None:
+    def __init__(self, root=None) -> None:
         self.entries: dict[str, AriaRefEntry] = {}
         self._counter = 0
         self._lines: list[str] = []
+        # The locator this snapshot was taken from, when it was scoped to a
+        # subtree. `nth` is counted within the text that was parsed, so
+        # resolving against the whole page picks a different element whenever
+        # the same role and name also appear outside the scope.
+        self.root = root
 
     def parse(self, aria_text: str, max_depth: int | None = None, interactive_only: bool = False) -> str:
         """Return annotated snapshot text with [ref=eN] tags inserted."""
@@ -136,7 +161,7 @@ class RefRegistry:
             if interactive_only and role not in INTERACTIVE_ROLES:
                 result_lines.append(line)
                 continue
-            name = m.group(2) or ""
+            name = _unescape_name(m.group(2)) if m.group(2) else ""
 
             self._counter += 1
             ref = f"e{self._counter}"
@@ -216,7 +241,7 @@ class RefRegistry:
             depth = line_depth
             node = _NODE_LINE_RE.match(line)
             if node:
-                chain.append((node.group(1), node.group(2) or ""))
+                chain.append((node.group(1), _unescape_name(node.group(2)) if node.group(2) else ""))
             if depth == 0:
                 break
 
@@ -260,7 +285,8 @@ class RefRegistry:
         if entry.name:
             kwargs["name"] = entry.name
 
-        locator = page.get_by_role(entry.role, **kwargs)
+        scope = self.root if self.root is not None else page
+        locator = scope.get_by_role(entry.role, **kwargs)
         return locator.nth(entry.nth)
 
 

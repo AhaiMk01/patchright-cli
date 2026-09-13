@@ -1232,6 +1232,16 @@ async def cmd_tab_close(session: Session, page, args: list, options: dict, cwd: 
 async def cmd_tab_select(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
+    if session.active_tab.name != DEFAULT_TAB:
+        # A named tab is pinned to its own page, so moving the index pointer
+        # would not move this caller -- it would only reassign the default one.
+        return {
+            "success": False,
+            "output": (
+                f"tab-select does not apply to tab '{session.active_tab.name}', which is pinned to its own page. "
+                f"Drop --tab to drive the index-based tabs."
+            ),
+        }
     idx = int(args[0])
     if 0 <= idx < len(session.pages):
         session.current_tab = idx
@@ -1938,7 +1948,10 @@ async def _draw_action_callout(session: Session, page, cmd: str, args: list) -> 
         if entry is not None:
             label = f"{label} {entry.role}" + (f' "{entry.name}"' if entry.name else "")
             try:
-                box = await session.ref_registry.resolve(page, ref).bounding_box()
+                # Short timeout on purpose: this is decoration. Without one an
+                # unmatched ref blocked the action it was meant to annotate for
+                # the full action timeout.
+                box = await session.ref_registry.resolve(page, ref).bounding_box(timeout=1000)
             except Exception:
                 box = None
 

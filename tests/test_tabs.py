@@ -219,6 +219,8 @@ async def test_tab_option_does_not_reach_the_handler(state_with_session):
     from patchright_cli.daemon import handle_command
 
     state, session = state_with_session
+    default_page = session.pages[0]
+    default_page.screenshot = AsyncMock()
     inbox = await session.open_tab("inbox")
     inbox.page.screenshot = AsyncMock()
 
@@ -227,7 +229,11 @@ async def test_tab_option_does_not_reach_the_handler(state_with_session):
     )
 
     assert response["success"] is True
-    assert "tab" not in inbox.page.screenshot.await_args.kwargs
+    # cmd_screenshot never forwards **options, so asserting "tab" is absent from
+    # its kwargs could not fail. Assert what actually matters instead: the
+    # command ran against the addressed tab's page, not the default one.
+    inbox.page.screenshot.assert_awaited_once()
+    default_page.screenshot.assert_not_awaited()
 
 
 @pytest.mark.asyncio

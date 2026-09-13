@@ -974,7 +974,11 @@ async def test_timeout_option_does_not_reach_the_handler(mock_state, mock_sessio
     )
 
     assert response["success"] is True
-    assert "timeout" not in mock_session.page.screenshot.await_args.kwargs
+    # cmd_screenshot never forwards **options, so asserting absence from its
+    # kwargs could not fail. Assert the option was consumed for its real
+    # purpose -- reconfiguring the daemon -- and that the command still ran.
+    assert mock_state.idle_timeout == 900.0
+    mock_session.page.screenshot.assert_awaited_once()
 
 
 # -- wait --url --------------------------------------------------------------

@@ -287,7 +287,10 @@ def _warn_outdated_version() -> None:
         cached = {}
 
     latest = cached.get("latest")
-    if time.time() - float(cached.get("at", 0)) >= _VERSION_CHECK_INTERVAL or not latest:
+    # No `or not latest`: the stamp is written before the request, so a failed
+    # fetch still throttles. With it, a machine that cannot reach PyPI paid the
+    # timeout on every single `open`.
+    if time.time() - float(cached.get("at", 0)) >= _VERSION_CHECK_INTERVAL:
         try:
             stamp.parent.mkdir(parents=True, exist_ok=True)
             stamp.write_text(json.dumps({"at": time.time(), "latest": latest}), encoding="utf-8")

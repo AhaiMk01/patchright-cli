@@ -409,3 +409,114 @@ def test_render_hits_has_no_section_headers():
     hits, total = registry.search("hide")
     output = render_hits(hits, total, "hide")
     assert "### " not in output
+
+
+# -- Scoped snapshots must resolve within their scope -------------------------
+
+
+def test_resolve_uses_the_page_when_the_snapshot_was_unscoped():
+    from unittest.mock import MagicMock
+
+    from patchright_cli.ref_registry import RefRegistry
+
+    registry = RefRegistry()
+    registry.parse('- button "Go"')
+    page = MagicMock()
+    registry.resolve(page, "e1")
+    page.get_by_role.assert_called_once()
+
+
+def test_resolve_searches_inside_the_scope_it_was_parsed_from():
+    """nth is counted within the snapshotted subtree, so applying it to the
+    whole page selects a different element entirely."""
+    from unittest.mock import MagicMock
+
+    from patchright_cli.ref_registry import RefRegistry
+
+    root = MagicMock(name="scope")
+    registry = RefRegistry(root=root)
+    registry.parse('- button "Go"')
+
+    page = MagicMock(name="page")
+    registry.resolve(page, "e1")
+
+    root.get_by_role.assert_called_once()
+    page.get_by_role.assert_not_called()
+
+
+def test_scoped_registry_applies_nth_within_the_scope():
+    from unittest.mock import MagicMock
+
+    from patchright_cli.ref_registry import RefRegistry
+
+    root = MagicMock(name="scope")
+    registry = RefRegistry(root=root)
+    registry.parse('- button "Go"' + chr(10) + '- button "Go"')
+
+    registry.resolve(MagicMock(), "e2")
+
+    assert root.get_by_role.return_value.nth.call_args.args[0] == 1
+
+
+# -- Accessible names containing quotes ---------------------------------------
+
+
+def test_parse_handles_a_name_with_escaped_quotes():
+    """Playwright JSON-stringifies the accessible name into the node key, so a
+    name containing a quote arrives escaped."""
+    from patchright_cli.ref_registry import RefRegistry
+
+    registry = RefRegistry()
+    line = '- button "Say \\"hi\\" now"'
+    registry.parse(line)
+
+    entry = registry.entries["e1"]
+    assert entry.role == "button"
+    assert entry.name == 'Say "hi" now'
+
+
+def test_parse_does_not_truncate_at_an_inner_quote():
+    from patchright_cli.ref_registry import RefRegistry
+
+    registry = RefRegistry()
+    registry.parse('- link "a \\"b\\" c"')
+    assert registry.entries["e1"].name == 'a "b" c'
+
+
+def test_resolve_passes_the_unescaped_name_to_the_locator():
+    from unittest.mock import MagicMock
+
+    from patchright_cli.ref_registry import RefRegistry
+
+    registry = RefRegistry()
+    registry.parse('- button "Say \\"hi\\""')
+    page = MagicMock()
+    registry.resolve(page, "e1")
+    assert page.get_by_role.call_args.kwargs["name"] == 'Say "hi"'
+
+
+DEEP_YAML = """- main "Outer"
+  - navigation "Middle"
+    - list "Inner"
+      - listitem "Row"
+        - group "Cell"
+          - link "target"
+"""
+
+
+def test_breadcrumb_keeps_only_the_three_nearest_ancestors():
+    """Binds the cap: five distinct ancestors, none of which collapse."""
+    from patchright_cli.ref_registry import RefRegistry
+
+    registry = RefRegistry()
+    registry.parse(DEEP_YAML)
+    hits, _ = registry.search("target", all_roles=True)
+
+    crumb = hits[0].breadcrumb
+    assert crumb.count(">") == 2, crumb
+    # The rightmost entry is the direct parent; the outermost two are dropped.
+    assert "group" in crumb
+    assert "listitem" in crumb
+    assert "list" in crumb
+    assert "main" not in crumb
+    assert "navigation" not in crumb

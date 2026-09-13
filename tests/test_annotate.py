@@ -164,7 +164,9 @@ async def test_show_annotate_returns_the_submitted_feedback(annotate_session, tm
 
     asyncio.ensure_future(submit_soon())
 
-    result = await daemon_mod.cmd_show(session, page, [], {"annotate": True, "wait": "5"}, str(tmp_path), state)
+    result = await daemon_mod.cmd_show(
+        session, page, [], {"annotate": True, "wait": "5", "no-open": True}, str(tmp_path), state
+    )
 
     assert result["success"] is True
     assert "tighten the spacing" in result["output"]
@@ -184,7 +186,9 @@ async def test_show_annotate_times_out_without_a_submission(annotate_session, tm
     monkeypatch.setattr(daemon_mod, "_dashboard_runners", {})
     monkeypatch.setattr("patchright_cli.dashboard.start_dashboard_server", fake_start)
 
-    result = await daemon_mod.cmd_show(session, page, [], {"annotate": True, "wait": "0.1"}, str(tmp_path), state)
+    result = await daemon_mod.cmd_show(
+        session, page, [], {"annotate": True, "wait": "0.1", "no-open": True}, str(tmp_path), state
+    )
 
     assert result["success"] is False
     assert "annotation" in result["output"].lower()
@@ -340,7 +344,9 @@ async def test_show_annotate_rejects_a_bare_wait_flag(annotate_session, tmp_path
     monkeypatch.setattr("patchright_cli.dashboard.start_dashboard_server", fake_start)
     monkeypatch.setattr("webbrowser.open", lambda u: None)
 
-    result = await daemon_mod.cmd_show(session, page, [], {"annotate": True, "wait": True}, str(tmp_path), state)
+    result = await daemon_mod.cmd_show(
+        session, page, [], {"annotate": True, "wait": True, "no-open": True}, str(tmp_path), state
+    )
 
     assert result["success"] is False
     # Specific message, not the generic timeout text -- which also mentions
