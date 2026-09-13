@@ -322,3 +322,30 @@ async def test_full_page_capture_uses_css_scale():
 
     assert page.screenshot.await_args.kwargs["scale"] == "css"
     assert page.screenshot.await_args.kwargs["full_page"] is True
+
+
+@pytest.mark.asyncio
+async def test_show_annotate_rejects_a_bare_wait_flag(annotate_session, tmp_path, monkeypatch):
+    """bool subclasses int, so a valueless --wait used to become 1 second and
+    collapse the human-review window."""
+    from patchright_cli import daemon as daemon_mod
+
+    state, session, page = annotate_session
+    dashboard_state = _state()
+
+    async def fake_start(daemon_state, port=9322):
+        return MagicMock(), "http://127.0.0.1:9322", dashboard_state
+
+    monkeypatch.setattr(daemon_mod, "_dashboard_runners", {})
+    monkeypatch.setattr("patchright_cli.dashboard.start_dashboard_server", fake_start)
+    monkeypatch.setattr("webbrowser.open", lambda u: None)
+
+    result = await daemon_mod.cmd_show(session, page, [], {"annotate": True, "wait": True}, str(tmp_path), state)
+
+    assert result["success"] is False
+    # Specific message, not the generic timeout text -- which also mentions
+    # --wait and would let this test pass while the bug was still live.
+    assert "milliseconds" not in result["output"]
+    assert "value in seconds" in result["output"]
+    assert "No annotation arrived" not in result["output"]
+    assert dashboard_state.annotations == {}

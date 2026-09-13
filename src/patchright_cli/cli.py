@@ -50,6 +50,12 @@ def _merge_config_with_options(config: dict, options: dict) -> dict:
     return merged
 
 
+# Sections whose `- ` lines are the answer rather than decoration. Everything
+# else keeps the strip-all behaviour. Without this, --raw ate the annotated
+# screenshot path and any reviewer notes written as a bullet list.
+_RAW_CONTENT_SECTIONS = ("### Annotation", "### Notes")
+
+
 def _strip_raw_output(output: str) -> str:
     """Strip page info and snapshot decorations, returning only the result value."""
     lines = output.splitlines()
@@ -57,7 +63,7 @@ def _strip_raw_output(output: str) -> str:
     in_section = False
     for line in lines:
         if line.startswith("### "):
-            in_section = True
+            in_section = not line.startswith(_RAW_CONTENT_SECTIONS)
             continue
         if in_section and (line.startswith("- ") or line.startswith("[Snapshot](")):
             continue
@@ -788,6 +794,13 @@ def main():
     # Build options dict (config file values are overridden by explicit CLI flags)
     config = _load_config(config_path)
     options = {"session": session_name, "tab": tab_name, **_merge_config_with_options(config, extra_opts)}
+    # `session` and `tab` are parsed into their own variables rather than into
+    # extra_opts, so the spread above let a stale config value win over an
+    # explicit flag and silently address someone else's tab. Re-apply them.
+    if tab_name != "default" or "tab" not in config:
+        options["tab"] = tab_name
+    if session_name != "default" or "session" not in config:
+        options["session"] = session_name
     if headless:
         options["headless"] = True
     if persistent:

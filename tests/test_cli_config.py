@@ -493,7 +493,7 @@ def test_socket_timeout_never_drops_below_the_default():
 # -- Global flag parsing -----------------------------------------------------
 
 
-def _captured_options(argv, monkeypatch):
+def _captured_options(argv, monkeypatch, config=None):
     """Run main() with the socket stubbed out and return the options it sent."""
     import sys
 
@@ -511,7 +511,7 @@ def _captured_options(argv, monkeypatch):
     monkeypatch.setattr(cli, "ensure_daemon_running", lambda *a, **k: False)
     monkeypatch.setattr(cli, "_warn_stale_skills", lambda: None)
     monkeypatch.setattr(cli, "_warn_outdated_version", lambda: None)
-    monkeypatch.setattr(cli, "_load_config", lambda p: {})
+    monkeypatch.setattr(cli, "_load_config", lambda p: dict(config or {}))
     monkeypatch.setattr(sys, "argv", ["patchright-cli"] + argv)
     cli.main()
     return seen
@@ -540,3 +540,57 @@ def test_timeout_action_is_not_swallowed_by_a_global_branch(monkeypatch):
     seen = _captured_options(["click", "e1", "--timeout-action=5000"], monkeypatch)
     assert seen["options"]["tab"] == "default"
     assert seen["options"]["timeout-action"] == "5000"
+
+
+# -- --raw must not eat real content -----------------------------------------
+
+
+ANNOTATION_OUTPUT = "\n".join(
+    [
+        "### Annotation from http://127.0.0.1:9322/annotate?token=abc",
+        "- Shapes drawn: 2",
+        "- Annotated screenshot: /tmp/.patchright-cli/annotation-1.png",
+        "### Notes",
+        "- move the button left",
+        "- tighten the spacing",
+    ]
+)
+
+PAGE_OUTPUT = "\n".join(
+    [
+        "### Page",
+        "- Page URL: https://example.com",
+        "- Page Title: Example",
+        "### Snapshot",
+        "[Snapshot](/tmp/snap.yml)",
+        "the actual result",
+    ]
+)
+
+
+def test_raw_keeps_annotation_details():
+    """`- Annotated screenshot: <path>` is the result, not decoration."""
+    from patchright_cli.cli import _strip_raw_output
+
+    stripped = _strip_raw_output(ANNOTATION_OUTPUT)
+    assert "annotation-1.png" in stripped
+    assert "move the button left" in stripped
+    assert "tighten the spacing" in stripped
+
+
+def test_raw_still_strips_page_and_snapshot_decoration():
+    from patchright_cli.cli import _strip_raw_output
+
+    assert _strip_raw_output(PAGE_OUTPUT) == "the actual result"
+
+
+def test_cli_options_beat_the_config_file(monkeypatch):
+    """A stale `tab` in .patchright-cli/config.json must not silently
+    redirect a command the caller addressed elsewhere."""
+    seen = _captured_options(["--tab", "from-flag", "url"], monkeypatch, config={"tab": "from-config"})
+    assert seen["options"]["tab"] == "from-flag"
+
+
+def test_config_still_supplies_a_tab_when_no_flag_is_given(monkeypatch):
+    seen = _captured_options(["url"], monkeypatch, config={"tab": "from-config"})
+    assert seen["options"]["tab"] == "from-config"

@@ -1020,7 +1020,7 @@ async def test_wait_rejects_url_together_with_a_duration(mock_state, mock_sessio
 async def test_snapshot_scoped_to_a_css_selector(mock_state, mock_session, tmp_path):
     mock_state.sessions = {"default": mock_session}
     scoped = MagicMock()
-    scoped.count = AsyncMock(return_value=2)
+    scoped.count = AsyncMock(return_value=1)
     mock_session.page.locator = MagicMock(return_value=scoped)
 
     with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
@@ -1107,3 +1107,97 @@ async def test_wait_reports_a_broken_url_regex(mock_state, mock_session):
 
     assert response["success"] is False
     mock_session.page.wait_for_url.assert_not_awaited()
+
+
+# -- Idle watchdog vs long-running commands ----------------------------------
+
+
+def test_daemon_state_tracks_commands_in_flight():
+    from patchright_cli.daemon import DaemonState
+
+    state = DaemonState()
+    assert state.commands_in_flight == 0
+    with state.command_running():
+        assert state.commands_in_flight == 1
+        with state.command_running():
+            assert state.commands_in_flight == 2
+    assert state.commands_in_flight == 0
+
+
+def test_command_running_restamps_activity_on_the_way_out():
+    import time
+
+    from patchright_cli.daemon import DaemonState
+
+    state = DaemonState()
+    state.last_activity = time.monotonic() - 10_000
+    with state.command_running():
+        pass
+    assert time.monotonic() - state.last_activity < 1
+
+
+def test_command_running_restamps_even_when_the_command_raises():
+    import time
+
+    from patchright_cli.daemon import DaemonState
+
+    state = DaemonState()
+    state.last_activity = time.monotonic() - 10_000
+    try:
+        with state.command_running():
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+    assert state.commands_in_flight == 0
+    assert time.monotonic() - state.last_activity < 1
+
+
+def test_daemon_is_not_idle_while_a_command_is_running():
+    """show --annotate blocks for minutes; the watchdog must not kill it."""
+    import time
+
+    from patchright_cli.daemon import DaemonState
+
+    state = DaemonState()
+    state.idle_timeout = 1.0
+    state.last_activity = time.monotonic() - 3600
+    with state.command_running():
+        assert state.is_idle() is False
+    assert state.is_idle() is False  # just restamped
+
+
+def test_daemon_is_idle_once_nothing_is_running():
+    import time
+
+    from patchright_cli.daemon import DaemonState
+
+    state = DaemonState()
+    state.idle_timeout = 1.0
+    state.last_activity = time.monotonic() - 3600
+    assert state.is_idle() is True
+
+
+@pytest.mark.asyncio
+async def test_snapshot_selector_matching_many_is_an_error(mock_state, mock_session, tmp_path):
+    """aria_snapshot() is strict; snapshot.py swallows the violation into an
+    empty tree, so a multi-match selector used to report success while wiping
+    the ref registry."""
+    mock_state.sessions = {"default": mock_session}
+    registry = MagicMock()
+    mock_session.ref_registry = registry
+    scoped = MagicMock()
+    scoped.count = AsyncMock(return_value=3)
+    mock_session.page.locator = MagicMock(return_value=scoped)
+
+    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
+        response = await handle_command(
+            mock_state,
+            {"command": "snapshot", "args": [], "options": {"selector": ".card"}, "cwd": str(tmp_path)},
+        )
+
+    assert response["success"] is False
+    assert ".card" in response["output"]
+    assert "3" in response["output"]
+    mock_snap.assert_not_awaited()
+    # The previous snapshot's refs must survive a rejected command.
+    assert mock_session.ref_registry is registry

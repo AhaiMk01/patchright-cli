@@ -7,6 +7,7 @@ on TCP port 9321 for JSON commands from the CLI client.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import json
 import logging
@@ -442,7 +443,28 @@ class DaemonState:
         self.default_headless: bool = False
         self.idle_timeout: float = resolve_idle_timeout(os.environ.get(IDLE_TIMEOUT_ENV))
         self.last_activity: float = time.monotonic()
+        # Commands currently executing. `last_activity` is stamped when a client
+        # connects, so a command that legitimately blocks for minutes -- a
+        # `show --annotate` waiting on a person -- read as idleness and the
+        # watchdog tore the browser down underneath it.
+        self.commands_in_flight: int = 0
         self.shutdown_event: asyncio.Event | None = None
+
+    @contextlib.contextmanager
+    def command_running(self):
+        """Mark a command as in flight and restamp activity when it finishes."""
+        self.commands_in_flight += 1
+        try:
+            yield
+        finally:
+            self.commands_in_flight -= 1
+            self.last_activity = time.monotonic()
+
+    def is_idle(self) -> bool:
+        """Whether the daemon has been doing nothing for longer than allowed."""
+        if self.commands_in_flight:
+            return False
+        return time.monotonic() - self.last_activity > self.idle_timeout
 
     async def get_or_create_session(
         self,
@@ -849,6 +871,18 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
             return {"success": False, "output": f"Invalid selector {selector!r}: {exc}"}
         if not matches:
             return {"success": False, "output": f"No element matches {selector!r} on this page."}
+        if matches > 1:
+            # aria_snapshot() runs strict, and snapshot.py turns the resulting
+            # violation into an empty tree -- which would report success, write
+            # an empty file, and replace the registry, losing the refs the
+            # caller was about to use.
+            return {
+                "success": False,
+                "output": (
+                    f"{selector!r} matches {matches} elements; snapshot needs exactly one. "
+                    f"Narrow the selector, e.g. {selector!r} with :first-child or an id."
+                ),
+            }
         snapshot_text, session.ref_registry = await take_snapshot(
             page, root_element=scoped, max_depth=max_depth, interactive_only=interactive_only
         )
@@ -2064,10 +2098,16 @@ async def cmd_show(session: Session, page, args: list, options: dict, cwd: str |
     if not options.get("annotate"):
         return {"success": True, "output": f"Dashboard running at {url}"}
 
+    raw_wait = options.get("wait", DEFAULT_ANNOTATE_WAIT)
+    # bool subclasses int, so a valueless `--wait` (or the space-separated form,
+    # which the generic parser turns into True) became a 1-second window and
+    # collapsed a human review into an instant timeout.
+    if isinstance(raw_wait, bool):
+        return {"success": False, "output": "Give --wait a value in seconds, e.g. --wait=600."}
     try:
-        wait_seconds = float(options.get("wait", DEFAULT_ANNOTATE_WAIT))
+        wait_seconds = float(raw_wait)
     except (TypeError, ValueError):
-        return {"success": False, "output": f"Invalid --wait value: {options.get('wait')!r}. Expected seconds."}
+        return {"success": False, "output": f"Invalid --wait value: {raw_wait!r}. Expected seconds."}
     if wait_seconds <= 0:
         return {"success": False, "output": f"Invalid --wait value: {wait_seconds}. Expected seconds."}
 
@@ -2488,7 +2528,8 @@ async def _handle_client(
         msg = await _read_message(reader)
         if msg is None:
             return
-        response = await handle_command(state, msg)
+        with state.command_running():
+            response = await handle_command(state, msg)
         await _write_message(writer, response)
     except asyncio.IncompleteReadError:
         logger.debug("Client disconnected prematurely")
@@ -2510,7 +2551,7 @@ async def idle_watchdog(state: DaemonState):
     """Shut down the daemon after idle_timeout seconds of inactivity."""
     while True:
         await asyncio.sleep(30)
-        if time.monotonic() - state.last_activity > state.idle_timeout:
+        if state.is_idle():
             logger.info("Idle timeout reached; shutting down daemon.")
             if state.shutdown_event:
                 state.shutdown_event.set()
