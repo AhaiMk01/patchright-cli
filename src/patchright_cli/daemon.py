@@ -761,12 +761,15 @@ class DaemonState:
             else:
                 if cdp_endpoint:
                     _check_reattach(existing, cdp_endpoint, use_host)
-                elif profile and existing.profile is not None:
-                    if Profile.parse(profile, profile_base).key != existing.profile.key:
-                        raise ValueError(
-                            f"Session '{name}' is already open on profile '{existing.profile.label}'. "
-                            f"`close` it first, or use another -s for profile '{profile}'."
-                        )
+                elif (
+                    profile
+                    and existing.profile is not None
+                    and Profile.parse(profile, profile_base).key != existing.profile.key
+                ):
+                    raise ValueError(
+                        f"Session '{name}' is already open on profile '{existing.profile.label}'. "
+                        f"`close` it first, or use another -s for profile '{profile}'."
+                    )
                 return existing
 
         if self.playwright is None:
