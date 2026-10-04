@@ -14,12 +14,14 @@ import logging
 import os
 import re
 import signal
+import socket
 import struct
 import subprocess
 import sys
 import time
 import traceback
 import weakref
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -29,7 +31,10 @@ from patchright_cli.snapshot import save_snapshot, take_snapshot
 logger = logging.getLogger("patchright-cli.daemon")
 
 DEFAULT_PORT = 9321
-DEFAULT_PROFILE_DIR = str(Path.home() / ".patchright-cli" / "profiles" / "default")
+PROFILES_ROOT = Path.home() / ".patchright-cli" / "profiles"
+# Profile names become directory names under PROFILES_ROOT, so keep them to
+# characters every filesystem accepts and nothing that can climb out of it.
+_PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 _dashboard_runners: dict[int, tuple] = {}
 _dashboard_lock = asyncio.Lock()
@@ -131,7 +136,8 @@ class Session:
         self.console_messages: list[dict] = []
         self.network_log: list[dict] = []
         self._pending_dialog_action: tuple | None = None
-        self._profile_dir: str | None = None
+        # The Profile a Launched Session runs on (None for Attached Sessions).
+        self.profile: Profile | None = None
         self._cdp_sessions: dict[int, object] = {}
         self._video_cdp = None
         self._video_page = None
@@ -513,6 +519,105 @@ def resolve_device_options(devices, device: str | None, mobile: bool) -> dict:
     return {k: v for k, v in descriptor.items() if k != "default_browser_type"}
 
 
+@dataclass(frozen=True)
+class Profile:
+    """The persistent browser state a Launched Session runs on (see GLOSSARY.md)."""
+
+    directory: Path
+    name: str | None = None  # None when the caller gave a directory path
+
+    @property
+    def label(self) -> str:
+        return self.name or str(self.directory)
+
+    @property
+    def key(self) -> str:
+        """Compare Profiles the way the filesystem compares their directories."""
+        return os.path.normcase(str(self.directory.resolve()))
+
+    @classmethod
+    def named(cls, name: str) -> Profile:
+        if not _PROFILE_NAME.match(name):
+            raise ValueError(
+                f"Invalid profile name {name!r}: use letters, digits, '.', '_' or '-' (max 64, "
+                "not starting with '.', '_' or '-'), or pass a path containing a '/'."
+            )
+        return cls(PROFILES_ROOT / name, name)
+
+    @classmethod
+    def parse(cls, spec: str, base: str | None = None) -> Profile:
+        """A `--profile` value: a path if it contains `/` or `\\`, else a Profile name.
+
+        Relative paths resolve against `base` -- the caller's cwd, not the
+        daemon's, which is wherever the daemon happened to be spawned.
+        """
+        if "/" in spec or "\\" in spec:
+            directory = Path(spec).expanduser()
+            if not directory.is_absolute():
+                directory = Path(base or os.getcwd()) / directory
+            return cls(directory.resolve())
+        return cls.named(spec)
+
+    @classmethod
+    def for_session(cls, session_name: str) -> Profile:
+        """The Profile a Session uses when no `--profile` is given: one named after it."""
+        try:
+            return cls.named(session_name)
+        except ValueError:
+            raise ValueError(
+                f"Session name {session_name!r} cannot double as a profile name. "
+                "Pass --profile=<name>, or pick a session name made of letters, digits, '.', '_' or '-'."
+            ) from None
+
+
+def _profile_in_use(profile: Profile, holder: str) -> str:
+    return f"Profile '{profile.label}' is in use by session '{holder}'."
+
+
+def _lockfile_in_use(lockfile: Path) -> bool:
+    """Chrome on Windows holds `lockfile` open unshared; one left by a crash opens fine."""
+    try:
+        with open(lockfile, "a"):
+            return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _singleton_lock_live(link: Path) -> bool:
+    """Chrome on macOS/Linux points `SingletonLock` at `<host>-<pid>`; a crash leaves it dangling."""
+    try:
+        host, _, pid = os.readlink(link).rpartition("-")
+    except OSError:
+        return False
+    if os.name == "nt" or host != socket.gethostname() or not pid.isdigit():
+        # Another machine's Chrome (shared drive) cannot be checked: assume live.
+        return host != socket.gethostname()
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def chrome_holds_profile(directory: Path) -> bool:
+    """Whether a running Chrome (outside this daemon) has the Profile open.
+
+    Lock files alone are not proof: Chrome leaves them behind when it crashes,
+    and trusting them would block the Profile forever.
+    """
+    lockfile = directory / "lockfile"
+    singleton = directory / "SingletonLock"
+    if lockfile.exists() and _lockfile_in_use(lockfile):
+        return True
+    return os.path.islink(singleton) and _singleton_lock_live(singleton)
+
+
 def _is_stale(session: Session) -> bool:
     """An Attached Session whose CDP connection has dropped, e.g. the Host restarted Chrome."""
     browser = session.browser
@@ -581,7 +686,10 @@ class DaemonState:
 
     def __init__(self):
         self.sessions: dict[str, Session] = {}
-        self.profile_dirs: dict[str, str] = {}
+        # Profile.key -> Session name. Reserved synchronously before
+        # Chrome launches, so two concurrent `open`s cannot both claim one
+        # Profile and race for Chrome's lock on it.
+        self.profile_owners: dict[str, str] = {}
         self.playwright = None
         self.default_headless: bool = False
         self.idle_timeout: float = resolve_idle_timeout(os.environ.get(IDLE_TIMEOUT_ENV))
@@ -639,6 +747,7 @@ class DaemonState:
         cdp_headers: dict | None = None,
         cdp_timeout: int = 30000,
         context_mode: str = "new",
+        profile_base: str | None = None,
     ) -> Session:
         if context_mode not in CDP_CONTEXT_MODES:
             raise ValueError(f"Invalid --context={context_mode!r}; expected one of: {', '.join(CDP_CONTEXT_MODES)}.")
@@ -652,6 +761,15 @@ class DaemonState:
             else:
                 if cdp_endpoint:
                     _check_reattach(existing, cdp_endpoint, use_host)
+                elif (
+                    profile
+                    and existing.profile is not None
+                    and Profile.parse(profile, profile_base).key != existing.profile.key
+                ):
+                    raise ValueError(
+                        f"Session '{name}' is already open on profile '{existing.profile.label}'. "
+                        f"`close` it first, or use another -s for profile '{profile}'."
+                    )
                 return existing
 
         if self.playwright is None:
@@ -661,11 +779,11 @@ class DaemonState:
 
         use_headless = headless if headless is not None else self.default_headless
         # An Attached Session's browser state lives wherever the Host keeps it;
-        # it has no profile of ours to create, record or delete.
-        profile_dir = None
+        # it has no Profile of ours. Unless told otherwise, a Launched Session's
+        # Profile is named after it.
+        chosen: Profile | None = None
         if not cdp_endpoint:
-            profile_dir = profile or str(Path.home() / ".patchright-cli" / "profiles" / name)
-            Path(profile_dir).mkdir(parents=True, exist_ok=True)
+            chosen = Profile.parse(profile, profile_base) if profile else Profile.for_session(name)
 
         context_options: dict = {}
         if (device or mobile) and self.playwright is not None:
@@ -709,13 +827,18 @@ class DaemonState:
                     "Run more callers as --tab on that session, or attach with --context=new."
                 )
 
+        if chosen is not None:
+            # No await between this check-and-claim and the options validated
+            # above, so a bad option can no longer strand a claimed Profile.
+            self._claim_profile(chosen, name)
         attached_browser = None
+        context = None
         created_pages: list = []
-        if cdp_endpoint:
-            attached_browser = await self.playwright.chromium.connect_over_cdp(
-                cdp_endpoint, headers=cdp_headers, timeout=cdp_timeout
-            )
-            try:
+        try:
+            if cdp_endpoint:
+                attached_browser = await self.playwright.chromium.connect_over_cdp(
+                    cdp_endpoint, headers=cdp_headers, timeout=cdp_timeout
+                )
                 if use_host:
                     if not attached_browser.contexts:
                         raise RuntimeError(
@@ -725,50 +848,13 @@ class DaemonState:
                     context = attached_browser.contexts[0]
                 else:
                     context = await attached_browser.new_context(**context_options)
-                pages = context.pages or []
-                if not pages:
-                    page = await context.new_page()
-                    created_pages.append(page)
-                    pages = [page]
-            except BaseException:
-                await _disconnect_quietly(attached_browser)
-                raise
-        else:
-            launch_kwargs = {
-                "channel": "chrome",
-                "headless": use_headless,
-                "args": ["--disable-blink-features=AutomationControlled"],
-            }
-            # Chrome sizes the page to the window unless a viewport is asked for.
-            # `no_viewport` and `viewport` are mutually exclusive in Playwright.
-            if "viewport" not in context_options:
-                launch_kwargs["no_viewport"] = True
-            if proxy:
-                parsed = urlparse(proxy)
-                if parsed.username or parsed.password:
-                    import base64
-
-                    creds = base64.b64encode(f"{parsed.username or ''}:{parsed.password or ''}".encode()).decode()
-                    launch_kwargs["extra_http_headers"] = {"Proxy-Authorization": f"Basic {creds}"}
-                    # Rebuild proxy URL without credentials
-                    netloc = parsed.hostname or ""
-                    if parsed.port:
-                        netloc += f":{parsed.port}"
-                    cleaned = parsed._replace(netloc=netloc).geturl()
-                    launch_kwargs["proxy"] = {"server": cleaned}
-                else:
-                    launch_kwargs["proxy"] = {"server": proxy}
-            launch_kwargs.update(context_options)
-            context = await self.playwright.chromium.launch_persistent_context(
-                profile_dir,
-                **launch_kwargs,
-            )
+            else:
+                context = await self._launch(chosen, use_headless, proxy, context_options)
             pages = context.pages or []
             if not pages:
                 page = await context.new_page()
+                created_pages.append(page)
                 pages = [page]
-
-        try:
             if url:
                 await pages[0].goto(url)
 
@@ -785,15 +871,73 @@ class DaemonState:
             for created in created_pages:
                 session.own_pages.add(created)
             session.attach_notices = notices
+            session.profile = chosen
             await session.setup_listeners()
         except BaseException:
             if attached_browser is not None:
                 await _disconnect_quietly(attached_browser)
+            elif context is not None:
+                with contextlib.suppress(Exception):
+                    await context.close()
+            if chosen is not None:
+                self._release_profile(chosen)
             raise
         self.sessions[name] = session
-        if profile_dir is not None:
-            self.profile_dirs[name] = profile_dir
         return session
+
+    async def _launch(self, profile: Profile, headless: bool, proxy: str | None, context_options: dict):
+        """Start real Chrome on a Profile."""
+        launch_kwargs = {
+            "channel": "chrome",
+            "headless": headless,
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
+        # Chrome sizes the page to the window unless a viewport is asked for.
+        # `no_viewport` and `viewport` are mutually exclusive in Playwright.
+        if "viewport" not in context_options:
+            launch_kwargs["no_viewport"] = True
+        if proxy:
+            parsed = urlparse(proxy)
+            if parsed.username or parsed.password:
+                import base64
+
+                creds = base64.b64encode(f"{parsed.username or ''}:{parsed.password or ''}".encode()).decode()
+                launch_kwargs["extra_http_headers"] = {"Proxy-Authorization": f"Basic {creds}"}
+                # Rebuild proxy URL without credentials
+                netloc = parsed.hostname or ""
+                if parsed.port:
+                    netloc += f":{parsed.port}"
+                cleaned = parsed._replace(netloc=netloc).geturl()
+                launch_kwargs["proxy"] = {"server": cleaned}
+            else:
+                launch_kwargs["proxy"] = {"server": proxy}
+        launch_kwargs.update(context_options)
+        profile.directory.mkdir(parents=True, exist_ok=True)
+        try:
+            return await self.playwright.chromium.launch_persistent_context(str(profile.directory), **launch_kwargs)
+        except Exception as exc:
+            if chrome_holds_profile(profile.directory):
+                raise RuntimeError(
+                    f"Profile '{profile.label}' is open in another Chrome outside this daemon "
+                    f"({profile.directory}). Close that Chrome, or pick another profile."
+                ) from exc
+            raise
+
+    def _claim_profile(self, profile: Profile, session_name: str) -> None:
+        holder = self.profile_owners.get(profile.key)
+        if holder is not None and holder != session_name:
+            raise ValueError(
+                _profile_in_use(profile, holder)
+                + f" Run more callers as --tab on that session (-s={holder} --tab=<name>), or pick another profile."
+            )
+        self.profile_owners[profile.key] = session_name
+
+    def _release_profile(self, profile: Profile) -> None:
+        self.profile_owners.pop(profile.key, None)
+
+    def profile_holder(self, profile: Profile) -> str | None:
+        """The Session currently running on `profile`, if any."""
+        return self.profile_owners.get(profile.key)
 
     async def _drop_stale(self, name: str, session: Session, notices: list[str]) -> None:
         """Forget a Session whose CDP connection is gone, so it can be replaced."""
@@ -809,6 +953,8 @@ class DaemonState:
         if session is None:
             return False
         await session.end()
+        if session.profile is not None:
+            self._release_profile(session.profile)
         return True
 
     async def shutdown(self):
@@ -817,6 +963,63 @@ class DaemonState:
         if self.playwright:
             await self.playwright.stop()
             self.playwright = None
+
+
+def _dir_size(directory: Path) -> int:
+    total = 0
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            with contextlib.suppress(OSError):
+                total += os.path.getsize(os.path.join(root, f))
+    return total
+
+
+async def _profile_list(state: DaemonState) -> dict:
+    """Named Profiles under PROFILES_ROOT, plus any directory Profile a Session is running on."""
+    profiles: dict[str, Profile] = {}
+    try:
+        children = sorted(PROFILES_ROOT.iterdir()) if PROFILES_ROOT.is_dir() else []
+    except OSError as exc:
+        return {"success": False, "output": f"Cannot read {PROFILES_ROOT}: {exc}"}
+    for child in children:
+        if child.is_dir() and _PROFILE_NAME.match(child.name):
+            named = Profile(child, child.name)
+            profiles[named.key] = named
+    for session in state.sessions.values():
+        if session.profile is not None:
+            profiles.setdefault(session.profile.key, session.profile)
+    if not profiles:
+        return {"success": True, "output": "### Profiles\n  (none yet -- `open --profile=<name>` creates one)"}
+    sizes = await asyncio.gather(*(asyncio.to_thread(_dir_size, pr.directory) for pr in profiles.values()))
+    lines = ["### Profiles"]
+    for profile, size in zip(profiles.values(), sizes, strict=False):
+        holder = state.profile_holder(profile)
+        in_use = f" -- in use by session '{holder}'" if holder else ""
+        lines.append(f"  - {profile.label} ({size / 1_000_000:.1f} MB){in_use}")
+    return {"success": True, "output": "\n".join(lines)}
+
+
+async def _profile_delete(state: DaemonState, args: list) -> dict:
+    """Delete a named Profile. Directory paths are refused: only Profiles we store are ours to delete."""
+    import shutil
+
+    if len(args) != 1:
+        return {"success": False, "output": "Usage: profile-delete <name>"}
+    if "/" in args[0] or "\\" in args[0]:
+        return {"success": False, "output": "profile-delete takes a Profile name, not a path."}
+    try:
+        profile = Profile.named(args[0])
+    except ValueError as exc:
+        return {"success": False, "output": str(exc)}
+    holder = state.profile_holder(profile)
+    if holder is not None:
+        return {"success": False, "output": _profile_in_use(profile, holder) + f" `-s={holder} close` it first."}
+    if not profile.directory.is_dir():
+        return {"success": False, "output": f"No profile named '{profile.name}'."}
+    if chrome_holds_profile(profile.directory):
+        return {"success": False, "output": f"Profile '{profile.name}' is open in another Chrome. Close it first."}
+    await asyncio.to_thread(shutil.rmtree, profile.directory)
+    return {"success": True, "output": f"Profile '{profile.name}' deleted."}
 
 
 # ---------------------------------------------------------------------------
@@ -2543,6 +2746,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 headless=headless,
                 persistent=options.get("persistent", True),
                 profile=options.get("profile"),
+                profile_base=cwd,
                 proxy=options.get("proxy"),
                 # A named tab navigates its own page below. Letting the launch
                 # also load the URL on the context's first page fetched it twice.
@@ -2602,8 +2806,6 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             return result
 
         if cmd == "delete-data":
-            import shutil
-
             target = state.sessions.get(session_name)
             if target is not None and target.is_attached:
                 return {
@@ -2613,13 +2815,31 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                         "not patchright-cli. Use `detach`."
                     ),
                 }
+            try:
+                own = Profile.for_session(session_name)
+            except ValueError as exc:
+                return {"success": False, "output": str(exc)}
+            if target is not None and target.profile is not None and target.profile.key != own.key:
+                if target.profile.name is None:
+                    hint = "patchright-cli never deletes a directory passed as --profile=<path>."
+                else:
+                    hint = f"`close` this session, then `profile-delete {target.profile.name}` if you mean it."
+                return {
+                    "success": False,
+                    "output": (
+                        f"Session '{session_name}' runs on profile '{target.profile.label}', "
+                        f"which other sessions may share. {hint}"
+                    ),
+                }
             if target is not None:
                 await state.close_session(session_name)
-            profile_dir = state.profile_dirs.pop(session_name, None)
-            if profile_dir and Path(profile_dir).exists():
-                shutil.rmtree(profile_dir, ignore_errors=True)
-                return {"success": True, "output": f"Profile data deleted for '{session_name}'."}
-            return {"success": False, "output": "No persistent profile to delete."}
+            return await _profile_delete(state, [session_name])
+
+        if cmd == "profile-list":
+            return await _profile_list(state)
+
+        if cmd == "profile-delete":
+            return await _profile_delete(state, args)
 
         # Dashboard command — no session required, unless it is annotating a page
         if cmd == "show" and not options.get("annotate"):
@@ -2694,10 +2914,9 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         if cmd == "kill-all":
             names = list(state.sessions.keys())
             for n in names:
-                s = state.sessions.pop(n, None)
-                if s:
-                    # end() Detaches from a Host Context rather than closing it.
-                    await s.end()
+                # close_session ends each Session the way it is allowed to
+                # (Detach from a Host Context) and frees its Profile.
+                await state.close_session(n)
             if state.shutdown_event:
                 state.shutdown_event.set()
             return {"success": True, "output": f"Killed {len(names)} session(s) and stopping daemon."}

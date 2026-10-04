@@ -68,8 +68,8 @@ These go before the command:
 
 ```bash
 --headless              # Run headless (default: headed -- headed is less detectable)
---persistent            # Use persistent profile (keeps cookies/storage across sessions)
---profile=/path         # Custom profile directory
+--profile=<name>        # Named profile any session can use (default: the session name);
+                        # profiles always persist. A value with / or \ is a directory
 --proxy=<url>           # Proxy server (http, https, socks5) -- supports user:pass@host auth
 -s=mysession            # Named session (default: "default", or PATCHRIGHT_CLI_SESSION env var)
 --port=9322             # Custom daemon port (default: 9321)
@@ -108,7 +108,7 @@ These go *after* the command instead:
 
 ```bash
 open [url]                    # Launch browser (optionally navigate)
-open --persistent             # Keep cookies/storage between runs
+open --profile=work           # Run on a named profile (logins persist; one session at a time)
 open --headless               # Headless mode
 attach --cdp=<url>            # Attach to existing Chrome via CDP (fresh, isolated context)
 attach --cdp=<url> --context=host  # Use the Host Context: the browser's own logins, cookies, storage
@@ -346,6 +346,8 @@ list                          # List active sessions
 close-all                     # Close all sessions
 kill-all                      # Force-kill all + stop daemon
 delete-data                   # Delete session profile data
+profile-list                  # List profiles, size, and which session uses each
+profile-delete <name>         # Delete an idle named profile
 grant-permissions <perms>     # Grant browser permissions
 ```
 
@@ -356,13 +358,13 @@ grant-permissions <perms>     # Grant browser permissions
 ### Login flow
 
 ```bash
-patchright-cli open https://example.com/login --persistent
+patchright-cli open --profile=myapp https://example.com/login
 patchright-cli snapshot
 patchright-cli fill e3 "user@example.com"
 patchright-cli fill e5 "password123"
 patchright-cli click e8
 patchright-cli snapshot
-# With --persistent, cookies survive across sessions
+# The login persists in profile "myapp" for any later session that opens it
 ```
 
 ### Extracting data

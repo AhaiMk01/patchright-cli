@@ -21,24 +21,36 @@ patchright-cli open https://example.com    # Uses "myproject" session
 patchright-cli snapshot                    # Same session
 ```
 
-## Persistent profiles
+## Profiles
 
-Use `--persistent` to keep cookies, localStorage, and browser data across sessions:
+Every session you `open` runs on a **profile**: a persistent store of cookies,
+storage, logins and history. (Attached sessions use the browser's own data.) Profiles always persist -- close the session, open it
+again later, and you are still logged in. (`--persistent` is accepted but
+changes nothing.)
 
-```bash
-patchright-cli open https://example.com --persistent
-# ... log in, do work ...
-patchright-cli close
-# Later:
-patchright-cli open https://example.com --persistent
-# Cookies and storage are restored
-```
-
-Profiles are stored at `~/.patchright-cli/profiles/<session-name>`. Use `--profile=/path` to specify a custom profile directory:
+By default the profile is named after the session. `--profile=<name>` picks a
+named profile instead, so any session can use it:
 
 ```bash
-patchright-cli open --persistent --profile=/path/to/my/profile https://example.com
+patchright-cli -s=agent1 open --profile=work https://app.example.com
+# ... log in once, then close ...
+patchright-cli -s=agent1 close
+patchright-cli -s=agent2 open --profile=work https://app.example.com   # still logged in
 ```
+
+- A value containing `/` or `\` is a directory instead of a name:
+  `--profile=/path/to/dir`, `--profile=./browser` (relative to where you run
+  the command). Names use letters, digits, `.`, `_`, `-`.
+- A session name that isn't a valid profile name (e.g. has spaces) needs an
+  explicit `--profile`.
+- One session per profile at a time -- Chrome locks it. A second session asking
+  for a busy profile is refused; run extra agents as `--tab`s on the session that
+  holds it.
+- `profile-list` shows every profile, its size, and which session uses it.
+- `profile-delete <name>` deletes an idle named profile (never a path).
+  `delete-data` deletes only the profile named after the session; for a
+  shared profile use `profile-delete`.
+- Profiles live at `~/.patchright-cli/profiles/<name>`.
 
 ## CDP attach
 
@@ -117,8 +129,8 @@ moving somebody else's page. The default tab still follows the index-based
 You can run multiple sessions simultaneously for parallel workflows:
 
 ```bash
-patchright-cli -s=scrape1 open https://site1.com --persistent
-patchright-cli -s=scrape2 open https://site2.com --persistent
+patchright-cli -s=scrape1 open https://site1.com
+patchright-cli -s=scrape2 open https://site2.com
 # Work with both independently
 patchright-cli -s=scrape1 snapshot
 patchright-cli -s=scrape2 snapshot

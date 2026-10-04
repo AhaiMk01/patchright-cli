@@ -126,9 +126,9 @@ graph LR
 ### Core
 ```bash
 patchright-cli open [url]              # Launch browser
-patchright-cli open --persistent       # With persistent profile
+patchright-cli open --profile=work     # Named profile any session can use (logins persist)
 patchright-cli open --headless         # Run headless
-patchright-cli open --profile=<path>   # Custom profile directory
+patchright-cli open --profile=./dir    # A value with / or \ is a profile directory
 patchright-cli --tab <name> open <url> # Named tab: shared browser, own page/refs
 patchright-cli open --mobile           # Emulate a generic mobile device (Pixel 7)
 patchright-cli open --device="Pixel 5" # Emulate a specific Playwright device
@@ -300,13 +300,15 @@ patchright-cli install --skills        # Auto-install skills for detected AI age
 
 ### Sessions
 ```bash
-patchright-cli -s=mysession open https://example.com --persistent
+patchright-cli -s=mysession open https://example.com
 patchright-cli -s=mysession click e6
 patchright-cli -s=mysession close
 patchright-cli list                    # List all sessions
 patchright-cli close-all
 patchright-cli kill-all
-patchright-cli delete-data             # Delete persistent profile
+patchright-cli delete-data             # Delete the profile named after the session
+patchright-cli profile-list           # Profiles, size, and which session uses each
+patchright-cli profile-delete <name>  # Delete an idle named profile
 patchright-cli --port=9322 open        # Custom daemon port
 ```
 
