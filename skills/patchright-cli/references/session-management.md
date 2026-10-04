@@ -50,6 +50,31 @@ patchright-cli attach --cdp=http://localhost:9222
 
 This is useful for debugging or controlling a browser you launched manually with `--remote-debugging-port`.
 
+By default `attach` opens a fresh Isolated Context inside that browser, so it
+does not see the browser's existing cookies, localStorage or logins. To work in
+the Host Context instead -- the browser's own context, e.g. a Chrome started
+with a persistent `--user-data-dir` -- pass `--context=host`:
+
+```bash
+patchright-cli attach --cdp=http://localhost:9222 --context=host
+```
+
+With `--context=host`:
+
+- Emulation flags (`--device`, `--mobile`, `--viewport-size`, `--locale`,
+  `--timezone`, `--geolocation`, `--user-agent`, `--grant-permissions`) are
+  rejected -- the Host Context's settings are fixed. The same keys in a config
+  file are ignored for this attach.
+- Only one session may use a given Host Context, however its endpoint is
+  spelled. Run extra agents as `--tab`s on that session, or attach them with
+  `--context=new`.
+- The session only closes Pages it opened (`--tab`s, `tab-new`, and popups
+  they spawn). Plain `close` and `delete-data` are refused, and `tab-close`
+  refuses the Host's own tabs: use `detach`. `detach`, `close-all` and
+  `kill-all` close your Pages and leave the Host's tabs and state untouched.
+- If the Host restarts Chrome, re-run the same `attach`: the stale session is
+  replaced automatically and the output says so.
+
 ## Session commands
 
 ```bash

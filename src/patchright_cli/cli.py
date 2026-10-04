@@ -41,6 +41,24 @@ def _load_config(config_path: str | None) -> dict:
     return {}
 
 
+# Options that shape a browser context when it is created; meaningless (and
+# rejected) for `attach --context=host`, whose context already exists.
+_CONTEXT_EMULATION_KEYS = frozenset(
+    {
+        "device",
+        "mobile",
+        "viewport",
+        "locale",
+        "timezone",
+        "geolocation",
+        "user-agent",
+        "userAgent",
+        "grant-permissions",
+        "grantPermissions",
+    }
+)
+
+
 def _merge_config_with_options(config: dict, options: dict) -> dict:
     """Merge config dict with CLI options. CLI options take precedence."""
     merged = dict(config)
@@ -378,7 +396,7 @@ def _recv_exact(sock: socket.socket, n: int) -> bytes:
 COMMANDS_HELP = {
     # Core
     "open": "open [url]           Open browser (starts daemon if needed)",
-    "attach": "attach --cdp=<url>   Attach to running Chrome via CDP",
+    "attach": "attach --cdp=<url> [--context=new|host]  Attach to running Chrome via CDP",
     "goto": "goto <url>           Navigate to URL",
     "click": "click <ref> [button]  Click element [--modifiers=Alt,Shift]",
     "dblclick": "dblclick <ref> [btn] Double-click [--modifiers=Alt,Shift]",
@@ -714,6 +732,11 @@ def main():
         elif arg == "--cdp" and i + 1 < len(argv):
             i += 1
             extra_opts["cdp"] = argv[i]
+        elif arg.startswith("--context="):
+            extra_opts["context"] = arg.split("=", 1)[1]
+        elif arg == "--context" and i + 1 < len(argv):
+            i += 1
+            extra_opts["context"] = argv[i]
         elif arg.startswith("--show-port="):
             extra_opts["show-port"] = arg.split("=", 1)[1]
         elif arg == "--show-port" and i + 1 < len(argv):
@@ -796,6 +819,11 @@ def main():
 
     # Build options dict (config file values are overridden by explicit CLI flags)
     config = _load_config(config_path)
+    if command == "attach" and (extra_opts.get("context") or config.get("context")) == "host":
+        # The Host Context's emulation is fixed, so the daemon rejects these.
+        # Explicit flags should still fail loudly, but project-wide config
+        # defaults must not make every Host Context attach unusable.
+        config = {k: v for k, v in config.items() if k not in _CONTEXT_EMULATION_KEYS}
     options = {"session": session_name, "tab": tab_name, **_merge_config_with_options(config, extra_opts)}
     # `session` and `tab` are parsed into their own variables rather than into
     # extra_opts, so the spread above let a stale config value win over an

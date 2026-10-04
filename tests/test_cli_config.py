@@ -594,3 +594,37 @@ def test_cli_options_beat_the_config_file(monkeypatch):
 def test_config_still_supplies_a_tab_when_no_flag_is_given(monkeypatch):
     seen = _captured_options(["url"], monkeypatch, config={"tab": "from-config"})
     assert seen["options"]["tab"] == "from-config"
+
+
+def test_context_is_accepted_before_and_after_the_command_in_both_forms(monkeypatch):
+    cdp = "--cdp=http://localhost:9222"
+    for argv in (
+        ["--context=host", "attach", cdp],
+        ["--context", "host", "attach", cdp],
+        ["attach", cdp, "--context=host"],
+        ["attach", cdp, "--context", "host"],
+    ):
+        seen = _captured_options(argv, monkeypatch)
+        assert seen["command"] == "attach", argv
+        assert seen["args"] == [], argv
+        assert seen["options"]["context"] == "host", argv
+
+
+def test_host_attach_ignores_emulation_defaults_from_config(monkeypatch):
+    config = {"locale": "de-DE", "viewport": {"width": 1, "height": 1}, "proxy": "http://p"}
+    seen = _captured_options(["attach", "--cdp=http://x", "--context=host"], monkeypatch, config=config)
+    assert "locale" not in seen["options"]
+    assert "viewport" not in seen["options"]
+    assert seen["options"]["proxy"] == "http://p"
+
+
+def test_host_attach_still_passes_explicit_emulation_flags(monkeypatch):
+    seen = _captured_options(
+        ["attach", "--cdp=http://x", "--context=host", "--locale=de-DE"], monkeypatch, config={"locale": "fr-FR"}
+    )
+    assert seen["options"]["locale"] == "de-DE"
+
+
+def test_isolated_attach_keeps_emulation_defaults_from_config(monkeypatch):
+    seen = _captured_options(["attach", "--cdp=http://x"], monkeypatch, config={"locale": "de-DE"})
+    assert seen["options"]["locale"] == "de-DE"

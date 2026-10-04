@@ -33,6 +33,7 @@ def mock_session():
     session._video_show_actions = None
     session.tabs = {"default": MagicMock()}
     session.activate_tab = MagicMock()
+    session.uses_host_context = False
     return session
 
 
@@ -414,13 +415,12 @@ async def test_detach_rejects_non_attached(mock_state, mock_session):
 @pytest.mark.asyncio
 async def test_detach_disconnects_attached(mock_state, mock_session):
     mock_session.is_attached = True
-    mock_session.browser = MagicMock()
-    mock_session.browser.close = AsyncMock()
+    mock_session.detach = AsyncMock()
     mock_state.sessions = {"default": mock_session}
     response = await handle_command(mock_state, {"command": "detach", "args": []})
     assert response["success"] is True
     assert "Detached" in response["output"]
-    mock_session.browser.close.assert_awaited_once()
+    mock_session.detach.assert_awaited_once()
     assert "default" not in mock_state.sessions
 
 

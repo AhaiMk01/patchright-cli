@@ -75,6 +75,7 @@ These go before the command:
 --port=9322             # Custom daemon port (default: 9321)
 --config=<path>         # Load options from JSON config file
 --cdp=<url>             # Attach to Chrome via CDP endpoint (use with `attach` command)
+--context=new|host      # With `attach`: fresh isolated context (default) or the browser's own
 --device="iPhone 15"    # Emulate a device
 --mobile                # Emulate a generic mobile device (Pixel 7); mobile pages
                         # are lighter, so snapshots are smaller and cheaper
@@ -109,8 +110,9 @@ These go *after* the command instead:
 open [url]                    # Launch browser (optionally navigate)
 open --persistent             # Keep cookies/storage between runs
 open --headless               # Headless mode
-attach --cdp=<url>            # Attach to existing Chrome via CDP
-close                         # Close session (closes the browser)
+attach --cdp=<url>            # Attach to existing Chrome via CDP (fresh, isolated context)
+attach --cdp=<url> --context=host  # Use the Host Context: the browser's own logins, cookies, storage
+close                         # Close session (closes the browser); refused on --context=host -- use detach
 detach                        # Detach an attached session (keeps external browser running)
 ```
 
@@ -235,7 +237,7 @@ tab-list                      # List open tabs
 tab-new <url>                 # Open new tab
 tab-select <index>            # Switch to tab (default tab only; a --tab
                               # caller is pinned to its own page)
-tab-close [index]             # Close tab
+tab-close [index]             # Close tab (with --context=host, only tabs this session opened)
 ```
 
 ### Parallel agents: --tab
@@ -267,7 +269,9 @@ patchright-cli --tab "$TAB" open https://example.com
 does for sessions.
 
 Cleanup needs no coordination: every agent runs `close` addressed to its own
-tab, and the browser exits when the last tab goes.
+tab, and the browser exits when the last tab goes. On an `attach --context=host`
+session the host's browser never exits: closing tabs leaves it attached, and
+whoever attached runs `detach` at the end.
 
 **`--tab` vs `-s`.** `--tab` shares identity, one browser (~50-150MB per extra
 tab), for agents acting as the same logged-in user. `-s` isolates identity --
@@ -433,7 +437,8 @@ spacing reads right. Do not use it for anything you can check yourself.
 - No custom user-agent or headers by default -- preserves Chrome's natural fingerprint
 - Persistent profiles maintain realistic browser history and cookies
 - The daemon architecture means Chrome stays running between commands, behaving like a real user's browser
-- `attach --cdp` lets you connect to an existing Chrome instance
+- `attach --cdp` lets you connect to an existing Chrome instance; add `--context=host` to reuse its logins,
+  cookies and storage (see references/session-management.md)
 
 ## Config files
 

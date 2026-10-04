@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 import traceback
+import weakref
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -56,6 +57,9 @@ def register(name: str):
 
 
 DEFAULT_TAB = "default"
+# `attach --context=`: "new" creates an Isolated Context inside the Host's
+# Chrome; "host" uses the Host Context (see GLOSSARY.md).
+CDP_CONTEXT_MODES = ("new", "host")
 
 # Which (session, tab) the current task is working in. A ContextVar rather than
 # a field on Session because the daemon serves each CLI connection as its own
@@ -87,12 +91,37 @@ class Tab:
 class Session:
     """A single browser session (one persistent context, multiple pages/tabs)."""
 
-    def __init__(self, name: str, context, pages: list | None = None, browser=None, is_attached: bool = False):
+    def __init__(
+        self,
+        name: str,
+        context,
+        pages: list | None = None,
+        browser=None,
+        is_attached: bool = False,
+        uses_host_context: bool = False,
+        cdp_endpoint: str | None = None,
+        host_key: str | None = None,
+    ):
         self.name = name
         self.context = context
         self.browser = browser  # Browser handle for CDP-connected sessions (None for launch_persistent_context)
         self.is_attached = is_attached  # True if created via `attach --cdp=...`
+        self.cdp_endpoint = cdp_endpoint
+        # Identifies the Host's Chrome process, so two endpoint spellings of the
+        # same browser count as one Host (see `_resolve_host_key`).
+        self.host_key = host_key
+        # True after `attach --context=host`. The Host Context's Pages, cookies
+        # and storage belong to the Host, so this Session may only Detach from
+        # it, never Close it.
+        self.uses_host_context = uses_host_context
         self.pages: list = pages or []
+        # Pages this Session opened itself (plus popups they spawned). In a Host
+        # Context these are the only Pages we may close; every other Page could
+        # be the Host's, or a person's working in the same browser.
+        self.own_pages: weakref.WeakSet = weakref.WeakSet()
+        # What `attach` should tell the caller beyond the page info, e.g. that a
+        # stale Session was replaced. Consumed by the attach handler.
+        self.attach_notices: list[str] = []
         self.current_tab: int = 0
         self.tabs: dict[str, Tab] = {DEFAULT_TAB: Tab(DEFAULT_TAB)}
         # Whether anyone actually works in the implicit default tab. A session
@@ -120,6 +149,13 @@ class Session:
         self.context.on("page", lambda page: asyncio.ensure_future(self._on_new_page(page)))
 
     async def _on_new_page(self, page):
+        if self.uses_host_context and page not in self.own_pages:
+            try:
+                opener = await page.opener()
+            except Exception:
+                opener = None
+            if opener is not None and opener in self.own_pages:
+                self.own_pages.add(page)
         if page not in self.pages:
             self.pages.append(page)
             self.current_tab = len(self.pages) - 1
@@ -302,7 +338,7 @@ class Session:
         # A named tab owns its page outright, so letting it move that pointer
         # would silently reassign whichever page the default caller was on.
         previous = self.current_tab
-        page = await self.context.new_page()
+        page = await self.new_page()
         if page not in self.pages:
             self.pages.append(page)
         self.current_tab = min(previous, max(0, len(self.pages) - 1))
@@ -346,6 +382,50 @@ class Session:
 
         named = [key for key in self.tabs if key != DEFAULT_TAB]
         return bool(named) or self.default_in_use
+
+    async def new_page(self):
+        """Open a Page in this Session's context and record it as ours."""
+        page = await self.context.new_page()
+        self.own_pages.add(page)
+        return page
+
+    def may_close_page(self, page) -> bool:
+        """Whether this Session may close `page` -- in a Host Context, only its own."""
+        return not self.uses_host_context or page in self.own_pages
+
+    async def detach(self) -> None:
+        """Detach: let go of the browser, leaving everything the Host owns untouched.
+
+        In a Host Context, the Pages this Session opened are closed first so it
+        leaves no stray tabs behind. `browser.close()` on a CDP-connected browser
+        only drops the connection (and any context we created over it); it never
+        closes the Host Context.
+        """
+        if self.uses_host_context:
+            for page in list(self.pages):
+                if page in self.own_pages:
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
+        if self.browser is not None:
+            await _disconnect_quietly(self.browser)
+
+    async def end(self) -> None:
+        """End the Session the strongest way it is allowed to.
+
+        Close what it owns; Detach from a Host Context, which it never owns.
+        Used by bulk teardown (`close-all`, `kill-all`, daemon shutdown).
+        """
+        if self.uses_host_context:
+            await self.detach()
+            return
+        try:
+            await self.context.close()
+        except Exception:
+            pass
+        if self.browser is not None:
+            await _disconnect_quietly(self.browser)
 
     def push_history(self, url: str) -> None:
         """Record a URL in our navigation history."""
@@ -433,6 +513,69 @@ def resolve_device_options(devices, device: str | None, mobile: bool) -> dict:
     return {k: v for k, v in descriptor.items() if k != "default_browser_type"}
 
 
+def _is_stale(session: Session) -> bool:
+    """An Attached Session whose CDP connection has dropped, e.g. the Host restarted Chrome."""
+    browser = session.browser
+    if browser is None:
+        return False
+    try:
+        return not browser.is_connected()
+    except Exception:
+        return True
+
+
+def _check_reattach(session: Session, cdp_endpoint: str, use_host: bool) -> None:
+    """Refuse an `attach` that the already-open Session under that name cannot honour."""
+    if not session.is_attached:
+        raise ValueError(
+            f"Session '{session.name}' was started with `open`, not attached. "
+            "Pick another -s name for the attach, or `close` this session first."
+        )
+    if session.cdp_endpoint != cdp_endpoint or session.uses_host_context != use_host:
+        mode = "host" if session.uses_host_context else "new"
+        raise ValueError(
+            f"Session '{session.name}' is already attached to {session.cdp_endpoint} with --context={mode}. "
+            "Run `detach` first to attach it differently."
+        )
+
+
+async def _resolve_host_key(cdp_endpoint: str, headers: dict | None) -> str:
+    """Identify the Chrome process behind a CDP endpoint.
+
+    Chrome mints a fresh browser id at every launch and exposes it as the last
+    segment of its `/devtools/browser/<id>` websocket URL. Keying on it makes
+    `localhost:9222`, `127.0.0.1:9222/` and the raw `ws://` URL one Host, and a
+    restarted Chrome a new one. Falls back to the endpoint text when the id
+    cannot be read.
+    """
+    import urllib.request
+
+    parsed = urlparse(cdp_endpoint)
+    ws_path = parsed.path
+    if parsed.scheme not in ("ws", "wss"):
+        version_url = cdp_endpoint.rstrip("/") + "/json/version"
+
+        def fetch() -> dict:
+            request = urllib.request.Request(version_url, headers=headers or {})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return json.loads(response.read().decode("utf-8"))
+
+        try:
+            ws_path = urlparse((await asyncio.to_thread(fetch))["webSocketDebuggerUrl"]).path
+        except Exception:
+            ws_path = ""
+    if "/devtools/browser/" in ws_path:
+        return ws_path.rsplit("/", 1)[-1]
+    return cdp_endpoint.rstrip("/")
+
+
+async def _disconnect_quietly(browser) -> None:
+    try:
+        await browser.close()
+    except Exception:
+        pass
+
+
 class DaemonState:
     """Global daemon state holding all sessions."""
 
@@ -449,6 +592,9 @@ class DaemonState:
         # watchdog tore the browser down underneath it.
         self.commands_in_flight: int = 0
         self.shutdown_event: asyncio.Event | None = None
+        # Serialises Host Context attaches: the one-Session-per-Host-Context
+        # check and the registration it guards straddle awaits.
+        self._host_attach_lock = asyncio.Lock()
 
     @contextlib.contextmanager
     def command_running(self):
@@ -466,9 +612,15 @@ class DaemonState:
             return False
         return time.monotonic() - self.last_activity > self.idle_timeout
 
-    async def get_or_create_session(
+    async def get_or_create_session(self, name: str = "default", **kwargs) -> Session:
+        if kwargs.get("cdp_endpoint") and kwargs.get("context_mode") == "host":
+            async with self._host_attach_lock:
+                return await self._get_or_create_session(name, **kwargs)
+        return await self._get_or_create_session(name, **kwargs)
+
+    async def _get_or_create_session(
         self,
-        name: str = "default",
+        name: str,
         *,
         headless: bool | None = None,
         persistent: bool = True,
@@ -486,9 +638,21 @@ class DaemonState:
         cdp_endpoint: str | None = None,
         cdp_headers: dict | None = None,
         cdp_timeout: int = 30000,
+        context_mode: str = "new",
     ) -> Session:
-        if name in self.sessions:
-            return self.sessions[name]
+        if context_mode not in CDP_CONTEXT_MODES:
+            raise ValueError(f"Invalid --context={context_mode!r}; expected one of: {', '.join(CDP_CONTEXT_MODES)}.")
+        use_host = bool(cdp_endpoint) and context_mode == "host"
+
+        notices: list[str] = []
+        existing = self.sessions.get(name)
+        if existing is not None:
+            if _is_stale(existing):
+                await self._drop_stale(name, existing, notices)
+            else:
+                if cdp_endpoint:
+                    _check_reattach(existing, cdp_endpoint, use_host)
+                return existing
 
         if self.playwright is None:
             from patchright.async_api import async_playwright
@@ -496,8 +660,12 @@ class DaemonState:
             self.playwright = await async_playwright().start()
 
         use_headless = headless if headless is not None else self.default_headless
-        profile_dir = profile or str(Path.home() / ".patchright-cli" / "profiles" / name)
-        Path(profile_dir).mkdir(parents=True, exist_ok=True)
+        # An Attached Session's browser state lives wherever the Host keeps it;
+        # it has no profile of ours to create, record or delete.
+        profile_dir = None
+        if not cdp_endpoint:
+            profile_dir = profile or str(Path.home() / ".patchright-cli" / "profiles" / name)
+            Path(profile_dir).mkdir(parents=True, exist_ok=True)
 
         context_options: dict = {}
         if (device or mobile) and self.playwright is not None:
@@ -520,16 +688,51 @@ class DaemonState:
             perms = [p.strip() for p in grant_permissions.split(",") if p.strip()]
             context_options["permissions"] = list(set(context_options.get("permissions", []) + perms))
 
+        if use_host and context_options:
+            # An existing context's emulation was fixed when it was created.
+            raise ValueError(
+                "--context=host uses the Host's own context, whose settings are fixed, so it cannot apply "
+                f"{', '.join(sorted(context_options))}. Drop those options or use --context=new."
+            )
+
+        host_key = None
+        if use_host:
+            host_key = await _resolve_host_key(cdp_endpoint, cdp_headers)
+            for other_name, other in list(self.sessions.items()):
+                if not (other.uses_host_context and other.host_key == host_key):
+                    continue
+                if _is_stale(other):
+                    await self._drop_stale(other_name, other, notices)
+                    continue
+                raise ValueError(
+                    f"Session '{other_name}' already uses this Host Context ({other.cdp_endpoint}). "
+                    "Run more callers as --tab on that session, or attach with --context=new."
+                )
+
         attached_browser = None
+        created_pages: list = []
         if cdp_endpoint:
             attached_browser = await self.playwright.chromium.connect_over_cdp(
                 cdp_endpoint, headers=cdp_headers, timeout=cdp_timeout
             )
-            context = await attached_browser.new_context(**context_options)
-            pages = context.pages or []
-            if not pages:
-                page = await context.new_page()
-                pages = [page]
+            try:
+                if use_host:
+                    if not attached_browser.contexts:
+                        raise RuntimeError(
+                            f"The browser at {cdp_endpoint} exposes no Host Context to use. "
+                            "Attach with --context=new instead."
+                        )
+                    context = attached_browser.contexts[0]
+                else:
+                    context = await attached_browser.new_context(**context_options)
+                pages = context.pages or []
+                if not pages:
+                    page = await context.new_page()
+                    created_pages.append(page)
+                    pages = [page]
+            except BaseException:
+                await _disconnect_quietly(attached_browser)
+                raise
         else:
             launch_kwargs = {
                 "channel": "chrome",
@@ -565,29 +768,47 @@ class DaemonState:
                 page = await context.new_page()
                 pages = [page]
 
-        if url:
-            await pages[0].goto(url)
+        try:
+            if url:
+                await pages[0].goto(url)
 
-        session = Session(
-            name,
-            context,
-            list(pages),
-            browser=attached_browser,
-            is_attached=cdp_endpoint is not None,
-        )
-        await session.setup_listeners()
+            session = Session(
+                name,
+                context,
+                list(pages),
+                browser=attached_browser,
+                is_attached=cdp_endpoint is not None,
+                uses_host_context=use_host,
+                cdp_endpoint=cdp_endpoint,
+                host_key=host_key,
+            )
+            for created in created_pages:
+                session.own_pages.add(created)
+            session.attach_notices = notices
+            await session.setup_listeners()
+        except BaseException:
+            if attached_browser is not None:
+                await _disconnect_quietly(attached_browser)
+            raise
         self.sessions[name] = session
-        self.profile_dirs[name] = profile_dir
+        if profile_dir is not None:
+            self.profile_dirs[name] = profile_dir
         return session
+
+    async def _drop_stale(self, name: str, session: Session, notices: list[str]) -> None:
+        """Forget a Session whose CDP connection is gone, so it can be replaced."""
+        self.sessions.pop(name, None)
+        await session.detach()
+        notices.append(
+            f"Replaced stale session '{name}': its connection to {session.cdp_endpoint} had dropped "
+            "(the browser was probably restarted)."
+        )
 
     async def close_session(self, name: str) -> bool:
         session = self.sessions.pop(name, None)
         if session is None:
             return False
-        try:
-            await session.context.close()
-        except Exception:
-            pass
+        await session.end()
         return True
 
     async def shutdown(self):
@@ -1199,7 +1420,7 @@ async def cmd_tab_list(session: Session, page, args: list, options: dict, cwd: s
 @register("tab-new")
 async def cmd_tab_new(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     url = args[0] if args else "about:blank"
-    new_page = await session.context.new_page()
+    new_page = await session.new_page()
     if url and url != "about:blank":
         await new_page.goto(url)
     return await _page_info(session, cwd)
@@ -1212,6 +1433,11 @@ async def cmd_tab_close(session: Session, page, args: list, options: dict, cwd: 
         return {"success": False, "output": f"Invalid tab index: {idx}"}
 
     page = session.pages[idx]
+    if not session.may_close_page(page):
+        return {
+            "success": False,
+            "output": f"Tab {idx} belongs to the Host; this session uses the Host Context and only closes its own.",
+        }
     # The page may belong to a named tab. Closing it out from under that tab
     # would leave the tab pointing at a dead page, so route through close_tab.
     owner = next((name for name, tab in session.tabs.items() if tab.page is page), None)
@@ -2357,6 +2583,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 cdp_endpoint=cdp,
                 cdp_headers=options.get("cdp-headers"),
                 cdp_timeout=int(options.get("cdp-timeout", 30000)),
+                context_mode=options.get("context", "new"),
                 device=options.get("device"),
                 mobile=bool(options.get("mobile", False)),
                 viewport=options.get("viewport"),
@@ -2368,12 +2595,25 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             )
             if session.page:
                 session.push_history(session.page.url)
-            return await _page_info(session, cwd)
+            result = await _page_info(session, cwd)
+            notices, session.attach_notices = session.attach_notices, []
+            if notices:
+                result["output"] = "\n".join(f"Note: {n}" for n in notices) + "\n" + result.get("output", "")
+            return result
 
         if cmd == "delete-data":
             import shutil
 
-            if session_name in state.sessions:
+            target = state.sessions.get(session_name)
+            if target is not None and target.is_attached:
+                return {
+                    "success": False,
+                    "output": (
+                        f"Session '{session_name}' is attached; its browser data belongs to the Host, "
+                        "not patchright-cli. Use `detach`."
+                    ),
+                }
+            if target is not None:
                 await state.close_session(session_name)
             profile_dir = state.profile_dirs.pop(session_name, None)
             if profile_dir and Path(profile_dir).exists():
@@ -2411,6 +2651,19 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             # coordinate -- each closes its own and the last one out ends it.
             if tab_name not in session.tabs:
                 return {"success": False, "output": f"Tab '{tab_name}' is not open in session '{session_name}'."}
+            if session.uses_host_context:
+                # Named Tabs' Pages are ours to Close; the Session itself, and the
+                # Page the Default Tab follows, belong to the Host.
+                if tab_name == DEFAULT_TAB:
+                    return {
+                        "success": False,
+                        "output": (
+                            f"Session '{session_name}' uses the Host Context, which it does not own. "
+                            "Use `detach` to let go of it."
+                        ),
+                    }
+                await session.close_tab(tab_name)
+                return {"success": True, "output": f"Tab '{tab_name}' closed; session stays attached until `detach`."}
             remaining = await session.close_tab(tab_name)
             if remaining:
                 return {"success": True, "output": f"Tab '{tab_name}' closed; {len(session.tabs)} tab(s) still open."}
@@ -2427,13 +2680,9 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                     "output": f"Session '{session_name}' was not attached. Use `close` for sessions created via `open`.",
                 }
             state.sessions.pop(session_name, None)
-            # Disconnect from external Chrome without killing it. For CDP-attached
-            # sessions, browser.close() only severs the connection.
-            try:
-                if target.browser is not None:
-                    await target.browser.close()
-            except Exception:
-                pass
+            await target.detach()
+            if target.uses_host_context:
+                return {"success": True, "output": f"Detached from '{session_name}' (Host Context left untouched)."}
             return {"success": True, "output": f"Detached from '{session_name}' (external browser kept running)."}
 
         if cmd == "close-all":
@@ -2445,18 +2694,10 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         if cmd == "kill-all":
             names = list(state.sessions.keys())
             for n in names:
-                s = state.sessions.get(n)
+                s = state.sessions.pop(n, None)
                 if s:
-                    try:
-                        for p in s.pages:
-                            try:
-                                await p.close()
-                            except Exception:
-                                pass
-                        await s.context.close()
-                    except Exception:
-                        pass
-                    state.sessions.pop(n, None)
+                    # end() Detaches from a Host Context rather than closing it.
+                    await s.end()
             if state.shutdown_event:
                 state.shutdown_event.set()
             return {"success": True, "output": f"Killed {len(names)} session(s) and stopping daemon."}
