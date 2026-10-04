@@ -105,7 +105,7 @@ async def test_attached_sessions_record_no_profile_of_ours():
     await _host_session(state)
     await state.get_or_create_session("iso", cdp_endpoint="http://cdp")
 
-    assert state.profile_dirs == {}
+    assert state.profile_owners == {}
 
 
 @pytest.mark.asyncio

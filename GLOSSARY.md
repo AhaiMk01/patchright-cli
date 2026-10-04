@@ -14,6 +14,10 @@ The Session used when no `-s` is given.
 **Launched Session**:
 A Session whose Chrome patchright-cli started itself and therefore owns outright.
 
+**Profile**:
+A named, persistent store of browser state — cookies, storage, logins, history — that a Launched Session runs on; at most one Session uses a Profile at a time. Unless told otherwise, a Session's Profile is named after the Session.
+_Avoid_: User data dir, profile directory, persistent context
+
 **Attached Session**:
 A Session connected to a Chrome that something else started, reached over CDP.
 _Avoid_: Connected session, remote session

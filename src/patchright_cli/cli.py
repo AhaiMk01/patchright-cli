@@ -499,7 +499,10 @@ COMMANDS_HELP = {
     "list": "list                 List sessions",
     "close-all": "close-all            Close all sessions",
     "kill-all": "kill-all             Kill all sessions",
-    "delete-data": "delete-data          Delete persistent profile",
+    "delete-data": "delete-data          Delete this session's profile",
+    # Profiles
+    "profile-list": "profile-list         List profiles, their size and which session uses them",
+    "profile-delete": "profile-delete <name> Delete a named profile",
     # Dashboard
     "show": "show                 Open session dashboard [--show-port=N] [--annotate] [--wait=S] [--no-open]",
     # Codegen
@@ -517,8 +520,9 @@ def _print_help():
     click.echo("Usage: patchright-cli [OPTIONS] <command> [args...]\n")
     click.echo("Options:")
     click.echo("  --headless          Run headless (default: headed)")
-    click.echo("  --persistent        Use persistent profile")
-    click.echo("  --profile=<path>    Custom profile directory")
+    click.echo("  --persistent        No effect; kept for compatibility (profiles always persist)")
+    click.echo("  --profile=<name>    Named profile (default: the session name); a value")
+    click.echo(r"                      with a / or \ is a directory instead")
     click.echo("  --proxy=<url>       Proxy server (e.g. http://host:port, socks5://host:port)")
     click.echo("  -s=<name>           Named session (default: 'default')")
     click.echo("  --tab=<name>        Named tab inside the session: shared browser,")
@@ -609,6 +613,7 @@ def _print_help():
         ("PDF", ["pdf"]),
         ("DevTools", ["console", "network", "requests", "request", "generate-locator", "highlight"]),
         ("Session", ["list", "close-all", "kill-all", "delete-data"]),
+        ("Profiles", ["profile-list", "profile-delete"]),
         ("Dashboard", ["show"]),
         ("Codegen", ["codegen", "codegen-stop"]),
         ("Setup", ["install"]),
