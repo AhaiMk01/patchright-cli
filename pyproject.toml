@@ -54,16 +54,21 @@ markers = [
 ]
 
 [project.optional-dependencies]
+mcp = [
+    "fastmcp>=2.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pre-commit",
+    "fastmcp>=2.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "fastmcp>=2.0",
 ]
 
 [tool.ruff]
