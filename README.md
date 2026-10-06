@@ -339,6 +339,22 @@ patchright-cli install --skills
 
 </details>
 
+### MCP server
+
+MCP support is optional so the base CLI install stays small:
+
+```bash
+pip install 'patchright-cli[mcp]'
+
+# stdio (default)
+patchright-cli mcp
+
+# Streamable HTTP
+patchright-cli mcp --http --host=127.0.0.1 --port=8000
+```
+
+The HTTP endpoint is `/mcp`. Bind to `0.0.0.0` only when the server is protected by your network or another authentication layer.
+
 ### Skill docs
 
 | File | Topic |
