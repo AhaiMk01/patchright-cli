@@ -6,6 +6,7 @@ receives the result, and prints it.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import socket
@@ -250,48 +251,19 @@ def _handle_install(args: list) -> None:
 
 def _handle_mcp(args: list[str]) -> None:
     """Handle the optional MCP server command."""
-    http = False
-    host = "127.0.0.1"
-    port = 8000
+    parser = argparse.ArgumentParser(
+        prog="patchright-cli mcp",
+        description="Run the MCP server. Stdio is the default transport.",
+    )
+    parser.add_argument("--http", action="store_true", help="Use Streamable HTTP instead of stdio.")
+    parser.add_argument("--host", default="127.0.0.1", help="HTTP bind host.")
+    parser.add_argument("--port", type=int, default=8000, help="HTTP bind port.")
+    options = parser.parse_args(args)
 
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        if arg == "--http":
-            http = True
-        elif arg.startswith("--host="):
-            host = arg.split("=", 1)[1]
-        elif arg == "--host" and i + 1 < len(args):
-            i += 1
-            host = args[i]
-        elif arg.startswith("--port="):
-            try:
-                port = int(arg.split("=", 1)[1])
-            except ValueError:
-                click.echo(f"Invalid HTTP port: {arg}", err=True)
-                sys.exit(1)
-        elif arg == "--port" and i + 1 < len(args):
-            i += 1
-            try:
-                port = int(args[i])
-            except ValueError:
-                click.echo(f"Invalid HTTP port: {args[i]}", err=True)
-                sys.exit(1)
-        elif arg in ("--help", "-h"):
-            click.echo("Usage: patchright-cli mcp [--http] [--host=HOST] [--port=PORT]")
-            click.echo("\nRuns over stdio by default. Use --http for Streamable HTTP.")
-            return
-        else:
-            click.echo(f"Unknown mcp option: {arg}", err=True)
-            sys.exit(1)
-        i += 1
-
-    if not 1 <= port <= 65535:
-        click.echo(f"Invalid HTTP port: {port}", err=True)
-        sys.exit(1)
-    if not http and (host != "127.0.0.1" or port != 8000):
-        click.echo("--host and --port require --http", err=True)
-        sys.exit(1)
+    if not 1 <= options.port <= 65535:
+        parser.error("--port must be between 1 and 65535")
+    if not options.http and (options.host != "127.0.0.1" or options.port != 8000):
+        parser.error("--host and --port require --http")
 
     try:
         from patchright_cli.mcp_server import run_mcp_server
@@ -304,7 +276,7 @@ def _handle_mcp(args: list[str]) -> None:
         )
         raise SystemExit(1) from exc
 
-    run_mcp_server(http=http, host=host, port=port)
+    run_mcp_server(http=options.http, host=options.host, port=options.port)
 
 
 _VERSION_CHECK_INTERVAL = 24 * 60 * 60

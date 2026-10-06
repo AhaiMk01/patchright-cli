@@ -4,10 +4,11 @@ from patchright_cli import cli, mcp_server
 
 
 def test_attach_builds_host_context_args():
+    cdp_url = "http://browser.example.test:9222"
     args = mcp_server._build_args(
         "patchright_attach",
         {
-            "cdp_url": "http://127.0.0.1:9230/chatgpt/mcphub",
+            "cdp_url": cdp_url,
             "headless": True,
             "context": "host",
             "cdp_timeout": 30000,
@@ -17,7 +18,7 @@ def test_attach_builds_host_context_args():
     assert args == [
         "attach",
         "--headless",
-        "--cdp=http://127.0.0.1:9230/chatgpt/mcphub",
+        f"--cdp={cdp_url}",
         "--cdp-timeout=30000",
         "--context=host",
     ]
@@ -28,7 +29,7 @@ def test_attach_rejects_unknown_context():
         mcp_server._build_args(
             "patchright_attach",
             {
-                "cdp_url": "http://127.0.0.1:9230/chatgpt/mcphub",
+                "cdp_url": "http://browser.example.test:9222",
                 "headless": True,
                 "context": "other",
                 "cdp_timeout": 30000,
