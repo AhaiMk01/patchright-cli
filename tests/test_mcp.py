@@ -69,6 +69,16 @@ def test_cli_mcp_http_options(monkeypatch):
     assert calls == [{"http": True, "host": "0.0.0.0", "port": 9090}]
 
 
+def test_cli_output_round_trips_non_ascii(tmp_path, monkeypatch):
+    import asyncio
+    import sys
+
+    monkeypatch.setattr(mcp_server, "CLI", (sys.executable, "-c", "print('Example — Domain')"))
+    monkeypatch.setattr(mcp_server, "OUTPUT_ROOT", tmp_path)
+    out = asyncio.run(mcp_server._run_patchright(["tab-list"]))
+    assert out.strip() == "Example — Domain"
+
+
 def _defaults(tool_name, **overrides):
     params = {name: default for name, _, _, default, _ in mcp_server.TOOL_SPECS[tool_name]["params"]}
     params.update(overrides)
