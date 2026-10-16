@@ -79,6 +79,66 @@ python -m patchright install chromium
 
 </details>
 
+### Docker
+
+A prebuilt image is available from GHCR:
+
+```bash
+docker pull ghcr.io/ahaimk01/patchright-cli:latest
+```
+
+By default the container runs `patchright-cli` directly, so it can be used for normal CLI commands:
+
+```bash
+docker run --rm ghcr.io/ahaimk01/patchright-cli:latest --help
+docker run --rm ghcr.io/ahaimk01/patchright-cli:latest profile-list
+```
+
+Browser sessions live inside the container, so for a sequence of standalone CLI commands keep the same container running:
+
+```bash
+docker run --rm -it \
+  --name patchright-cli \
+  -v patchright-profiles:/root/.patchright-cli \
+  --entrypoint /bin/sh \
+  ghcr.io/ahaimk01/patchright-cli:latest
+
+uv run patchright-cli open https://example.com --headless
+uv run patchright-cli snapshot
+uv run patchright-cli close
+```
+
+For MCP over stdio, set `PATCHRIGHT_CLI_MODE=mcp-stdio` and keep stdin attached:
+
+```bash
+docker run --rm -i \
+  -e PATCHRIGHT_CLI_MODE=mcp-stdio \
+  ghcr.io/ahaimk01/patchright-cli:latest
+```
+
+For a long-running MCP server over Streamable HTTP, set `PATCHRIGHT_CLI_MODE=mcp-http`:
+
+```bash
+docker run -d \
+  --name patchright-mcp \
+  -p 127.0.0.1:9090:9090 \
+  -e PATCHRIGHT_CLI_MODE=mcp-http \
+  -e PATCHRIGHT_CLI_MCP_TOKEN=replace-with-a-long-random-token \
+  -v ./patchright:/patchright \
+  -v patchright-profiles:/root/.patchright-cli \
+  ghcr.io/ahaimk01/patchright-cli:latest
+```
+
+The HTTP MCP endpoint is then available at `http://localhost:9090/mcp`. The image defaults to headless mode and uses `/patchright` as the MCP filesystem root.
+
+An example `compose.yml` is included in the repository:
+
+```bash
+docker compose up -d
+```
+
+Both examples publish the MCP port on `127.0.0.1` only. Set `PATCHRIGHT_CLI_MCP_TOKEN` before publishing it on other interfaces, since the endpoint gives full control of the browser and its saved logins.
+
 ---
 
 ## Quick Start
