@@ -2846,6 +2846,30 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             handler = COMMAND_HANDLERS.get("show")
             return await handler(None, None, args, options, cwd, state)
 
+        if cmd == "list":
+            lines = ["### Sessions"]
+            for sname, s in state.sessions.items():
+                marker = " *" if sname == session_name else ""
+                tab_count = len(s.pages)
+                lines.append(f"  - {sname}{marker}: {tab_count} tab(s)")
+            return {"success": True, "output": "\n".join(lines)}
+
+        if cmd == "close-all":
+            names = list(state.sessions.keys())
+            for n in names:
+                await state.close_session(n)
+            return {"success": True, "output": f"Closed {len(names)} session(s)."}
+
+        if cmd == "kill-all":
+            names = list(state.sessions.keys())
+            for n in names:
+                # close_session ends each Session the way it is allowed to
+                # (Detach from a Host Context) and frees its Profile.
+                await state.close_session(n)
+            if state.shutdown_event:
+                state.shutdown_event.set()
+            return {"success": True, "output": f"Killed {len(names)} session(s) and stopping daemon."}
+
         # All other commands require an existing session
         session = state.sessions.get(session_name)
         if session is None:
@@ -2857,14 +2881,6 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
         page = session.page
 
         # Commands that don't need a page
-        if cmd == "list":
-            lines = ["### Sessions"]
-            for sname, s in state.sessions.items():
-                marker = " *" if sname == session_name else ""
-                tab_count = len(s.pages)
-                lines.append(f"  - {sname}{marker}: {tab_count} tab(s)")
-            return {"success": True, "output": "\n".join(lines)}
-
         if cmd == "close":
             # `close` releases the tab it is addressed to. The browser goes when
             # the last tab does, so concurrent agents clean up without having to
@@ -2904,22 +2920,6 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             if target.uses_host_context:
                 return {"success": True, "output": f"Detached from '{session_name}' (Host Context left untouched)."}
             return {"success": True, "output": f"Detached from '{session_name}' (external browser kept running)."}
-
-        if cmd == "close-all":
-            names = list(state.sessions.keys())
-            for n in names:
-                await state.close_session(n)
-            return {"success": True, "output": f"Closed {len(names)} session(s)."}
-
-        if cmd == "kill-all":
-            names = list(state.sessions.keys())
-            for n in names:
-                # close_session ends each Session the way it is allowed to
-                # (Detach from a Host Context) and frees its Profile.
-                await state.close_session(n)
-            if state.shutdown_event:
-                state.shutdown_event.set()
-            return {"success": True, "output": f"Killed {len(names)} session(s) and stopping daemon."}
 
         handler = COMMAND_HANDLERS.get(cmd)
         if handler is None:

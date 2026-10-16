@@ -1205,3 +1205,35 @@ async def test_snapshot_selector_matching_many_is_an_error(mock_state, mock_sess
     mock_snap.assert_not_awaited()
     # The previous snapshot's refs must survive a rejected command.
     assert mock_session.ref_registry is registry
+
+
+@pytest.mark.asyncio
+async def test_list_works_when_named_session_is_not_open(mock_state):
+    work = MagicMock()
+    work.pages = [MagicMock()]
+    mock_state.sessions = {"work": work}
+    response = await handle_command(mock_state, {"command": "list", "args": []})
+    assert response["success"] is True
+    assert "work: 1 tab(s)" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_kill_all_stops_daemon_when_named_session_is_not_open(mock_state):
+    import asyncio
+
+    mock_state.sessions = {"work": MagicMock()}
+    mock_state.close_session = AsyncMock()
+    mock_state.shutdown_event = asyncio.Event()
+    response = await handle_command(mock_state, {"command": "kill-all", "args": []})
+    assert response["success"] is True
+    mock_state.close_session.assert_awaited_once_with("work")
+    assert mock_state.shutdown_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_close_all_works_when_named_session_is_not_open(mock_state):
+    mock_state.sessions = {"work": MagicMock()}
+    mock_state.close_session = AsyncMock()
+    response = await handle_command(mock_state, {"command": "close-all", "args": []})
+    assert response["success"] is True
+    mock_state.close_session.assert_awaited_once_with("work")

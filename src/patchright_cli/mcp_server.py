@@ -306,19 +306,15 @@ TOOL_SPECS = {
     },
     "patchright_list_sessions": {
         "description": "CLI command: list List Patchright sessions.",
-        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+        "params": [],
     },
     "patchright_close_all": {
-        "description": "CLI command: close-all Close every Patchright browser session. The session "
-        "parameter must name any currently open session and is used only as the "
-        "command anchor; all sessions are closed.",
-        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+        "description": "CLI command: close-all Close every Patchright browser session.",
+        "params": [],
     },
     "patchright_kill_all": {
-        "description": "CLI command: kill-all Force-close every Patchright browser session and stop "
-        "the Patchright daemon. The session parameter must name any currently open "
-        "session and is used only as the command anchor; all sessions are terminated.",
-        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+        "description": "CLI command: kill-all Close every Patchright browser session and stop the daemon.",
+        "params": [],
     },
     "patchright_delete_data": {
         "description": "CLI command: delete-data Delete the named session's persistent browser profile.",
