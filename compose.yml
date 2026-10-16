@@ -6,6 +6,7 @@ services:
     ports:
       - "9090:9090"
     environment:
+      PATCHRIGHT_CLI_MODE: mcp-http # comment out to run patchright-cli without the mcp server. can be mcp-http, mcp-stdio
       PATCHRIGHT_CLI_MCP_HEADLESS: "1"
       PATCHRIGHT_CLI_MCP_ROOT: /patchright
       # Recommended when exposing the MCP endpoint beyond a trusted local network.
@@ -13,6 +14,7 @@ services:
       # Set to 1 only if you intentionally want MCP tools to access paths
       # outside PATCHRIGHT_CLI_MCP_ROOT.
       # PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESYSTEM: "1"
+      # PATCHRIGHT_CLI_MCP_PORT: "9090"
     volumes:
       # Files made available to MCP tools, plus generated output.
       - patchright:/patchright
