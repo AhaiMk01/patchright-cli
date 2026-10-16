@@ -32,3 +32,27 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: uv venv && uv pip install -e ".[dev]"
       - run: uv run pytest tests/ -v --ignore=tests/test_e2e.py
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t patchright-cli:ci .
+      - run: docker run --rm patchright-cli:ci --help
+      - name: Browser session inside the container
+        run: |
+          docker run -d --name cli --entrypoint sleep patchright-cli:ci infinity
+          docker exec cli uv run patchright-cli open https://example.com --headless
+          docker exec cli uv run patchright-cli eval document.title | tee title.txt
+          grep -q "Example Domain" title.txt
+          docker exec cli uv run patchright-cli close
+      - name: MCP over HTTP with a token
+        run: |
+          docker run -d --name mcp -p 9090:9090 -e PATCHRIGHT_CLI_MODE=mcp-http -e PATCHRIGHT_CLI_MCP_TOKEN=ci-token patchright-cli:ci
+          for _ in $(seq 30); do curl -s -o /dev/null http://localhost:9090/mcp && break; sleep 1; done
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}'
+          headers=(-H "Content-Type: application/json" -H "Accept: application/json, text/event-stream")
+          test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -d "$init" http://localhost:9090/mcp)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -H "Authorization: Bearer ci-token" -d "$init" http://localhost:9090/mcp)" = 200
+      - if: failure()
+        run: docker logs mcp || true
