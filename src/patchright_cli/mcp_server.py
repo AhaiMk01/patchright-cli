@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hmac
 import inspect
 import os
 import re
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
+from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.tools import ToolResult
 from mcp.types import ImageContent
 from pydantic import Field
@@ -29,7 +31,23 @@ HEADLESS_DEFAULT = os.environ.get("PATCHRIGHT_CLI_MCP_HEADLESS") == "1"
 CALLOUT_POSITIONS = {"top-left", "top-right", "bottom-left", "bottom-right"}
 SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
-server = FastMCP("Patchright")
+# Clients send `Authorization: Bearer <token>`. Only the HTTP transport checks it.
+# Stripped so a trailing newline or CR from an env file cannot become part of the secret.
+TOKEN = os.environ.get("PATCHRIGHT_CLI_MCP_TOKEN", "").strip() or None
+
+
+class _SharedTokenVerifier(TokenVerifier):
+    def __init__(self, secret: str) -> None:
+        super().__init__()
+        self._secret = secret.encode()
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if not hmac.compare_digest(token.encode(), self._secret):
+            return None
+        return AccessToken(token=token, client_id="patchright-cli", scopes=[])
+
+
+server = FastMCP("Patchright", auth=_SharedTokenVerifier(TOKEN) if TOKEN else None)
 
 TOOL_SPECS = {
     "patchright_open": {
@@ -1296,6 +1314,12 @@ async def browser_delete_output(
 def run_mcp_server(*, http: bool = False, host: str = "127.0.0.1", port: int = 8000) -> None:
     """Run the MCP server over stdio or Streamable HTTP."""
     if http:
+        if not TOKEN and host not in {"127.0.0.1", "localhost", "::1"}:
+            print(
+                f"Warning: /mcp on {host} accepts unauthenticated requests; set PATCHRIGHT_CLI_MCP_TOKEN.",
+                file=sys.stderr,
+                flush=True,
+            )
         server.run(transport="http", host=host, port=port)
     else:
         server.run(transport="stdio")
