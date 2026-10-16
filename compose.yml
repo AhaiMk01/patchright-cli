@@ -4,7 +4,7 @@ services:
     container_name: patchright-mcp
     restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     environment:
       PATCHRIGHT_CLI_MODE: mcp-http # comment out to run patchright-cli without the mcp server. can be mcp-http, mcp-stdio
       PATCHRIGHT_CLI_MCP_HEADLESS: "1"

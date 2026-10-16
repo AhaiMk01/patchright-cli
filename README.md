@@ -121,7 +121,7 @@ For a long-running MCP server over Streamable HTTP, set `PATCHRIGHT_CLI_MODE=mcp
 ```bash
 docker run -d \
   --name patchright-mcp \
-  -p 9090:9090 \
+  -p 127.0.0.1:9090:9090 \
   -e PATCHRIGHT_CLI_MODE=mcp-http \
   -e PATCHRIGHT_CLI_MCP_TOKEN=replace-with-a-long-random-token \
   -v ./patchright:/patchright \
@@ -137,7 +137,7 @@ An example `compose.yml` is included in the repository:
 docker compose up -d
 ```
 
-Set `PATCHRIGHT_CLI_MCP_TOKEN` before exposing the MCP port outside a trusted local network.
+Both examples publish the MCP port on `127.0.0.1` only. Set `PATCHRIGHT_CLI_MCP_TOKEN` before publishing it on other interfaces, since the endpoint gives full control of the browser and its saved logins.
 
 ---
 
