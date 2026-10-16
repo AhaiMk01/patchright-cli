@@ -355,6 +355,15 @@ patchright-cli mcp --http --host=127.0.0.1 --port=8000
 
 The HTTP endpoint is `/mcp`. Bind to `0.0.0.0` only when the server is protected by your network or another authentication layer.
 
+File paths passed to MCP tools (uploads, state and cookie files, screenshot/PDF/snapshot output, profile directories) must be absolute and beneath the MCP root, so a client cannot reach arbitrary host files. Outputs without a path land in `<root>/output/`, which `browser_delete_output` can clean up. `patchright_eval` and `patchright_run_code` still run arbitrary JavaScript in the page, so protect HTTP deployments regardless.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `PATCHRIGHT_CLI_MCP_ROOT` | working directory | Root that tool file paths must sit beneath |
+| `PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESYSTEM` | unset | `1` drops the path check and enables `patchright_install_skills` |
+| `PATCHRIGHT_CLI_MCP_HEADLESS` | unset (headed) | `1` makes `patchright_open` default to headless, for hosts without a display |
+| `PATCHRIGHT_CLI_MCP_DAEMON_PORT` | `9321` | Daemon port the tools talk to |
+
 ### Skill docs
 
 | File | Topic |

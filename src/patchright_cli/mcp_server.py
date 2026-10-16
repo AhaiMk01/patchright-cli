@@ -16,9 +16,17 @@ from pydantic import Field
 
 CLI = (sys.executable, "-m", "patchright_cli")
 DAEMON_PORT = int(os.environ.get("PATCHRIGHT_CLI_MCP_DAEMON_PORT", "9321"))
-MCP_ROOT = Path.cwd().resolve()
-RUNTIME = (MCP_ROOT / ".patchright-cli" / "mcp-runtime").resolve()
+# File paths given to tools must sit beneath MCP_ROOT, so an MCP client (possibly
+# remote, over HTTP) cannot read or write arbitrary host files. Set
+# PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESYSTEM=1 for plain patchright-cli path semantics.
+MCP_ROOT = Path(os.environ.get("PATCHRIGHT_CLI_MCP_ROOT") or Path.cwd()).resolve()
+UNRESTRICTED_FILESYSTEM = os.environ.get("PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESYSTEM") == "1"
+# The CLI runs from here, so default outputs (screenshots, snapshots, PDFs) land
+# where browser_delete_output can remove them.
 OUTPUT_ROOT = (MCP_ROOT / "output").resolve()
+# Headed by default like the CLI; displayless hosts (containers) set this to 1.
+HEADLESS_DEFAULT = os.environ.get("PATCHRIGHT_CLI_MCP_HEADLESS") == "1"
+CALLOUT_POSITIONS = {"top-left", "top-right", "bottom-left", "bottom-right"}
 SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 server = FastMCP("Patchright")
@@ -29,9 +37,15 @@ TOOL_SPECS = {
         "the named session.",
         "params": [
             ("url", "string", False, "", "Initial URL."),
-            ("headless", "boolean", False, True, "Run headless."),
+            ("headless", "boolean", False, HEADLESS_DEFAULT, "Run headless; headed is harder to detect."),
             ("persistent", "boolean", False, False, "Use persistent profile."),
-            ("profile", "string", False, "", "Profile path under /patchright."),
+            (
+                "profile",
+                "string",
+                False,
+                "",
+                r"Profile name, or a profile directory path (any value containing / or \).",
+            ),
             ("proxy", "string", False, "", "HTTP, HTTPS or SOCKS proxy URL."),
             ("device", "string", False, "", "Playwright device name."),
             ("viewport", "string", False, "", "Viewport as WIDTHxHEIGHT."),
@@ -148,7 +162,7 @@ TOOL_SPECS = {
         "description": "CLI command: snapshot Capture an accessibility snapshot and refresh element references.",
         "params": [
             ("ref", "string", False, "", "Optional element reference for a subtree."),
-            ("filename", "string", False, "", "Optional output file under /patchright."),
+            ("filename", "string", False, "", "Optional output file."),
             ("depth", "number", False, 0, "Maximum snapshot depth; zero means unlimited."),
             ("interactive", "boolean", False, False, "Return interactive elements only."),
             ("boxes", "boolean", False, False, "Include bounding boxes."),
@@ -178,12 +192,11 @@ TOOL_SPECS = {
         ],
     },
     "patchright_screenshot": {
-        "description": "CLI command: screenshot Save a page or element screenshot. MCPShell returns "
-        "the resulting path as text.",
+        "description": "CLI command: screenshot Save a page or element screenshot and return the saved path.",
         "params": [
             ("ref", "string", False, "", "Optional element reference."),
             ("full_page", "boolean", False, False, "Capture the full scrollable page."),
-            ("filename", "string", False, "", "Absolute output PNG path under /patchright/cli/."),
+            ("filename", "string", False, "", "Output PNG path."),
             ("hires", "boolean", False, False, "Capture at device pixel ratio."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
@@ -200,7 +213,7 @@ TOOL_SPECS = {
         "description": "CLI command: drop Drop a file or data payload onto an element.",
         "params": [
             ("ref", "string", True, None, "Target element reference."),
-            ("path", "string", False, "", "File path under /patchright."),
+            ("path", "string", False, "", "File path."),
             ("data", "string", False, "", "Data payload formatted as MIME=value."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
@@ -378,14 +391,14 @@ TOOL_SPECS = {
     "patchright_tab_close": {
         "description": "CLI command: tab-close Close a tab by index; omit index for the current tab.",
         "params": [
-            ("index", "number", False, -1, "Zero-based tab index; -1 means current tab where supported."),
+            ("index", "number", False, -1, "Zero-based tab index; -1 closes the current tab."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
     "patchright_tab_select": {
         "description": "CLI command: tab-select Select a browser tab by index.",
         "params": [
-            ("index", "number", False, -1, "Zero-based tab index; -1 means current tab where supported."),
+            ("index", "number", True, None, "Zero-based tab index."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -399,7 +412,7 @@ TOOL_SPECS = {
     "patchright_upload": {
         "description": "CLI command: upload Upload a file to a file input.",
         "params": [
-            ("path", "string", True, None, "File path under /patchright."),
+            ("path", "string", True, None, "File path."),
             ("ref", "string", False, "", "Optional target element reference."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
@@ -415,14 +428,14 @@ TOOL_SPECS = {
     "patchright_state_save": {
         "description": "CLI command: state-save Save cookies and storage state.",
         "params": [
-            ("path", "string", False, "", "Output JSON path under /patchright."),
+            ("path", "string", False, "", "Output JSON path."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
     "patchright_state_load": {
         "description": "CLI command: state-load Load cookies and storage state.",
         "params": [
-            ("path", "string", True, None, "Input JSON path under /patchright."),
+            ("path", "string", True, None, "Input JSON path."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -465,14 +478,14 @@ TOOL_SPECS = {
     "patchright_cookie_import": {
         "description": "CLI command: cookie-import Import cookies from a JSON file.",
         "params": [
-            ("path", "string", True, None, "Input JSON path under /patchright."),
+            ("path", "string", True, None, "Input JSON path."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
     "patchright_cookie_export": {
         "description": "CLI command: cookie-export Export cookies to a JSON file.",
         "params": [
-            ("path", "string", False, "", "Output JSON path under /patchright."),
+            ("path", "string", False, "", "Output JSON path."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -561,7 +574,7 @@ TOOL_SPECS = {
     "patchright_video_stop": {
         "description": "CLI command: video-stop Stop recording and save video or frames.",
         "params": [
-            ("filename", "string", False, "", "Output path under /patchright."),
+            ("filename", "string", False, "", "Output path."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -575,7 +588,7 @@ TOOL_SPECS = {
     "patchright_pdf": {
         "description": "CLI command: pdf Save the current page as PDF.",
         "params": [
-            ("filename", "string", False, "", "Output PDF path under /patchright."),
+            ("filename", "string", False, "", "Output PDF path."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -635,9 +648,39 @@ TOOL_SPECS = {
     "patchright_codegen_stop": {
         "description": "CLI command: codegen-stop Stop code generation and save the script.",
         "params": [
-            ("filename", "string", False, "", "Optional output script path under /patchright."),
+            ("filename", "string", False, "", "Optional output script path."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
+    },
+    "patchright_find": {
+        "description": "CLI command: find Search the latest snapshot for matching elements.",
+        "params": [
+            ("text", "string", True, None, "Text, or a regular expression when regex is true."),
+            ("regex", "boolean", False, False, "Treat text as a regular expression."),
+            ("all", "boolean", False, False, "Include non-interactive matches."),
+            ("limit", "number", False, 20, "Maximum number of matches."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_video_show_actions": {
+        "description": "CLI command: video-show-actions Annotate subsequent actions in the recording.",
+        "params": [
+            ("duration", "number", False, 600, "Callout duration in milliseconds."),
+            ("position", "string", False, "top-right", "Callout position, for example top-right or bottom-left."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_video_hide_actions": {
+        "description": "CLI command: video-hide-actions Stop annotating actions.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_profile_list": {
+        "description": "CLI command: profile-list List profiles, their size and which session uses them.",
+        "params": [],
+    },
+    "patchright_profile_delete": {
+        "description": "CLI command: profile-delete Delete a named profile.",
+        "params": [("name", "string", True, None, "Profile name.")],
     },
     "patchright_install_skills": {
         "description": "CLI command: install Install Patchright CLI skill files into detected agent directories.",
@@ -664,6 +707,8 @@ def _validate_cli_path(path: str, *, required: bool = False) -> None:
     if not path:
         if required:
             raise ValueError("Path is required")
+        return
+    if UNRESTRICTED_FILESYSTEM:
         return
     p = Path(path)
     if not p.is_absolute():
@@ -694,17 +739,16 @@ async def _run_patchright(
     if session is not None:
         _validate_session(session)
 
-    RUNTIME.mkdir(parents=True, exist_ok=True)
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    command = list(CLI)
+    command = [*CLI, f"--port={DAEMON_PORT}"]
     if session is not None:
-        command.extend([f"-s={session}", f"--port={DAEMON_PORT}"])
+        command.append(f"-s={session}")
     command.extend(args)
 
     process = await asyncio.create_subprocess_exec(
         *command,
-        cwd=RUNTIME,
+        cwd=OUTPUT_ROOT,
         env=os.environ.copy(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -749,7 +793,12 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         if p["persistent"]:
             args.append("--persistent")
         if p["profile"]:
-            _validate_cli_path(p["profile"])
+            # Same rule as the CLI: a value with a path separator is a directory,
+            # anything else names a profile under ~/.patchright-cli/profiles.
+            if "/" in p["profile"] or "\\" in p["profile"]:
+                _validate_cli_path(p["profile"])
+            elif not SAFE_NAME.fullmatch(p["profile"]):
+                raise ValueError("Invalid profile name")
             args.append(f"--profile={p['profile']}")
         for key, flag in [
             ("proxy", "proxy"),
@@ -829,6 +878,9 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         "patchright_tracing_stop": ("tracing-stop", []),
         "patchright_video_chapter": ("video-chapter", ["title"]),
         "patchright_codegen": ("codegen", []),
+        "patchright_video_hide_actions": ("video-hide-actions", []),
+        "patchright_profile_list": ("profile-list", []),
+        "patchright_profile_delete": ("profile-delete", ["name"]),
     }
     if name in simple:
         cmd, keys = simple[name]
@@ -844,11 +896,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name in {"patchright_click", "patchright_dblclick"}:
         if p["button"] not in {"left", "right", "middle"}:
             raise ValueError("button must be left, right or middle")
-        args = [
-            "click" if name.endswith("click") and not name.endswith("dblclick") else "dblclick",
-            p["ref"],
-            p["button"],
-        ]
+        args = [name.removeprefix("patchright_"), p["ref"], p["button"]]
         if p["modifiers"]:
             args.append(f"--modifiers={p['modifiers']}")
         return args
@@ -873,6 +921,38 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
 
     if name == "patchright_run_code":
         return ["run-code", p["code"]]
+
+    if name == "patchright_snapshot":
+        _validate_cli_path(p["filename"])
+        args = ["snapshot"]
+        if p["ref"]:
+            args.append(p["ref"])
+        if p["filename"]:
+            args.append(f"--filename={p['filename']}")
+        if p["depth"] != 0:
+            args.append(f"--depth={p['depth']}")
+        if p["interactive"]:
+            args.append("--interactive")
+        if p["boxes"]:
+            args.append("--boxes")
+        return args
+
+    if name == "patchright_find":
+        if p["limit"] < 1:
+            raise ValueError("limit must be at least 1")
+        args = ["find", p["text"], f"--limit={p['limit']}"]
+        if p["regex"]:
+            args.append("--regex")
+        if p["all"]:
+            args.append("--all")
+        return args
+
+    if name == "patchright_video_show_actions":
+        if p["position"] not in CALLOUT_POSITIONS:
+            raise ValueError(f"position must be one of {', '.join(sorted(CALLOUT_POSITIONS))}")
+        if p["duration"] < 1:
+            raise ValueError("duration must be at least 1 millisecond")
+        return ["video-show-actions", f"--duration={p['duration']}", f"--position={p['position']}"]
 
     if name == "patchright_screenshot":
         if p["filename"]:
@@ -1063,6 +1143,11 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         return args
 
     if name == "patchright_install_skills":
+        # Writes skill files into agent directories under the user's home.
+        if not UNRESTRICTED_FILESYSTEM:
+            raise ValueError(
+                "install_skills writes outside the MCP root; set PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESYSTEM=1"
+            )
         return ["install", "--skills"]
 
     raise RuntimeError(f"No argument builder implemented for {name}")
@@ -1072,34 +1157,22 @@ async def _run_registered_tool(name: str, params: dict[str, Any]) -> str:
     session = params.get("session")
     args = _build_args(name, params)
     timeout = 300 if name in LONG_TIMEOUT_TOOLS else 180
-    if name == "patchright_install_skills":
-        return await _run_patchright(args, session=None, timeout=timeout)
     return await _run_patchright(args, session=session, timeout=timeout)
 
 
 async def _snapshot_tool(params: dict[str, Any]) -> str:
-    session = params["session"]
-    filename = params["filename"]
-    if filename:
-        _validate_cli_path(filename)
-        args = _build_args("patchright_snapshot", params)
-        return await _run_patchright(args, session=session)
+    if params["filename"]:
+        return await _run_patchright(_build_args("patchright_snapshot", params), session=params["session"])
 
+    # No filename: snapshot to a temp file and return the YAML itself.
     with tempfile.NamedTemporaryFile(prefix="patchright-snapshot-", suffix=".yml", delete=False) as tmp:
         tmp_path = Path(tmp.name)
     try:
-        args = ["snapshot"]
-        if params["ref"]:
-            args.append(params["ref"])
+        # The temp file is ours, so build args directly instead of through the path check.
+        args = _build_args("patchright_snapshot", {**params, "filename": ""})
         args.append(f"--filename={tmp_path}")
-        if params["depth"] != 0:
-            args.append(f"--depth={params['depth']}")
-        if params["interactive"]:
-            args.append("--interactive")
-        if params["boxes"]:
-            args.append("--boxes")
-        await _run_patchright(args, session=session)
-        return tmp_path.read_text(errors="replace")
+        await _run_patchright(args, session=params["session"])
+        return tmp_path.read_text(encoding="utf-8", errors="replace")
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -1120,6 +1193,9 @@ def _parameter_type(tool_name: str, param_name: str, type_name: str) -> Any:
 
     if tool_name == "patchright_cookie_set" and param_name == "same_site":
         return Literal["Strict", "Lax", "None"]
+
+    if tool_name == "patchright_video_show_actions" and param_name == "position":
+        return Literal["top-left", "top-right", "bottom-left", "bottom-right"]
 
     if tool_name == "patchright_network_state_set" and param_name == "state":
         return Literal["online", "offline"]

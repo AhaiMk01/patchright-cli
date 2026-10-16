@@ -1444,8 +1444,8 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.9" },
     { name = "click" },
-    { name = "fastmcp", marker = "extra == 'dev'", specifier = ">=2.0" },
-    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.0" },
+    { name = "fastmcp", marker = "extra == 'dev'", specifier = ">=2.10,<5" },
+    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.10,<5" },
     { name = "patchright" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -1456,7 +1456,7 @@ provides-extras = ["mcp", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "fastmcp", specifier = ">=2.0" },
+    { name = "fastmcp", specifier = ">=2.10,<5" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
 ]
