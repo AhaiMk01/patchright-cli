@@ -353,6 +353,8 @@ patchright-cli mcp
 patchright-cli mcp --http --host=127.0.0.1 --port=8000
 ```
 
+![How a remote MCP call reaches Chrome](docs/mcp-architecture.svg)
+
 The HTTP endpoint is `/mcp`. Bind to `0.0.0.0` only when the server is protected by your network or another authentication layer.
 
 File paths passed to MCP tools (uploads, state and cookie files, screenshot/PDF/snapshot output, profile directories) must be absolute and beneath the MCP root, so a client cannot reach arbitrary host files. Outputs without a path land in `<root>/output/`, which `browser_delete_output` can clean up. `patchright_eval` and `patchright_run_code` still run arbitrary JavaScript in the page, so protect HTTP deployments regardless.

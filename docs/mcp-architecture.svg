@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="470" viewBox="0 0 1200 470" role="img" aria-label="A remote MCP client sends tools/call over HTTP across an unauthenticated network boundary to the patchright-cli MCP server on the host. The server spawns one short-lived CLI process per call, which sends length-prefixed JSON over TCP to the long-lived daemon. The daemon drives real Chrome over CDP; Chrome draws on an Xvfb display and loads websites over HTTPS. Output files land in the root's output directory on the host.">
+        <style>
+  svg { --bg: #ffffff; --fg: #1b2230; --muted: #5d6778; --line: #c9cfd9; --accent: #c2410c; --host: #eef1f6;
+        color: var(--fg); font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  @media (prefers-color-scheme: dark) {
+    svg { --bg: #0d1117; --fg: #e6edf3; --muted: #9aa4b4; --line: #3a4352; --accent: #fb923c; --host: #161b22; }
+  }
+  .bg { fill: var(--bg); }
+  .box { fill: var(--bg); stroke: currentColor; stroke-width: 1.4; }
+  .ghost { fill: var(--bg); stroke: var(--line); stroke-width: 1.2; }
+  .hostbg { fill: var(--host); stroke: var(--line); stroke-width: 1.2; }
+  .t { fill: currentColor; font-size: 14px; font-weight: 600; text-anchor: middle; }
+  .s { fill: var(--muted); font-size: 11.5px; text-anchor: middle; }
+  .m { fill: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 11px; text-anchor: middle; }
+  .lbl { fill: currentColor; font-size: 12px; text-anchor: middle; paint-order: stroke; stroke: var(--bg); stroke-width: 5px; stroke-linejoin: round; }
+  .lbl.start { text-anchor: start; }
+  .region { fill: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .edge { stroke: currentColor; stroke-width: 1.4; fill: none; }
+  .edge.dim { stroke: var(--muted); stroke-dasharray: 4 3; }
+  .boundary { stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 6 5; }
+  .warn { fill: var(--accent); font-size: 12px; font-weight: 600; text-anchor: middle; paint-order: stroke; stroke: var(--bg); stroke-width: 5px; }
+  .head { fill: currentColor; }
+  .head.dim { fill: var(--muted); }
+</style>
+        <rect class="bg" x="0" y="0" width="1200" height="470"/>
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path class="head" d="M0,0 L10,5 L0,10 z"/>
+          </marker>
+          <marker id="ahd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path class="head dim" d="M0,0 L10,5 L0,10 z"/>
+          </marker>
+        </defs>
+
+        <!-- host region -->
+        <rect class="hostbg" x="250" y="30" width="820" height="420" rx="10"/>
+        <text class="region" x="268" y="54">Host · container or server</text>
+        <text class="region" x="20" y="54">Remote machine</text>
+        <text class="region" x="1100" y="54">Internet</text>
+
+        <!-- trust boundary -->
+        <line class="boundary" x1="205" y1="24" x2="205" y2="456"/>
+        <text class="warn" x="205" y="300">trust boundary</text>
+        <text class="warn" x="205" y="317" style="font-weight:400">/mcp has no auth</text>
+
+        <!-- client -->
+        <rect class="box" x="20" y="170" width="140" height="80" rx="6"/>
+        <text class="t" x="90" y="205">MCP client</text>
+        <text class="s" x="90" y="225">Claude Code, agents</text>
+
+        <!-- client <-> server -->
+        <line class="edge" x1="160" y1="195" x2="268" y2="195" marker-end="url(#ah)"/>
+        <text class="lbl" x="215" y="187">tools/call</text>
+        <line class="edge" x1="270" y1="228" x2="162" y2="228" marker-end="url(#ah)"/>
+        <text class="lbl" x="215" y="246">text · PNG · YAML</text>
+
+        <!-- MCP server -->
+        <rect class="box" x="270" y="170" width="170" height="80" rx="6"/>
+        <text class="t" x="355" y="198">MCP server</text>
+        <text class="m" x="355" y="217">mcp --http :8000/mcp</text>
+        <text class="s" x="355" y="236">checks session, paths</text>
+
+        <!-- server -> CLI -->
+        <line class="edge" x1="440" y1="210" x2="518" y2="210" marker-end="url(#ah)"/>
+        <text class="lbl" x="479" y="202">spawns</text>
+
+        <!-- CLI process stack -->
+        <rect class="ghost" x="536" y="158" width="160" height="80" rx="6"/>
+        <rect class="ghost" x="528" y="164" width="160" height="80" rx="6"/>
+        <rect class="box" x="520" y="170" width="160" height="80" rx="6"/>
+        <text class="t" x="600" y="198">CLI process</text>
+        <text class="m" x="600" y="217">python -m patchright_cli</text>
+        <text class="s" x="600" y="236">one per call, exits</text>
+
+        <!-- CLI -> daemon -->
+        <line class="edge" x1="696" y1="210" x2="778" y2="210" marker-end="url(#ah)"/>
+        <text class="lbl" x="737" y="202">TCP · JSON</text>
+        <text class="s" x="737" y="229">starts it</text>
+        <text class="s" x="737" y="243">if absent</text>
+
+        <!-- daemon -->
+        <rect class="box" x="780" y="170" width="120" height="80" rx="6"/>
+        <text class="t" x="840" y="198">Daemon</text>
+        <text class="m" x="840" y="217">127.0.0.1:9321</text>
+        <text class="s" x="840" y="236">long-lived</text>
+
+        <!-- daemon -> chrome -->
+        <line class="edge" x1="900" y1="210" x2="948" y2="210" marker-end="url(#ah)"/>
+        <text class="lbl" x="924" y="202">CDP</text>
+
+        <!-- chrome -->
+        <rect class="box" x="950" y="170" width="100" height="80" rx="6"/>
+        <text class="t" x="1000" y="205">Chrome</text>
+        <text class="s" x="1000" y="225">real, headed</text>
+
+        <!-- xvfb -->
+        <rect class="ghost" x="950" y="72" width="100" height="48" rx="6"/>
+        <text class="t" x="1000" y="101" style="font-weight:500">Xvfb :99</text>
+        <line class="edge dim" x1="1000" y1="120" x2="1000" y2="168" marker-end="url(#ahd)"/>
+        <text class="lbl start" x="1008" y="149" style="fill:var(--muted)">DISPLAY</text>
+
+        <!-- chrome -> web -->
+        <line class="edge" x1="1050" y1="210" x2="1098" y2="210" marker-end="url(#ah)"/>
+        <text class="lbl" x="1075" y="202">HTTPS</text>
+        <rect class="box" x="1100" y="170" width="80" height="80" rx="6"/>
+        <text class="t" x="1140" y="214">Websites</text>
+
+        <!-- output dir -->
+        <rect class="box" x="520" y="350" width="380" height="60" rx="6"/>
+        <text class="m" x="710" y="375" style="fill:currentColor;font-size:12px">&lt;root&gt;/output/</text>
+        <text class="s" x="710" y="395">screenshots · PDFs · snapshots · state files</text>
+
+        <line class="edge" x1="840" y1="250" x2="840" y2="348" marker-end="url(#ah)"/>
+        <text class="lbl start" x="848" y="304">writes files</text>
+        <line class="edge dim" x1="600" y1="252" x2="600" y2="348" marker-end="url(#ahd)"/>
+        <text class="lbl start" x="608" y="304" style="fill:var(--muted)">cwd</text>
+        <polyline class="edge dim" points="355,250 355,380 518,380" marker-end="url(#ahd)"/>
+        <text class="lbl" x="437" y="372" style="fill:var(--muted)">delete_output</text>
+      </svg>
