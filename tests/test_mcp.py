@@ -129,3 +129,13 @@ def test_every_cli_command_has_a_tool():
     aliases = {"list-sessions": "list"}
     tools = {aliases.get(tool, tool) for tool in tools}
     assert commands - tools == set()
+
+
+def test_cli_output_round_trips_non_ascii(tmp_path, monkeypatch):
+    import asyncio
+    import sys
+
+    monkeypatch.setattr(mcp_server, "CLI", (sys.executable, "-c", "print('Example — Domain')"))
+    monkeypatch.setattr(mcp_server, "OUTPUT_ROOT", tmp_path)
+    out = asyncio.run(mcp_server._run_patchright(["tab-list"]))
+    assert out.strip() == "Example — Domain"

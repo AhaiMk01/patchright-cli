@@ -749,7 +749,8 @@ async def _run_patchright(
     process = await asyncio.create_subprocess_exec(
         *command,
         cwd=OUTPUT_ROOT,
-        env=os.environ.copy(),
+        # A piped child writes in the locale code page (cp936, cp1252 on Windows); pin it to match the decode below.
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -763,8 +764,8 @@ async def _run_patchright(
         print(message, file=sys.stderr, flush=True)
         raise RuntimeError(message) from None
 
-    out = stdout.decode(errors="replace")
-    err = stderr.decode(errors="replace")
+    out = stdout.decode("utf-8", errors="replace")
+    err = stderr.decode("utf-8", errors="replace")
 
     if process.returncode != 0:
         message = (
