@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
+from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from fastmcp.tools import ToolResult
 from mcp.types import ImageContent
 from pydantic import Field
@@ -29,7 +30,13 @@ HEADLESS_DEFAULT = os.environ.get("PATCHRIGHT_CLI_MCP_HEADLESS") == "1"
 CALLOUT_POSITIONS = {"top-left", "top-right", "bottom-left", "bottom-right"}
 SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
-server = FastMCP("Patchright")
+# Clients send `Authorization: Bearer <token>`. Only the HTTP transport checks it.
+TOKEN = os.environ.get("PATCHRIGHT_CLI_MCP_TOKEN")
+
+server = FastMCP(
+    "Patchright",
+    auth=StaticTokenVerifier({TOKEN: {"client_id": "patchright-cli", "scopes": []}}) if TOKEN else None,
+)
 
 TOOL_SPECS = {
     "patchright_open": {
@@ -1295,6 +1302,12 @@ async def browser_delete_output(
 def run_mcp_server(*, http: bool = False, host: str = "127.0.0.1", port: int = 8000) -> None:
     """Run the MCP server over stdio or Streamable HTTP."""
     if http:
+        if not TOKEN and host not in {"127.0.0.1", "localhost", "::1"}:
+            print(
+                f"Warning: /mcp on {host} accepts unauthenticated requests; set PATCHRIGHT_CLI_MCP_TOKEN.",
+                file=sys.stderr,
+                flush=True,
+            )
         server.run(transport="http", host=host, port=port)
     else:
         server.run(transport="stdio")
