@@ -136,18 +136,27 @@ def test_http_token_rejects_missing_and_wrong_bearer(monkeypatch):
 
     from starlette.testclient import TestClient
 
-    monkeypatch.setenv("PATCHRIGHT_CLI_MCP_TOKEN", "s3cret")
+    monkeypatch.setenv("PATCHRIGHT_CLI_MCP_TOKEN", "s3cret\r\n")
     module = importlib.reload(mcp_server)
     try:
         app = module.server.http_app()
-        body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        body = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "t", "version": "0"},
+            },
+        }
         headers = {"Accept": "application/json, text/event-stream"}
         with TestClient(app) as client:
             assert client.post("/mcp", json=body, headers=headers).status_code == 401
             wrong = {**headers, "Authorization": "Bearer nope"}
             assert client.post("/mcp", json=body, headers=wrong).status_code == 401
             right = {**headers, "Authorization": "Bearer s3cret"}
-            assert client.post("/mcp", json=body, headers=right).status_code != 401
+            assert client.post("/mcp", json=body, headers=right).status_code == 200
     finally:
         monkeypatch.delenv("PATCHRIGHT_CLI_MCP_TOKEN")
         importlib.reload(mcp_server)

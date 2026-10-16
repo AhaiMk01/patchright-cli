@@ -41,7 +41,7 @@
         <!-- trust boundary -->
         <line class="boundary" x1="205" y1="24" x2="205" y2="456"/>
         <text class="warn" x="205" y="300">trust boundary</text>
-        <text class="warn" x="205" y="317" style="font-weight:400">Bearer token</text>
+        <text class="warn" x="205" y="317" style="font-weight:400">optional Bearer token</text>
 
         <!-- client -->
         <rect class="box" x="20" y="170" width="140" height="80" rx="6"/>
