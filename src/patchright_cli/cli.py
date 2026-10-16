@@ -6,6 +6,7 @@ receives the result, and prints it.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import socket
@@ -246,6 +247,36 @@ def _handle_install(args: list) -> None:
             click.echo(f"  Failed for {name}: {e}", err=True)
 
     click.echo(f"\npatchright-cli v{__version__} skills installed.")
+
+
+def _handle_mcp(args: list[str]) -> None:
+    """Handle the optional MCP server command."""
+    parser = argparse.ArgumentParser(
+        prog="patchright-cli mcp",
+        description="Run the MCP server. Stdio is the default transport.",
+    )
+    parser.add_argument("--http", action="store_true", help="Use Streamable HTTP instead of stdio.")
+    parser.add_argument("--host", default="127.0.0.1", help="HTTP bind host.")
+    parser.add_argument("--port", type=int, default=8000, help="HTTP bind port.")
+    options = parser.parse_args(args)
+
+    if not 1 <= options.port <= 65535:
+        parser.error("--port must be between 1 and 65535")
+    if not options.http and (options.host != "127.0.0.1" or options.port != 8000):
+        parser.error("--host and --port require --http")
+
+    try:
+        from patchright_cli.mcp_server import run_mcp_server
+    except ImportError as exc:
+        if exc.name not in {"fastmcp", "mcp", "pydantic"}:
+            raise
+        click.echo(
+            "MCP support is not installed. Install it with: pip install 'patchright-cli[mcp]'",
+            err=True,
+        )
+        raise SystemExit(1) from exc
+
+    run_mcp_server(http=options.http, host=options.host, port=options.port)
 
 
 _VERSION_CHECK_INTERVAL = 24 * 60 * 60
@@ -510,6 +541,7 @@ COMMANDS_HELP = {
     "codegen-stop": "codegen-stop [file]   Stop recording and save script",
     # Setup
     "install": "install --skills      Install skill files for AI agents",
+    "mcp": "mcp [--http] [--host=HOST] [--port=N]  Start MCP server (stdio by default)",
 }
 
 ALL_COMMANDS = list(COMMANDS_HELP.keys())
@@ -616,7 +648,7 @@ def _print_help():
         ("Profiles", ["profile-list", "profile-delete"]),
         ("Dashboard", ["show"]),
         ("Codegen", ["codegen", "codegen-stop"]),
-        ("Setup", ["install"]),
+        ("Setup", ["install", "mcp"]),
     ]
     for cat_name, cmds in categories:
         click.echo(f"\n  {cat_name}:")
@@ -629,6 +661,13 @@ def main():
     """Entry point for the CLI."""
     _soften_output_encoding(sys.stdout, sys.stderr)
     argv = sys.argv[1:]
+
+    # MCP is a self-contained subcommand with its own transport options.
+    # Dispatch it before global option parsing so `patchright-cli mcp --help`
+    # shows MCP help rather than the top-level CLI help.
+    if argv and argv[0] == "mcp":
+        _handle_mcp(argv[1:])
+        return
 
     # Parse global options manually (before the command)
     headless = False
@@ -777,6 +816,10 @@ def main():
 
     if command == "install":
         _handle_install(args + [k if v is True else f"{k}={v}" for k, v in extra_opts.items()])
+        sys.exit(0)
+
+    if command == "mcp":
+        _handle_mcp(args)
         sys.exit(0)
 
     _warn_stale_skills()
