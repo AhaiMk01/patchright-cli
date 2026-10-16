@@ -32,10 +32,11 @@ jobs:
       - name: Set Docker image tags
         id: tags
         shell: bash
+        env:
+          VERSION_TAG: ${{ inputs.tag }}
         run: |
           REPOSITORY="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           IMAGE_NAME="ghcr.io/${REPOSITORY}"
-          VERSION_TAG="${{ inputs.tag }}"
 
           {
             echo "tags<<EOF"
