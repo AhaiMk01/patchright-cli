@@ -6,21 +6,21 @@ services:
     ports:
       - "127.0.0.1:9090:9090"
     environment:
-      PATCHRIGHT_CLI_MODE: mcp-http # comment out to run patchright-cli without the mcp server. can be mcp-http, mcp-stdio
+      PATCHRIGHT_CLI_MODE: mcp-http
       PATCHRIGHT_CLI_MCP_HEADLESS: "1"
       PATCHRIGHT_CLI_MCP_ROOT: /patchright
-      # Recommended when exposing the MCP endpoint beyond a trusted local network.
-      # PATCHRIGHT_CLI_MCP_TOKEN: "replace-with-a-long-random-token"
+      # Required. Inside the container the server binds 0.0.0.0, which turns off
+      # FastMCP's Host-header check, so the token is the only thing guarding the browser.
+      PATCHRIGHT_CLI_MCP_TOKEN: ${PATCHRIGHT_CLI_MCP_TOKEN:?set PATCHRIGHT_CLI_MCP_TOKEN to a long random string}
       # Set to 1 only if you intentionally want MCP tools to access paths
       # outside PATCHRIGHT_CLI_MCP_ROOT.
       # PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESYSTEM: "1"
       # PATCHRIGHT_CLI_MCP_PORT: "9090"
     volumes:
-      # Files made available to MCP tools, plus generated output.
-      - patchright:/patchright
+      # Files made available to MCP tools, plus generated output under ./patchright/output.
+      - ./patchright:/patchright
       # Persist named browser profiles and login state across container updates.
       - patchright-profiles:/root/.patchright-cli
 
 volumes:
-  patchright:
   patchright-profiles:
