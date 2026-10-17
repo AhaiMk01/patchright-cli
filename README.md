@@ -108,11 +108,13 @@ uv run patchright-cli snapshot
 uv run patchright-cli close
 ```
 
-For MCP over stdio, set `PATCHRIGHT_CLI_MODE=mcp-stdio` and keep stdin attached:
+For MCP over stdio, set `PATCHRIGHT_CLI_MODE=mcp-stdio` and keep stdin attached. The volumes keep logins and output after the container exits:
 
 ```bash
 docker run --rm -i \
   -e PATCHRIGHT_CLI_MODE=mcp-stdio \
+  -v ./patchright:/patchright \
+  -v patchright-profiles:/root/.patchright-cli \
   ghcr.io/ahaimk01/patchright-cli:latest
 ```
 
@@ -129,15 +131,15 @@ docker run -d \
   ghcr.io/ahaimk01/patchright-cli:latest
 ```
 
-The HTTP MCP endpoint is then available at `http://localhost:9090/mcp`. The image defaults to headless mode and uses `/patchright` as the MCP filesystem root.
+The HTTP MCP endpoint is then available at `http://localhost:9090/mcp`. The MCP server defaults to headless mode in the image and uses `/patchright` as its filesystem root. CLI commands inside the container still need `--headless`, since there is no display.
 
-An example `compose.yml` is included in the repository:
+An example `compose.yml` is included in the repository. It requires a token:
 
 ```bash
-docker compose up -d
+PATCHRIGHT_CLI_MCP_TOKEN=replace-with-a-long-random-token docker compose up -d
 ```
 
-Both examples publish the MCP port on `127.0.0.1` only. Set `PATCHRIGHT_CLI_MCP_TOKEN` before publishing it on other interfaces, since the endpoint gives full control of the browser and its saved logins.
+Always set `PATCHRIGHT_CLI_MCP_TOKEN` for the HTTP server in Docker, even though both examples publish the port on `127.0.0.1` only. The server binds `0.0.0.0` inside the container, which turns off FastMCP's Host-header check, and the endpoint gives full control of the browser and its saved logins.
 
 ---
 

@@ -54,5 +54,11 @@ jobs:
           headers=(-H "Content-Type: application/json" -H "Accept: application/json, text/event-stream")
           test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -d "$init" http://localhost:9090/mcp)" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -H "Authorization: Bearer ci-token" -d "$init" http://localhost:9090/mcp)" = 200
+      - name: compose.yml requires a token
+        run: |
+          if docker compose config -q 2>/dev/null; then echo "compose started without a token" >&2; exit 1; fi
+          PATCHRIGHT_CLI_MCP_TOKEN=ci-token docker compose config -q
       - if: failure()
-        run: docker logs mcp || true
+        run: |
+          docker logs cli || true
+          docker logs mcp || true
