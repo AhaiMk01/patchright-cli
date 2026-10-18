@@ -417,6 +417,8 @@ patchright-cli mcp --http --host=127.0.0.1 --port=8000
 
 The HTTP endpoint is `/mcp`. Set `PATCHRIGHT_CLI_MCP_TOKEN` to require `Authorization: Bearer <token>` on every request, and always set it before binding to `0.0.0.0`.
 
+FastMCP's Host and Origin checks are off by default, so binding to `127.0.0.1` alone does not stop a web page from reaching a server without a token through DNS rebinding. Set `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` to accept only requests addressed to `localhost`, `127.0.0.1` or `::1` (421 otherwise) and reject foreign `Origin` headers (403). To allow another hostname or IP, list it as a JSON array, for example `FASTMCP_HTTP_ALLOWED_HOSTS='["mcp.lan"]'`.
+
 One token covers one trust domain. Any client holding it can open, read or close any session by name, and `patchright_kill_all` closes them all. Clients that must not reach each other's browsers need separate servers, each with its own token. Two servers on one host share the daemon unless their `PATCHRIGHT_CLI_MCP_DAEMON_PORT` values differ, and they always share saved profiles in `~/.patchright-cli/profiles`. For full separation, run each server in its own container or as a different OS user.
 
 File paths passed to MCP tools (uploads, state and cookie files, screenshot/PDF/snapshot output, profile directories) must be absolute and beneath the MCP root, so a client cannot reach arbitrary host files. Outputs without a path land in `<root>/output/`, which `browser_delete_output` can clean up. `patchright_eval` and `patchright_run_code` still run arbitrary JavaScript in the page, so protect HTTP deployments regardless.
@@ -428,6 +430,8 @@ File paths passed to MCP tools (uploads, state and cookie files, screenshot/PDF/
 | `PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESYSTEM` | unset | `1` drops the path check and enables `patchright_install_skills` |
 | `PATCHRIGHT_CLI_MCP_HEADLESS` | unset (headed) | `1` makes `patchright_open` default to headless, for hosts without a display |
 | `PATCHRIGHT_CLI_MCP_DAEMON_PORT` | `9321` | Daemon port the tools talk to |
+| `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION` | unset (off) | `true` rejects requests whose Host is not loopback or allowed, and foreign Origins |
+| `FASTMCP_HTTP_ALLOWED_HOSTS` | unset | JSON array of extra hostnames the Host check accepts |
 
 ### Skill docs
 
