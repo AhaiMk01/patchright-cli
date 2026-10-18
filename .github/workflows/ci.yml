@@ -54,11 +54,20 @@ jobs:
           headers=(-H "Content-Type: application/json" -H "Accept: application/json, text/event-stream")
           test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -d "$init" http://localhost:9090/mcp)" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -H "Authorization: Bearer ci-token" -d "$init" http://localhost:9090/mcp)" = 200
-      - name: compose.yml requires a token
+          test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -H "Authorization: Bearer ci-token" -H "Host: evil.example:9090" -d "$init" http://localhost:9090/mcp)" = 421
+          test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -H "Authorization: Bearer ci-token" -H "Origin: http://evil.example" -d "$init" http://localhost:9090/mcp)" = 403
+      - name: MCP over HTTP without a token
         run: |
-          if docker compose config -q 2>/dev/null; then echo "compose started without a token" >&2; exit 1; fi
-          PATCHRIGHT_CLI_MCP_TOKEN=ci-token docker compose config -q
+          docker run -d --name mcp-open -p 9091:9090 -e PATCHRIGHT_CLI_MODE=mcp-http patchright-cli:ci
+          for _ in $(seq 30); do curl -s -o /dev/null http://localhost:9091/mcp && break; sleep 1; done
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}'
+          headers=(-H "Content-Type: application/json" -H "Accept: application/json, text/event-stream")
+          test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -d "$init" http://localhost:9091/mcp)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -H "Host: evil.example:9091" -d "$init" http://localhost:9091/mcp)" = 421
+      - name: compose.yml works without a token
+        run: docker compose config -q
       - if: failure()
         run: |
           docker logs cli || true
           docker logs mcp || true
+          docker logs mcp-open || true

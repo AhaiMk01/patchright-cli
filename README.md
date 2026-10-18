@@ -133,13 +133,13 @@ docker run -d \
 
 The HTTP MCP endpoint is then available at `http://localhost:9090/mcp`. The MCP server defaults to headless mode in the image and uses `/patchright` as its filesystem root. CLI commands inside the container still need `--headless`, since there is no display.
 
-An example `compose.yml` is included in the repository. It requires a token:
+An example `compose.yml` is included in the repository:
 
 ```bash
 PATCHRIGHT_CLI_MCP_TOKEN=replace-with-a-long-random-token docker compose up -d
 ```
 
-Always set `PATCHRIGHT_CLI_MCP_TOKEN` for the HTTP server in Docker, even though both examples publish the port on `127.0.0.1` only. The server binds `0.0.0.0` inside the container, which turns off FastMCP's Host-header check, and the endpoint gives full control of the browser and its saved logins.
+The token is optional. Leave it out if your MCP client can't send an `Authorization` header. Both examples publish the port on `127.0.0.1` only, and the image turns on FastMCP's Host and Origin checks (`FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true`). With those checks on, a web page can't reach the server through DNS rebinding. Requests must be addressed to `localhost`, `127.0.0.1` or `::1`. To reach the server by another hostname or IP, such as a LAN address or a Compose service name, list it as a JSON array, for example `-e FASTMCP_HTTP_ALLOWED_HOSTS='["patchright-mcp", "192.168.1.20"]'`. If you publish the port beyond loopback, set a token: the endpoint gives full control of the browser and its saved logins.
 
 ---
 

@@ -9,9 +9,12 @@ services:
       PATCHRIGHT_CLI_MODE: mcp-http
       PATCHRIGHT_CLI_MCP_HEADLESS: "1"
       PATCHRIGHT_CLI_MCP_ROOT: /patchright
-      # Required. Inside the container the server binds 0.0.0.0, which turns off
-      # FastMCP's Host-header check, so the token is the only thing guarding the browser.
-      PATCHRIGHT_CLI_MCP_TOKEN: ${PATCHRIGHT_CLI_MCP_TOKEN:?set PATCHRIGHT_CLI_MCP_TOKEN to a long random string}
+      # Optional bearer token. Leave unset if your MCP client can't send an
+      # Authorization header.
+      PATCHRIGHT_CLI_MCP_TOKEN: ${PATCHRIGHT_CLI_MCP_TOKEN:-}
+      # The image only accepts requests addressed to localhost, 127.0.0.1 or ::1.
+      # To reach the server by another name or IP, list it here as a JSON array.
+      # FASTMCP_HTTP_ALLOWED_HOSTS: '["patchright-mcp", "192.168.1.20"]'
       # Set to 1 only if you intentionally want MCP tools to access paths
       # outside PATCHRIGHT_CLI_MCP_ROOT.
       # PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESYSTEM: "1"
