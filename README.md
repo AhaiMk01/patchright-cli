@@ -139,7 +139,7 @@ An example `compose.yml` is included in the repository:
 PATCHRIGHT_CLI_MCP_TOKEN=replace-with-a-long-random-token docker compose up -d
 ```
 
-The token is optional. Leave it out if your MCP client can't send an `Authorization` header. Both examples publish the port on `127.0.0.1` only, and the image turns on FastMCP's Host and Origin checks (`FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true`). With those checks on, a web page can't reach the server through DNS rebinding. Requests must be addressed to `localhost`, `127.0.0.1` or `::1`. To reach the server by another hostname or IP, such as a LAN address or a Compose service name, list it as a JSON array, for example `-e FASTMCP_HTTP_ALLOWED_HOSTS='["patchright-mcp", "192.168.1.20"]'`. If you publish the port beyond loopback, set a token: the endpoint gives full control of the browser and its saved logins.
+The token is optional. Leave it out if your MCP client can't send an `Authorization` header. Both examples publish the port on `127.0.0.1` only, but that alone doesn't stop a web page in your browser from reaching the server through DNS rebinding. Without a token, consider turning on FastMCP's Host and Origin checks with `-e FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` (off by default). Requests must then be addressed to `localhost`, `127.0.0.1` or `::1`. To reach the server by another hostname or IP, such as a LAN address or a Compose service name, list it as a JSON array, for example `-e FASTMCP_HTTP_ALLOWED_HOSTS='["patchright-mcp", "192.168.1.20"]'`. If you publish the port beyond loopback, set a token: the endpoint gives full control of the browser and its saved logins.
 
 ---
 
