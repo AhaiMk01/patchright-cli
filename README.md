@@ -108,11 +108,13 @@ uv run patchright-cli snapshot
 uv run patchright-cli close
 ```
 
-For MCP over stdio, set `PATCHRIGHT_CLI_MODE=mcp-stdio` and keep stdin attached:
+For MCP over stdio, set `PATCHRIGHT_CLI_MODE=mcp-stdio` and keep stdin attached. The volumes keep logins and output after the container exits:
 
 ```bash
 docker run --rm -i \
   -e PATCHRIGHT_CLI_MODE=mcp-stdio \
+  -v ./patchright:/patchright \
+  -v patchright-profiles:/root/.patchright-cli \
   ghcr.io/ahaimk01/patchright-cli:latest
 ```
 
@@ -129,15 +131,15 @@ docker run -d \
   ghcr.io/ahaimk01/patchright-cli:latest
 ```
 
-The HTTP MCP endpoint is then available at `http://localhost:9090/mcp`. The image defaults to headless mode and uses `/patchright` as the MCP filesystem root.
+The HTTP MCP endpoint is then available at `http://localhost:9090/mcp`. The MCP server defaults to headless mode in the image and uses `/patchright` as its filesystem root. CLI commands inside the container still need `--headless`, since there is no display.
 
 An example `compose.yml` is included in the repository:
 
 ```bash
-docker compose up -d
+PATCHRIGHT_CLI_MCP_TOKEN=replace-with-a-long-random-token docker compose up -d
 ```
 
-Both examples publish the MCP port on `127.0.0.1` only. Set `PATCHRIGHT_CLI_MCP_TOKEN` before publishing it on other interfaces, since the endpoint gives full control of the browser and its saved logins.
+The token is optional. Leave it out if your MCP client can't send an `Authorization` header. Both examples publish the port on `127.0.0.1` only, but that alone doesn't stop a web page in your browser from reaching the server through DNS rebinding. Without a token, consider turning on FastMCP's Host and Origin checks with `-e FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` (off by default). Requests must then be addressed to `localhost`, `127.0.0.1` or `::1`. To reach the server by another hostname or IP, such as a LAN address or a Compose service name, list it as a JSON array, for example `-e FASTMCP_HTTP_ALLOWED_HOSTS='["patchright-mcp", "192.168.1.20"]'`. If you publish the port beyond loopback, set a token: the endpoint gives full control of the browser and its saved logins.
 
 ---
 

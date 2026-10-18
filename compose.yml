@@ -6,21 +6,26 @@ services:
     ports:
       - "127.0.0.1:9090:9090"
     environment:
-      PATCHRIGHT_CLI_MODE: mcp-http # comment out to run patchright-cli without the mcp server. can be mcp-http, mcp-stdio
+      PATCHRIGHT_CLI_MODE: mcp-http
       PATCHRIGHT_CLI_MCP_HEADLESS: "1"
       PATCHRIGHT_CLI_MCP_ROOT: /patchright
-      # Recommended when exposing the MCP endpoint beyond a trusted local network.
-      # PATCHRIGHT_CLI_MCP_TOKEN: "replace-with-a-long-random-token"
+      # Optional bearer token. Leave unset if your MCP client can't send an
+      # Authorization header.
+      PATCHRIGHT_CLI_MCP_TOKEN: ${PATCHRIGHT_CLI_MCP_TOKEN:-}
+      # Optional Host/Origin checks against DNS rebinding (off by default). When on,
+      # only requests addressed to localhost, 127.0.0.1 or ::1 are accepted; list any
+      # other name or IP (such as this service's name) as a JSON array.
+      # FASTMCP_HTTP_HOST_ORIGIN_PROTECTION: "true"
+      # FASTMCP_HTTP_ALLOWED_HOSTS: '["patchright-mcp", "192.168.1.20"]'
       # Set to 1 only if you intentionally want MCP tools to access paths
       # outside PATCHRIGHT_CLI_MCP_ROOT.
       # PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESYSTEM: "1"
       # PATCHRIGHT_CLI_MCP_PORT: "9090"
     volumes:
-      # Files made available to MCP tools, plus generated output.
-      - patchright:/patchright
+      # Files made available to MCP tools, plus generated output under ./patchright/output.
+      - ./patchright:/patchright
       # Persist named browser profiles and login state across container updates.
       - patchright-profiles:/root/.patchright-cli
 
 volumes:
-  patchright:
   patchright-profiles:

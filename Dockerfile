@@ -13,14 +13,16 @@ RUN apt-get update \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --extra mcp --no-dev
+
+RUN uv run --no-sync python -m patchright install --with-deps chrome \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY README.md LICENSE ./
 COPY src ./src
 COPY skills ./skills
-
 RUN uv sync --frozen --extra mcp --no-dev
-
-RUN uv run python -m patchright install --with-deps chrome \
-    && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /patchright/output /root/.patchright-cli
 
