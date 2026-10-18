@@ -417,6 +417,8 @@ patchright-cli mcp --http --host=127.0.0.1 --port=8000
 
 The HTTP endpoint is `/mcp`. Set `PATCHRIGHT_CLI_MCP_TOKEN` to require `Authorization: Bearer <token>` on every request, and always set it before binding to `0.0.0.0`.
 
+One token covers one trust domain. Any client holding it can open, read or close any session by name, and `patchright_kill_all` closes them all. Clients that must not reach each other's browsers need separate servers, each with its own token. Two servers on one host share the daemon unless their `PATCHRIGHT_CLI_MCP_DAEMON_PORT` values differ, and they always share saved profiles in `~/.patchright-cli/profiles`. For full separation, run each server in its own container or as a different OS user.
+
 File paths passed to MCP tools (uploads, state and cookie files, screenshot/PDF/snapshot output, profile directories) must be absolute and beneath the MCP root, so a client cannot reach arbitrary host files. Outputs without a path land in `<root>/output/`, which `browser_delete_output` can clean up. `patchright_eval` and `patchright_run_code` still run arbitrary JavaScript in the page, so protect HTTP deployments regardless.
 
 | Variable | Default | Effect |
