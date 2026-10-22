@@ -51,6 +51,7 @@ packages = ["src/patchright_cli"]
 asyncio_mode = "auto"
 markers = [
     "e2e: marks tests that launch a real browser",
+    "docker: marks tests that run the built Docker image (set PATCHRIGHT_CLI_DOCKER_IMAGE)",
 ]
 
 [project.optional-dependencies]

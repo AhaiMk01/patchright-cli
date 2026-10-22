@@ -35,6 +35,10 @@ pytest tests/ -v --ignore=tests/test_e2e.py
 # E2E tests (requires Chrome)
 pytest tests/test_e2e.py -v
 
+# Docker image tests (skipped unless PATCHRIGHT_CLI_DOCKER_IMAGE is set; CI runs them in docker.yml)
+docker build -t patchright-cli:test .
+PATCHRIGHT_CLI_DOCKER_IMAGE=patchright-cli:test pytest tests/test_docker.py -v
+
 # Lint
 pre-commit run --all-files
 ```

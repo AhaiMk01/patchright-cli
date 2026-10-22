@@ -367,6 +367,22 @@ File paths passed to MCP tools (uploads, state and cookie files, screenshot/PDF/
 | `PATCHRIGHT_CLI_MCP_HEADLESS` | unset (headed) | `1` makes `patchright_open` default to headless, for hosts without a display |
 | `PATCHRIGHT_CLI_MCP_DAEMON_PORT` | `9321` | Daemon port the tools talk to |
 
+### Docker
+
+The image runs the MCP server over HTTP with real Google Chrome, headed inside Xvfb (linux/amd64 only, since Chrome has no Linux arm64 build):
+
+```bash
+docker run --rm -p 8000:8000 --shm-size=1g \
+  -e PATCHRIGHT_CLI_MCP_TOKEN=change-me \
+  -v patchright-data:/data \
+  -v patchright-profiles:/home/app/.patchright-cli \
+  ghcr.io/ahaimk01/patchright-cli
+```
+
+Point your MCP client at `http://localhost:8000/mcp` with `Authorization: Bearer change-me`. `/data` is the MCP root, so tool paths look like `/data/shot.png`; the profiles volume keeps cookies and logins across restarts. `--shm-size=1g` stops Chrome crashing on the 64 MB default `/dev/shm`.
+
+Arguments replace the default `mcp --http ...` command, e.g. `docker run --rm ghcr.io/ahaimk01/patchright-cli --version`; for a multi-step CLI session, run `docker exec <container> patchright-cli <command>` against a running container, which shares its virtual display. Set `XVFB=0` to skip the virtual display (then use `--headless` or pass your own `DISPLAY`) and `XVFB_SCREEN` (default `1920x1080x24`) to change its size.
+
 ### Skill docs
 
 | File | Topic |
