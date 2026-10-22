@@ -78,6 +78,16 @@ jobs:
           grep -q "refusing to start \`mcp --http\`" unprotected.log
       - name: compose.yml works without a token
         run: docker compose config -q
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.7,<0.8"
+          python-version: "3.12"
+      - name: Image test suite
+        run: |
+          uv venv && uv pip install -e ".[dev]"
+          uv run pytest tests/test_docker.py -v
+        env:
+          PATCHRIGHT_CLI_DOCKER_IMAGE: patchright-cli:ci
       - if: failure()
         run: |
           docker logs cli || true
