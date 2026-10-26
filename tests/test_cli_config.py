@@ -628,3 +628,21 @@ def test_host_attach_still_passes_explicit_emulation_flags(monkeypatch):
 def test_isolated_attach_keeps_emulation_defaults_from_config(monkeypatch):
     seen = _captured_options(["attach", "--cdp=http://x"], monkeypatch, config={"locale": "de-DE"})
     assert seen["options"]["locale"] == "de-DE"
+
+
+def test_double_dash_ends_options(monkeypatch):
+    """After `--`, flag-shaped text is data: eval must not read --file, fill must not go headless."""
+    seen = _captured_options(["eval", "--", "--file=/etc/passwd"], monkeypatch)
+    assert seen["command"] == "eval"
+    assert seen["args"] == ["--file=/etc/passwd"]
+    assert "file" not in seen["options"]
+
+    seen = _captured_options(["fill", "--submit", "--", "e1", "--headless"], monkeypatch)
+    assert seen["args"] == ["e1", "--headless"]
+    assert seen["options"].get("submit") is True
+    assert "headless" not in seen["options"]
+
+
+def test_double_dash_dash_is_not_stdin(monkeypatch):
+    seen = _captured_options(["eval", "--", "-"], monkeypatch)
+    assert seen["args"] == ["-"]

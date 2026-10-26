@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import functools
 import hmac
 import inspect
 import os
@@ -9,6 +10,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlparse
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken, TokenVerifier
@@ -28,6 +30,9 @@ UNRESTRICTED_FILESYSTEM = os.environ.get("PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESY
 OUTPUT_ROOT = (MCP_ROOT / "output").resolve()
 # Headed by default like the CLI; displayless hosts (containers) set this to 1.
 HEADLESS_DEFAULT = os.environ.get("PATCHRIGHT_CLI_MCP_HEADLESS") == "1"
+# Address ranges the browser may not reach: `link-local` keeps clients away from
+# cloud metadata credentials, `private` also from loopback and LAN services.
+BLOCK_NETWORKS = os.environ.get("PATCHRIGHT_CLI_MCP_BLOCK_NETWORKS", "link-local").strip() or "link-local"
 CALLOUT_POSITIONS = {"top-left", "top-right", "bottom-left", "bottom-right"}
 SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -735,6 +740,48 @@ def _validate_cli_path(path: str, *, required: bool = False) -> None:
         raise ValueError(f"Path must be beneath the MCP server working directory: {MCP_ROOT}")
 
 
+def _validate_url(url: str, schemes: tuple[str, ...] = ("http", "https")) -> None:
+    """Keep the browser off file://, chrome:// and the like, which reach past MCP_ROOT."""
+    if not url or url == "about:blank":
+        return
+    scheme = urlparse(url).scheme.lower()
+    if scheme in schemes or (scheme == "file" and UNRESTRICTED_FILESYSTEM):
+        return
+    raise ValueError(f"URL scheme must be one of: {', '.join(schemes)}")
+
+
+class _V(str):
+    """A value from the MCP client. `_run_patchright` passes these after `--`,
+    so a value such as `--file=/etc/passwd` stays data and never becomes a CLI option."""
+
+    def __new__(cls, value: Any) -> "_V":
+        return super().__new__(cls, str(value))
+
+
+def _split_values(args: list[str]) -> list[str]:
+    """Move client values after `--`, keeping their order and the order of our own flags."""
+    values = [a for a in args if isinstance(a, _V)]
+    flags = [a for a in args if not isinstance(a, _V)]
+    return [*flags, "--", *values] if values else flags
+
+
+@functools.cache
+def _empty_config() -> str:
+    """A CLI config file only this server can write.
+
+    The CLI runs from OUTPUT_ROOT and would otherwise load
+    `.patchright-cli/config.json` from there, a path clients can write to
+    through state-save or cookie-export.
+    """
+    path = Path(tempfile.mkdtemp(prefix="patchright-mcp-")) / "config.json"
+    path.write_text("{}", encoding="utf-8")
+    return str(path)
+
+
+def _block_networks_args() -> list[str]:
+    return [] if BLOCK_NETWORKS == "none" else [f"--block-networks={BLOCK_NETWORKS}"]
+
+
 def _decode_b64(value: str, name: str) -> str:
     if not value:
         return ""
@@ -755,13 +802,15 @@ async def _run_patchright(
 
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    command = [*CLI, f"--port={DAEMON_PORT}"]
+    command = [*CLI, f"--port={DAEMON_PORT}", f"--config={_empty_config()}"]
     if session is not None:
         command.append(f"-s={session}")
-    command.extend(args)
+    command.extend(_split_values(args))
 
     process = await asyncio.create_subprocess_exec(
         *command,
+        # The CLI must never read the MCP server's stdin, which is the stdio transport.
+        stdin=asyncio.subprocess.DEVNULL,
         cwd=OUTPUT_ROOT,
         # A piped child writes in the locale code page (cp936, cp1252 on Windows); pin it to match the decode below.
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
@@ -827,18 +876,23 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         ]:
             if p[key]:
                 args.append(f"--{flag}={p[key]}")
+        # After the command name: the CLI reads a leading unknown flag as the command.
         args.append("open")
+        args += _block_networks_args()
         if p["url"]:
-            args.append(p["url"])
+            _validate_url(p["url"])
+            args.append(_V(p["url"]))
         return args
 
     if name == "patchright_attach":
         if p["context"] not in {"new", "host"}:
             raise ValueError("context must be 'new' or 'host'")
+        _validate_url(p["cdp_url"], ("http", "https", "ws", "wss"))
         args = ["attach"]
         if p["headless"]:
             args.append("--headless")
         args += [f"--cdp={p['cdp_url']}", f"--cdp-timeout={p['cdp_timeout']}", f"--context={p['context']}"]
+        args += _block_networks_args()
         return args
 
     # Straightforward commands
@@ -901,7 +955,9 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         cmd, keys = simple[name]
         if name in {"patchright_state_load", "patchright_cookie_import"}:
             _validate_cli_path(p["path"], required=True)
-        args = [cmd, *[str(p[k]) for k in keys]]
+        if name == "patchright_goto":
+            _validate_url(p["url"])
+        args = [cmd, *[_V(p[k]) for k in keys]]
         if name == "patchright_wait_for":
             if p["state"] not in {"attached", "detached", "visible", "hidden"}:
                 raise ValueError("state must be attached, detached, visible or hidden")
@@ -911,37 +967,37 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name in {"patchright_click", "patchright_dblclick"}:
         if p["button"] not in {"left", "right", "middle"}:
             raise ValueError("button must be left, right or middle")
-        args = [name.removeprefix("patchright_"), p["ref"], p["button"]]
+        args = [name.removeprefix("patchright_"), _V(p["ref"]), _V(p["button"])]
         if p["modifiers"]:
             args.append(f"--modifiers={p['modifiers']}")
         return args
 
     if name == "patchright_fill":
-        args = ["fill", p["ref"], p["value"]]
+        args = ["fill", _V(p["ref"]), _V(p["value"])]
         if p["submit"]:
             args.append("--submit")
         return args
 
     if name == "patchright_type":
-        args = ["type", p["text"]]
+        args = ["type", _V(p["text"])]
         if p["submit"]:
             args.append("--submit")
         return args
 
     if name == "patchright_eval":
-        args = ["eval", p["code"]]
+        args = ["eval", _V(p["code"])]
         if p["ref"]:
-            args.append(p["ref"])
+            args.append(_V(p["ref"]))
         return args
 
     if name == "patchright_run_code":
-        return ["run-code", p["code"]]
+        return ["run-code", _V(p["code"])]
 
     if name == "patchright_snapshot":
         _validate_cli_path(p["filename"])
         args = ["snapshot"]
         if p["ref"]:
-            args.append(p["ref"])
+            args.append(_V(p["ref"]))
         if p["filename"]:
             args.append(f"--filename={p['filename']}")
         if p["depth"] != 0:
@@ -955,7 +1011,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name == "patchright_find":
         if p["limit"] < 1:
             raise ValueError("limit must be at least 1")
-        args = ["find", p["text"], f"--limit={p['limit']}"]
+        args = ["find", _V(p["text"]), f"--limit={p['limit']}"]
         if p["regex"]:
             args.append("--regex")
         if p["all"]:
@@ -974,7 +1030,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
             _validate_cli_path(p["filename"])
         args = ["screenshot"]
         if p["ref"]:
-            args.append(p["ref"])
+            args.append(_V(p["ref"]))
         if p["full_page"]:
             args.append("--full-page")
         if p["filename"]:
@@ -986,7 +1042,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name == "patchright_drop":
         if not p["path"] and not p["data"]:
             raise ValueError("Either path or data is required")
-        args = ["drop", p["ref"]]
+        args = ["drop", _V(p["ref"])]
         if p["path"]:
             _validate_cli_path(p["path"])
             args.append(f"--path={p['path']}")
@@ -995,49 +1051,50 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         return args
 
     if name in {"patchright_mousemove", "patchright_mousewheel", "patchright_scroll"}:
-        return [name.removeprefix("patchright_").replace("_", "-"), str(p["x"]), str(p["y"])]
+        return [name.removeprefix("patchright_").replace("_", "-"), _V(p["x"]), _V(p["y"])]
 
     if name == "patchright_wait":
         args = ["wait"]
         if p["url_pattern"]:
             args.append(f"--url={p['url_pattern']}")
         else:
-            args.append(str(p["milliseconds"]))
+            args.append(_V(p["milliseconds"]))
         return args
 
     if name == "patchright_tab_new":
         args = ["tab-new"]
         if p["url"]:
-            args.append(p["url"])
+            _validate_url(p["url"])
+            args.append(_V(p["url"]))
         return args
 
     if name in {"patchright_tab_close", "patchright_tab_select"}:
         args = ["tab-close" if name.endswith("close") else "tab-select"]
         if p["index"] >= 0:
-            args.append(str(p["index"]))
+            args.append(_V(p["index"]))
         return args
 
     if name == "patchright_dialog_accept":
         args = ["dialog-accept"]
         if p["text"]:
-            args.append(p["text"])
+            args.append(_V(p["text"]))
         return args
 
     if name == "patchright_upload":
         _validate_cli_path(p["path"], required=True)
-        args = ["upload", p["path"]]
+        args = ["upload", _V(p["path"])]
         if p["ref"]:
-            args.append(p["ref"])
+            args.append(_V(p["ref"]))
         return args
 
     if name == "patchright_resize":
-        return ["resize", str(p["width"]), str(p["height"])]
+        return ["resize", _V(p["width"]), _V(p["height"])]
 
     if name == "patchright_state_save":
         args = ["state-save"]
         if p["path"]:
             _validate_cli_path(p["path"])
-            args.append(p["path"])
+            args.append(_V(p["path"]))
         return args
 
     if name == "patchright_cookie_list":
@@ -1051,7 +1108,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name == "patchright_cookie_set":
         if p["same_site"] not in {"Strict", "Lax", "None"}:
             raise ValueError("same_site must be Strict, Lax or None")
-        args = ["cookie-set", p["name"], p["value"]]
+        args = ["cookie-set", _V(p["name"]), _V(p["value"])]
         if p["domain"]:
             args.append(f"--domain={p['domain']}")
         if p["path"]:
@@ -1069,11 +1126,11 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         args = ["cookie-export"]
         if p["path"]:
             _validate_cli_path(p["path"])
-            args.append(p["path"])
+            args.append(_V(p["path"]))
         return args
 
     if name == "patchright_grant_permissions":
-        args = ["grant-permissions", p["permissions"]]
+        args = ["grant-permissions", _V(p["permissions"])]
         if p["origin"]:
             args.append(f"--origin={p['origin']}")
         return args
@@ -1081,7 +1138,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name == "patchright_route":
         if not 100 <= p["status"] <= 599:
             raise ValueError("status must be between 100 and 599")
-        args = ["route", p["pattern"], f"--status={p['status']}"]
+        args = ["route", _V(p["pattern"]), f"--status={p['status']}"]
         if p["body_b64"]:
             args.append(f"--body={_decode_b64(p['body_b64'], 'body_b64')}")
         if p["content_type"]:
@@ -1095,7 +1152,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name == "patchright_unroute":
         args = ["unroute"]
         if p["pattern"]:
-            args.append(p["pattern"])
+            args.append(_V(p["pattern"]))
         return args
 
     if name == "patchright_video_stop":
@@ -1117,7 +1174,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name == "patchright_console":
         args = ["console"]
         if p["level"]:
-            args.append(p["level"])
+            args.append(_V(p["level"]))
         if p["clear"]:
             args.append("--clear")
         return args
@@ -1131,13 +1188,13 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         return args
 
     if name == "patchright_request":
-        args = ["request", str(p["id"])]
+        args = ["request", _V(p["id"])]
         if p["include_body"]:
             args.append("--body")
         return args
 
     if name == "patchright_highlight":
-        args = ["highlight", p["ref"]]
+        args = ["highlight", _V(p["ref"])]
         if p["style"]:
             args.append(f"--style={p['style']}")
         if p["hide"]:
@@ -1154,7 +1211,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         args = ["codegen-stop"]
         if p["filename"]:
             _validate_cli_path(p["filename"])
-            args.append(p["filename"])
+            args.append(_V(p["filename"]))
         return args
 
     if name == "patchright_install_skills":
