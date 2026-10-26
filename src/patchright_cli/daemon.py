@@ -24,7 +24,7 @@ import traceback
 import weakref
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from patchright_cli.ref_registry import RefRegistry, render_hits
 from patchright_cli.snapshot import save_snapshot, take_snapshot
@@ -651,6 +651,66 @@ BLOCK_NETWORK_MODES = ("none", "link-local", "private")
 # How long a resolved host keeps its verdict; glibc does not cache lookups.
 _GUARD_TTL = 60.0
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
+# Schemes whose URLs Chrome parses with the WHATWG "special" rules.
+_SPECIAL_SCHEMES = frozenset({"http", "https", "ws", "wss", "ftp", "file"})
+_IPV4_PART = {16: re.compile(r"[0-9a-f]*"), 8: re.compile(r"[0-7]*"), 10: re.compile(r"[0-9]+")}
+
+
+def _whatwg_ipv4(host: str) -> str | None:
+    """Dotted form of `host` when Chrome reads it as IPv4: 0xA9FEA9FE, 2852039166, 0251.0376.43518."""
+    parts = host.split(".")
+    if parts[-1] == "" and len(parts) > 1:
+        parts.pop()
+    if not 1 <= len(parts) <= 4:
+        return None
+    numbers = []
+    for part in parts:
+        if part.startswith("0x"):
+            base, digits = 16, part[2:]
+        elif len(part) > 1 and part.startswith("0"):
+            base, digits = 8, part[1:]
+        else:
+            base, digits = 10, part
+        if not _IPV4_PART[base].fullmatch(digits):
+            return None
+        numbers.append(int(digits or "0", base))
+    if any(n > 255 for n in numbers[:-1]) or numbers[-1] >= 256 ** (5 - len(numbers)):
+        return None
+    value = numbers[-1]
+    for i, n in enumerate(numbers[:-1]):
+        value += n << (8 * (3 - i))
+    return str(ipaddress.IPv4Address(value))
+
+
+def _browser_host(url: str) -> str | None:
+    """The host Chrome will connect to for `url`.
+
+    `urlparse` disagrees with Chrome's WHATWG parser on exactly the spellings
+    that matter here: `http://169.254.169.254\\@example.com/` (Chrome reads the
+    backslash as a slash), `http:169.254.169.254` (no slashes needed),
+    percent-escaped and full-width hosts, and numeric IPv4 forms.
+    """
+    url = re.sub(r"[\t\n\r]", "", url.strip("".join(map(chr, range(33)))))
+    match = re.match(r"([A-Za-z][A-Za-z0-9+.-]*):(.*)", url, re.DOTALL)
+    if not match:
+        return None
+    scheme, rest = match.group(1).lower(), match.group(2)
+    if scheme in _SPECIAL_SCHEMES:
+        rest = rest.replace("\\", "/").lstrip("/")
+    elif rest.startswith("//"):
+        rest = rest[2:]
+    else:
+        return None
+    host = re.split(r"[/?#]", rest, maxsplit=1)[0].rpartition("@")[2]
+    if host.startswith("["):
+        return host[1 : host.find("]")].lower() if "]" in host else None
+    host = unquote(host.partition(":")[0])
+    try:
+        host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        pass
+    host = host.lower()
+    return _whatwg_ipv4(host) or host or None
 
 
 def _blocked_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, mode: str) -> bool:
@@ -712,7 +772,7 @@ class NetworkGuard:
 
     async def check_url(self, url: str, what: str) -> None:
         """Raise before connecting anywhere when `url` points into a refused range."""
-        if await self.blocks(urlparse(url).hostname):
+        if await self.blocks(_browser_host(url)):
             raise ValueError(f"{what} {url} is in a network refused by --block-networks={self.mode}.")
 
     def install(self, context) -> None:
@@ -724,9 +784,31 @@ class NetworkGuard:
         context.on("page", watch)
 
     async def _enforce(self, frame) -> None:
-        if await self.blocks(urlparse(frame.url).hostname):
-            with contextlib.suppress(Exception):
+        if await self.blocks(_browser_host(frame.url)):
+            try:
                 await frame.goto("about:blank")
+            except Exception as exc:
+                logger.warning("Could not leave %s, refused by --block-networks=%s: %s", frame.url, self.mode, exc)
+
+
+async def _fetch_cdp_version(cdp_endpoint: str, headers: dict | None, timeout: float = 5) -> dict:
+    """GET `<endpoint>/json/version` without following redirects.
+
+    A redirect could point at a host `--block-networks` refuses, and Chrome's
+    /json/version never redirects.
+    """
+    import urllib.request
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    def fetch() -> dict:
+        request = urllib.request.Request(cdp_endpoint.rstrip("/") + "/json/version", headers=headers or {})
+        with urllib.request.build_opener(_NoRedirect).open(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    return await asyncio.to_thread(fetch)
 
 
 async def _resolve_host_key(cdp_endpoint: str, headers: dict | None) -> str:
@@ -738,27 +820,11 @@ async def _resolve_host_key(cdp_endpoint: str, headers: dict | None) -> str:
     restarted Chrome a new one. Falls back to the endpoint text when the id
     cannot be read.
     """
-    import urllib.request
-
-    class _NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *args, **kwargs):
-            return None
-
     parsed = urlparse(cdp_endpoint)
     ws_path = parsed.path
     if parsed.scheme not in ("ws", "wss"):
-        version_url = cdp_endpoint.rstrip("/") + "/json/version"
-
-        def fetch() -> dict:
-            request = urllib.request.Request(version_url, headers=headers or {})
-            # A redirect could point at a host `--block-networks` refuses, and
-            # Chrome's /json/version never redirects.
-            opener = urllib.request.build_opener(_NoRedirect)
-            with opener.open(request, timeout=5) as response:
-                return json.loads(response.read().decode("utf-8"))
-
         try:
-            ws_path = urlparse((await asyncio.to_thread(fetch))["webSocketDebuggerUrl"]).path
+            ws_path = urlparse((await _fetch_cdp_version(cdp_endpoint, headers))["webSocketDebuggerUrl"]).path
         except Exception:
             ws_path = ""
     if "/devtools/browser/" in ws_path:
@@ -850,7 +916,7 @@ class DaemonState:
             if cdp_endpoint:
                 await guard.check_url(cdp_endpoint, "CDP endpoint")
             if proxy:
-                await guard.check_url(proxy, "Proxy")
+                await guard.check_url(proxy if "://" in proxy else f"http://{proxy}", "Proxy")
             if url:
                 await guard.check_url(url, "URL")
 
@@ -871,9 +937,17 @@ class DaemonState:
                         f"Session '{name}' is already open on profile '{existing.profile.label}'. "
                         f"`close` it first, or use another -s for profile '{profile}'."
                     )
-                if guard is not None and existing.network_guard is None and not existing.uses_host_context:
-                    guard.install(existing.context)
-                    existing.network_guard = guard
+                if guard is not None:
+                    current = existing.network_guard
+                    if current is None:
+                        if not existing.uses_host_context:
+                            guard.install(existing.context)
+                        existing.network_guard = guard
+                    elif current.mode != guard.mode:
+                        raise ValueError(
+                            f"Session '{name}' runs with --block-networks={current.mode}. "
+                            f"`close` it first to use --block-networks={guard.mode}."
+                        )
                 return existing
 
         if self.playwright is None:
@@ -940,8 +1014,14 @@ class DaemonState:
         created_pages: list = []
         try:
             if cdp_endpoint:
+                connect_to = cdp_endpoint
+                if guard is not None and urlparse(cdp_endpoint).scheme in ("http", "https"):
+                    # Playwright would connect wherever /json/version points; check that first.
+                    version = await _fetch_cdp_version(cdp_endpoint, cdp_headers, timeout=cdp_timeout / 1000)
+                    connect_to = version["webSocketDebuggerUrl"]
+                    await guard.check_url(connect_to, "CDP WebSocket")
                 attached_browser = await self.playwright.chromium.connect_over_cdp(
-                    cdp_endpoint, headers=cdp_headers, timeout=cdp_timeout
+                    connect_to, headers=cdp_headers, timeout=cdp_timeout
                 )
                 if use_host:
                     if not attached_browser.contexts:
@@ -978,7 +1058,7 @@ class DaemonState:
             for created in created_pages:
                 session.own_pages.add(created)
             session.attach_notices = notices
-            session.network_guard = None if use_host else guard
+            session.network_guard = guard
             session.profile = chosen
             await session.setup_listeners()
         except BaseException:

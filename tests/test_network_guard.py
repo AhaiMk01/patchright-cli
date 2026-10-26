@@ -87,3 +87,106 @@ async def test_frames_landing_in_a_blocked_range_go_blank():
 
 async def test_none_mode_blocks_nothing():
     assert await NetworkGuard("none").blocks("169.254.169.254") is False
+
+
+BACKSLASH = "\\"
+
+
+@pytest.mark.parametrize(
+    ("url", "host"),
+    [
+        # Spellings where urlparse and Chrome's WHATWG parser disagree.
+        (f"http://169.254.169.254{BACKSLASH}@93.184.215.14/", "169.254.169.254"),
+        ("http://%31%36%39.254.169.254/", "169.254.169.254"),
+        ("http:169.254.169.254", "169.254.169.254"),
+        (f"http:{BACKSLASH}{BACKSLASH}169.254.169.254/", "169.254.169.254"),
+        ("http://169。254。169。254/", "169.254.169.254"),
+        ("http://１６９.254.169.254/", "169.254.169.254"),
+        ("http://0xA9FEA9FE/", "169.254.169.254"),
+        ("http://2852039166/", "169.254.169.254"),
+        ("http://0251.0376.0251.0376/", "169.254.169.254"),
+        ("http://169.254.43518/", "169.254.169.254"),
+        (" http://169.254.169.254/", "169.254.169.254"),
+        # Ordinary URLs keep their host.
+        ("HTTP://user:pw@Example.COM:8080/x", "example.com"),
+        ("http://[::ffff:a9fe:a9fe]:80/", "::ffff:a9fe:a9fe"),
+        ("http://münchen.de/", "xn--mnchen-3ya.de"),
+        ("socks5://10.0.0.1:1080", "10.0.0.1"),
+        ("about:blank", None),
+        ("data:text/html,x", None),
+    ],
+)
+def test_browser_host_matches_chrome(url, host):
+    assert daemon._browser_host(url) == host
+
+
+async def test_check_url_sees_through_parser_tricks():
+    guard = NetworkGuard("link-local")
+    for url in [f"http://169.254.169.254{BACKSLASH}@93.184.215.14/", "http:169.254.169.254", "http://0xA9FEA9FE/"]:
+        with pytest.raises(ValueError, match="refused"):
+            await guard.check_url(url, "URL")
+
+
+async def test_failed_escape_is_logged(caplog):
+    frame = MagicMock(url="http://10.0.0.5/", goto=AsyncMock(side_effect=RuntimeError("navigation interrupted")))
+    await NetworkGuard("private")._enforce(frame)
+    assert "Could not leave http://10.0.0.5/" in caplog.text
+
+
+def _cdp_state(monkeypatch, ws_url, contexts=None):
+    async def version(endpoint, headers, timeout=5):
+        return {"webSocketDebuggerUrl": ws_url}
+
+    async def host_key(endpoint, headers):
+        return endpoint
+
+    monkeypatch.setattr(daemon, "_fetch_cdp_version", version)
+    monkeypatch.setattr(daemon, "_resolve_host_key", host_key)
+    page = MagicMock(url="about:blank", goto=AsyncMock(), close=AsyncMock())
+    page.opener = AsyncMock(return_value=None)
+    context = MagicMock(pages=[page])
+    context.new_cdp_session = AsyncMock(side_effect=RuntimeError("no CDP in unit tests"))
+    context.close = AsyncMock()
+    browser = MagicMock(contexts=contexts if contexts is not None else [context])
+    browser.new_context = AsyncMock(return_value=context)
+    browser.close = AsyncMock()
+    browser.is_connected = MagicMock(return_value=True)
+    state = daemon.DaemonState()
+    state.playwright = MagicMock(devices={})
+    state.playwright.chromium.connect_over_cdp = AsyncMock(return_value=browser)
+    return state, context
+
+
+async def test_guarded_attach_checks_the_discovered_websocket(monkeypatch):
+    state, _ = _cdp_state(monkeypatch, "ws://169.254.169.254/devtools/browser/x")
+    with pytest.raises(ValueError, match="CDP WebSocket"):
+        await state.get_or_create_session("s", cdp_endpoint="http://127.0.0.1:9222", block_networks="link-local")
+    state.playwright.chromium.connect_over_cdp.assert_not_awaited()
+
+
+async def test_guarded_attach_connects_to_the_checked_websocket(monkeypatch):
+    ws = "ws://127.0.0.1:9222/devtools/browser/x"
+    state, _ = _cdp_state(monkeypatch, ws)
+    await state.get_or_create_session("s", cdp_endpoint="http://127.0.0.1:9222", block_networks="link-local")
+    assert state.playwright.chromium.connect_over_cdp.await_args.args[0] == ws
+
+
+async def test_host_context_keeps_url_checks_without_a_listener(monkeypatch):
+    state, context = _cdp_state(monkeypatch, "ws://127.0.0.1:9222/devtools/browser/x")
+    session = await state.get_or_create_session(
+        "s", cdp_endpoint="http://127.0.0.1:9222", context_mode="host", block_networks="link-local"
+    )
+    assert session.network_guard is not None
+    assert all(c.args[0] != "framenavigated" for c in context.pages[0].on.call_args_list)
+    with pytest.raises(ValueError, match="refused"):
+        await session.network_guard.check_url("http://169.254.169.254/", "URL")
+
+
+async def test_reopening_with_another_mode_is_refused():
+    state = daemon.DaemonState()
+    existing = MagicMock(browser=None, profile=None, uses_host_context=False)
+    existing.network_guard = NetworkGuard("link-local")
+    state.sessions["s"] = existing
+    assert await state.get_or_create_session("s", block_networks="link-local") is existing
+    with pytest.raises(ValueError, match="close"):
+        await state.get_or_create_session("s", block_networks="private")
