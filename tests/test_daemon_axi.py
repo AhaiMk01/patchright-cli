@@ -444,3 +444,42 @@ def test_responses_encode_as_toon():
 
     response = {"success": True, "output": "0 active routes in this session", "data": []}
     assert encode(response) == "success: true\noutput: 0 active routes in this session\ndata: []"
+
+
+# ---------------------------------------------------------------------------
+# Daemon spawn: no visible console window on Windows
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(__import__("sys").platform != "win32", reason="Windows creation flags")
+def test_daemon_spawn_uses_a_hidden_console_on_windows():
+    # DETACHED_PROCESS leaves a venv launcher console-less, so the real interpreter it
+    # starts opens a visible window; CREATE_NO_WINDOW gives a hidden console instead.
+    import socket
+    import subprocess
+
+    from patchright_cli import daemon
+
+    started = []
+
+    class FakeSocket:
+        def settimeout(self, _):
+            pass
+
+        def connect(self, _):
+            if not started:
+                raise ConnectionRefusedError
+
+        def close(self):
+            pass
+
+    with (
+        patch.object(socket, "socket", lambda *a: FakeSocket()),
+        patch.object(subprocess, "Popen", side_effect=lambda *a, **k: started.append(k)),
+        patch("time.sleep"),
+    ):
+        assert daemon.ensure_daemon_running(port=1, headless=True) is True
+
+    flags = started[0]["creationflags"]
+    assert flags & subprocess.CREATE_NO_WINDOW
+    assert not flags & subprocess.DETACHED_PROCESS

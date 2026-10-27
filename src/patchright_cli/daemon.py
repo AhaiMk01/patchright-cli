@@ -3807,7 +3807,10 @@ def ensure_daemon_running(port: int = DEFAULT_PORT, headless: bool = False) -> b
     cmd.extend(["--port", str(port)])
 
     if sys.platform == "win32":
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        # CREATE_NO_WINDOW, not DETACHED_PROCESS: a venv's python.exe is a launcher that starts the
+        # real interpreter as a child, and a console child of a console-less parent opens a new,
+        # visible console window. A hidden console is inherited instead.
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
