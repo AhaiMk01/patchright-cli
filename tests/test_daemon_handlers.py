@@ -292,7 +292,8 @@ async def test_codegen_stop_no_recording(mock_state, mock_session):
     mock_session._codegen = None
 
     response = await handle_command(mock_state, {"command": "codegen-stop", "args": []})
-    assert response["success"] is False
+    assert response["success"] is True
+    assert response["output"].endswith(" (no-op)")
 
 
 @pytest.mark.asyncio
@@ -652,7 +653,8 @@ async def test_find_no_matches_succeeds(mock_state, find_session):
     with _patch_snapshot(find_session.ref_registry):
         response = await handle_command(mock_state, {"command": "find", "args": ["absent"], "options": {}})
     assert response["success"] is True
-    assert "No matches" in response["output"]
+    assert response["output"].startswith('0 matches for "absent".')
+    assert response["data"] == []
 
 
 # -- Device / mobile emulation -----------------------------------------------

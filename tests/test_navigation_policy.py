@@ -358,4 +358,4 @@ async def test_commands_that_do_not_navigate_ignore_web_only():
     response = await handle_command(
         state, {"command": "url", "args": [], "options": {"session": "s", "web-only": True}}
     )
-    assert response == {"success": True, "output": "file:///tmp/page.html"}
+    assert response == {"success": True, "output": "file:///tmp/page.html", "data": {"url": "file:///tmp/page.html"}}
