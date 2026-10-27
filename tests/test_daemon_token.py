@@ -278,3 +278,25 @@ def test_daemon_process_exits_when_another_holds_the_port_lock(tmp_path, monkeyp
     assert proc.returncode == 1
     assert "already running or starting on port" in proc.stderr
     assert not daemon.token_path(port).exists()
+
+
+@pytest.mark.parametrize(
+    "message, success, fragment",
+    [
+        ({"command": "list"}, True, ""),
+        ({"command": "snapshot"}, False, "Session 'default' is not open"),
+        ({"command": "list", "options": {"timeout": "invalid"}}, False, ""),
+        ({"command": "list", "options": 123}, False, "Daemon error:"),
+    ],
+)
+def test_wire_replies_have_explicit_success_and_output(token_dir, message, success, fragment):
+    port = _free_port()
+
+    def body(port):
+        return _send_raw(port, {**message, "token": daemon.read_daemon_token(port)})
+
+    reply = asyncio.run(_with_daemon(port, body))
+    assert type(reply["success"]) is bool
+    assert reply["success"] is success
+    assert isinstance(reply["output"], str)
+    assert fragment in reply["output"]

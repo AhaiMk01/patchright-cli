@@ -33,6 +33,9 @@ from patchright_cli.snapshot import save_snapshot, take_snapshot
 
 logger = logging.getLogger("patchright-cli.daemon")
 
+# Public client-daemon contract. Bump for incompatible framing, request/reply
+# fields, or authentication changes. Additive optional fields do not require a bump.
+PROTOCOL_VERSION = 1
 DEFAULT_PORT = 9321
 PROFILES_ROOT = Path.home() / ".patchright-cli" / "profiles"
 # Holds daemon-<port>.token, the shared secret every client message must carry.

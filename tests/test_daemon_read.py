@@ -81,7 +81,7 @@ async def test_oversized_request_gets_an_error_and_runs_nothing(monkeypatch):
     assert ran == []
     assert writer.closed
     assert writer.reply()["success"] is False
-    assert "exceeds" in writer.reply()["output"]
+    assert writer.reply()["output"].startswith("Daemon error: request of")  # documented in docs/daemon-protocol.md
 
 
 @pytest.mark.parametrize(

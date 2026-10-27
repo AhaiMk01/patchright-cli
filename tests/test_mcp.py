@@ -367,7 +367,7 @@ def test_tab_select_requires_index():
 
 
 def test_every_cli_command_has_a_tool():
-    commands = set(cli.ALL_COMMANDS) - {"mcp", "install"}
+    commands = set(cli.ALL_COMMANDS) - {"mcp", "install", "daemon-info"}
     tools = {name.removeprefix("patchright_").replace("_", "-") for name in mcp_server.TOOL_SPECS}
     aliases = {"list-sessions": "list"}
     tools = {aliases.get(tool, tool) for tool in tools}
