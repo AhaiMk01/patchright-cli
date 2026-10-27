@@ -474,39 +474,59 @@ def _port_listening(port: int) -> bool:
         return False
 
 
-def _kill_all(port: int, options: dict, force: bool) -> int:
-    """Stop the daemon on `port`: ask it, and kill it when it does not answer or with --force."""
+def _kill_all(port: int, options: dict, force: bool) -> dict:
+    """Stop the daemon on `port`: ask it, and kill it when it does not answer or with --force.
+
+    Returns a daemon-style reply, so --json and --raw print it like any other.
+    """
     from patchright_cli import daemon_pid
     from patchright_cli.daemon import TOKEN_DIR
 
+    note = ""
     if not force:
         try:
-            response = _send_command("kill-all", [], options, port)
+            return _send_command("kill-all", [], options, port)
         except ConnectionRefusedError:
-            response = None
             if daemon_pid.live_daemon_pid(TOKEN_DIR, port) is None:
-                click.echo(f"No daemon running on port {port} (no-op)")
-                return 0
+                return {"success": True, "output": f"No daemon running on port {port} (no-op)"}
         except (ConnectionError, OSError):
-            response = None  # timed out or dropped: the daemon is wedged
-        if response is not None:
-            click.echo(response.get("output", ""))
-            return 0 if response.get("success", True) else 1
-        click.echo(f"The daemon on port {port} did not answer; force-stopping it.")
+            pass  # timed out or dropped: the daemon is wedged
+        note = f"The daemon on port {port} did not answer; force-stopping it.\n"
 
     status, message = daemon_pid.force_stop(TOKEN_DIR, port, token_path(port))
     if status == "stopped":
-        click.echo(message)
-        return 0
+        return {"success": True, "output": note + message}
     if status == "absent" and not _port_listening(port):
-        click.echo(f"No daemon running on port {port} (no-op)")
-        return 0
-    _print_error(
-        message if status == "failed" else f"port {port} is in use but no running daemon PID is recorded for it",
-        "help: a daemon from an older patchright-cli records no PID; end its python.exe in Task Manager "
-        "(command line contains patchright_cli.daemon) or with `kill`",
-    )
-    return 1
+        return {"success": True, "output": note + f"No daemon running on port {port} (no-op)"}
+    reason = message if status == "failed" else f"port {port} is in use but no running daemon PID is recorded for it"
+    return {
+        "success": False,
+        "output": note
+        + f"error: {reason}\n"
+        + "help: a daemon from an older patchright-cli records no PID; end the python process whose command line "
+        "contains patchright_cli.daemon (Task Manager, or `kill`)",
+    }
+
+
+def _ensure_and_send(command: str, args: list, options: dict, port: int, headless: bool) -> dict:
+    """Start the daemon if needed (every command but kill-all does) and send it the command."""
+    try:
+        ensure_daemon_running(port, headless)
+    except RuntimeError as e:
+        _print_error(
+            f"{e}",
+            f"help: check that port {port} is free, or pick another with --port=N",
+        )
+        sys.exit(1)
+    try:
+        return _send_command(command, args, options, port)
+    except (ConnectionError, OSError) as e:
+        _print_error(
+            f"cannot reach the daemon on port {port}: {e}",
+            f"help: retry, or run `patchright-cli --port={port} kill-all` (it force-stops a daemon that does not "
+            "answer) and `open` again",
+        )
+        sys.exit(1)
 
 
 def _recv_exact(sock: socket.socket, n: int) -> bytes:
@@ -961,9 +981,11 @@ COMMAND_SPECS: dict[str, dict] = {
         "summary": "Show overlay on element",
         "flags": {
             "style": "CSS for the overlay (default: 2px pink outline)",
-            "hide": "Remove the overlay instead (default: off)",
+            "hide": "Remove the overlay instead; without a ref, clear every overlay (default: off)",
         },
-        "examples": ["highlight e5", "highlight e5 --hide"],
+        # `highlight --hide` with no ref clears every overlay on the page.
+        "optional_args_with": "hide",
+        "examples": ["highlight e5", "highlight e5 --hide", "highlight --hide"],
     },
     # Session
     "list": {"usage": "list", "summary": "List sessions", "examples": ["list"]},
@@ -1170,9 +1192,9 @@ def _validate_flags(command: str, cmd_opts: dict, interactive_flag: str | None =
         raise _unknown_flag_error(command, interactive_flag)
 
 
-def _validate_positionals(command: str, args: list) -> None:
+def _validate_positionals(command: str, args: list, flags: dict) -> None:
     spec = COMMAND_SPECS[command]
-    need = _min_args(spec)
+    need = 0 if spec.get("optional_args_with") in flags else _min_args(spec)
     if len(args) < need:
         required = " ".join(t for t in spec["usage"].split()[1:] if t.startswith("<"))
         raise UsageError(
@@ -1443,7 +1465,7 @@ def _home_lines(state: dict) -> list[str]:
         lines.append(f"daemon: running on port {port} ({len(sessions)} session{'s' if len(sessions) != 1 else ''})")
         if sessions:
             shown = sessions[:_HOME_MAX_SESSIONS]
-            lines.extend(toon.encode({"sessions": shown}).splitlines())
+            lines.extend(toon.encode({"sessions": shown}).split("\n"))
             if len(sessions) > len(shown):
                 lines.append(f"  ... {len(sessions) - len(shown)} more")
     lines.extend(_home_command_lines())
@@ -1510,7 +1532,9 @@ def _toon_lines(command: str, response: dict) -> list[str] | None:
     total = response.get("total")
     if isinstance(total, int):
         doc["total"] = total
-    lines = toon.encode(doc).splitlines()
+    # split("\n"), not splitlines(): TOON leaves U+2028, U+0085 and the like
+    # unescaped inside values, and splitlines() would break a value at them.
+    lines = toon.encode(doc).split("\n")
     if isinstance(total, int) and isinstance(data, list) and total > len(data):
         hint = _MORE_HINTS.get(command, "narrow the request to see the rest")
         lines.append(f"help: showing {len(data)} of {total}; {hint}")
@@ -1825,7 +1849,7 @@ def _main():
                 f"help: patchright-cli {COMMAND_SPECS[command]['examples'][0]}",
             )
 
-    _validate_positionals(command, args)
+    _validate_positionals(command, args, extra_opts)
 
     _warn_stale_skills()
 
@@ -1858,30 +1882,11 @@ def _main():
     if proxy:
         options["proxy"] = proxy
 
-    # kill-all must not start a daemon just to stop it, and must work on a wedged one.
     if command == "kill-all":
-        sys.exit(_kill_all(port, options, bool(options.pop("force", False))))
-
-    # Ensure daemon is running (auto-start for all commands)
-    try:
-        ensure_daemon_running(port, headless)
-    except RuntimeError as e:
-        _print_error(
-            f"{e}",
-            f"help: check that port {port} is free, or pick another with --port=N",
-        )
-        sys.exit(1)
-
-    # Send command to daemon
-    try:
-        response = _send_command(command, args, options, port)
-    except (ConnectionError, OSError) as e:
-        _print_error(
-            f"cannot reach the daemon on port {port}: {e}",
-            f"help: retry, or run `patchright-cli --port={port} kill-all` (it force-stops a daemon that does not "
-            "answer) and `open` again",
-        )
-        sys.exit(1)
+        # Must not start a daemon just to stop it, and must work on a wedged one.
+        response = _kill_all(port, options, bool(options.pop("force", False)))
+    else:
+        response = _ensure_and_send(command, args, options, port, headless)
 
     # Print output
     output = response.get("output", "")

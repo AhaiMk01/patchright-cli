@@ -140,13 +140,22 @@ def force_stop(directory: Path, port: int, token_file: Path, wait: float = 5.0) 
         with contextlib.suppress(OSError):
             pid_path(directory, port).unlink()
         return "absent", f"the daemon recorded for port {port} (pid {pid}) is not running"
+    try:
+        token = token_file.read_text(encoding="utf-8")
+    except OSError:
+        token = None
     _kill_tree(pid)
     deadline = time.monotonic() + wait
     while process_start_time(pid) == data["started"]:
         if time.monotonic() > deadline:
             return "failed", f"could not stop the daemon on port {port} (pid {pid})"
         time.sleep(0.1)
-    for path in (pid_path(directory, port), token_file):
+    # A concurrent `open` may already have started a replacement daemon that
+    # rewrote both files; delete them only if they are still the killed one's.
+    if read_pid_file(directory, port) == data:
         with contextlib.suppress(OSError):
-            path.unlink()
+            pid_path(directory, port).unlink()
+    with contextlib.suppress(OSError):
+        if token is not None and token_file.read_text(encoding="utf-8") == token:
+            token_file.unlink()
     return "stopped", f"Force-stopped the daemon on port {port} (pid {pid}) and its browsers."

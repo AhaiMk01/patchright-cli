@@ -427,6 +427,14 @@ def test_toon_without_data_falls_back_to_text(monkeypatch, capsys):
     assert toon == plain == "### Page\n- Page URL: about:blank\n"
 
 
+def test_toon_keeps_unicode_line_separators_inside_a_value(monkeypatch, capsys):
+    # TOON does not escape U+2028/U+0085; splitting the document with
+    # splitlines() broke the value across two lines.
+    reply = {"success": True, "output": "A\u2028B\u0085C", "data": {"title": "A\u2028B\u0085C"}}
+    _, out = _run_reply(["title", "--toon"], reply, monkeypatch, capsys)
+    assert out == "title: A\u2028B\u0085C\n"
+
+
 def test_toon_leaves_failures_alone(monkeypatch, capsys):
     reply = {"success": False, "output": "Session 'default' is not open", "data": []}
     code, out = _run_reply(["--toon", "tab-list"], reply, monkeypatch, capsys)
@@ -460,3 +468,13 @@ def test_json_and_toon_conflict(monkeypatch, capsys):
         cli.main()
     assert exc.value.code == 2
     assert capsys.readouterr().out.startswith("error: --json and --toon are mutually exclusive")
+
+
+def test_highlight_hide_without_a_ref_reaches_the_daemon(monkeypatch, capsys):
+    # The daemon clears every overlay for `highlight --hide`; only a bare
+    # `highlight` still needs its ref.
+    code, _, _, sent = _run(["highlight", "--hide"], monkeypatch, capsys)
+    assert (code, sent["command"], sent["args"]) == (0, "highlight", [])
+    code, out, _, _ = _run(["highlight"], monkeypatch, capsys)
+    assert code == 2
+    assert out.startswith("error: `highlight` requires <ref>")

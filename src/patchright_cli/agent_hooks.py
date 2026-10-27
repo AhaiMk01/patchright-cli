@@ -230,8 +230,18 @@ def _apply_json_hook(path: Path, home: Path, command: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 _TABLE_RE = re.compile(r"^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$")
-_HOOKS_KEY_RE = re.compile(r"^(\s*)hooks\s*=\s*(.*?)\s*(#.*)?$")
-_DOTTED_RE = re.compile(r"^\s*features\s*\.\s*hooks\s*=\s*(.*?)\s*(#.*)?$")
+# TOML lets a bare key also be written quoted: hooks, "hooks" and 'hooks' are one key.
+_FEATURES = r"""(?:features|"features"|'features')"""
+_HOOKS = r"""(?:hooks|"hooks"|'hooks')"""
+_HOOKS_KEY_RE = re.compile(rf"^(\s*){_HOOKS}\s*=\s*(.*?)\s*(#.*)?$")
+_DOTTED_RE = re.compile(rf"^\s*{_FEATURES}\s*\.\s*{_HOOKS}\s*=\s*(.*?)\s*(#.*)?$")
+_INLINE_FEATURES_RE = re.compile(rf"^\s*{_FEATURES}\s*=")
+_CODEX_MANUAL = "add `hooks = true` under `[features]` in it by hand, then rerun"
+
+
+def _table_name(raw: str) -> str:
+    """A table header's name with whitespace and quotes around each part removed."""
+    return ".".join(part.strip().strip("\"'") for part in raw.split("."))
 
 
 def enable_codex_hooks_feature(text: str) -> tuple[str, bool]:
@@ -246,11 +256,14 @@ def enable_codex_hooks_feature(text: str) -> tuple[str, bool]:
     for i, line in enumerate(lines):
         header = _TABLE_RE.match(line)
         if header:
-            table = header.group(1)
+            table = _table_name(header.group(1))
             if table == "features" and line.lstrip().startswith("[") and not line.lstrip().startswith("[["):
                 features_header = i
             continue
         if table is None:
+            if _INLINE_FEATURES_RE.match(line) and not _DOTTED_RE.match(line):
+                # `features = { ... }` cannot be reopened as a table or edited line by line.
+                raise HookError(f"`features` is an inline table; {_CODEX_MANUAL}")
             dotted = _DOTTED_RE.match(line)
             if dotted:
                 if dotted.group(1) == "true":
@@ -275,12 +288,31 @@ def enable_codex_hooks_feature(text: str) -> tuple[str, bool]:
     return prefix + "[features]\nhooks = true\n", True
 
 
+def _check_codex_toml(new_text: str) -> None:
+    """Refuse to write a config.toml that no longer parses or still lacks the flag (Python 3.11+)."""
+    try:
+        import tomllib
+    except ImportError:  # Python 3.10: the line edit is all there is
+        return
+    try:
+        features = tomllib.loads(new_text).get("features")
+    except tomllib.TOMLDecodeError:
+        features = None
+    if not isinstance(features, dict) or features.get("hooks") is not True:
+        raise HookError(f"could not enable the hooks feature safely; {_CODEX_MANUAL}")
+
+
 def _ensure_codex_feature(path: Path, home: Path) -> bool:
     try:
         text = path.read_text(encoding="utf-8") if path.exists() else ""
     except OSError as e:
         raise HookError(f"cannot read {_display(path, home)}: {e.strerror or e}") from None
-    new_text, changed = enable_codex_hooks_feature(text)
+    try:
+        new_text, changed = enable_codex_hooks_feature(text)
+        if changed:
+            _check_codex_toml(new_text)
+    except HookError as e:
+        raise HookError(f"{_display(path, home)}: {e}") from None
     if changed:
         _write_atomic(path, new_text)
     return changed

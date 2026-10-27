@@ -253,6 +253,38 @@ def test_enable_codex_hooks_feature_noop(text):
     assert enable_codex_hooks_feature(text) == (text, False)
 
 
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ('["features"]\nhooks = false\n', '["features"]\nhooks = true\n'),
+        ("[ 'features' ]\nweb_search = true\n", "[ 'features' ]\nhooks = true\nweb_search = true\n"),
+        ('[features]\n"hooks" = false\n', "[features]\nhooks = true\n"),
+        ('"features".hooks = false\n', "features.hooks = true\n"),
+    ],
+)
+def test_enable_codex_hooks_feature_handles_quoted_names(before, after):
+    # Quoted keys name the same TOML key; appending a second [features] or
+    # hooks key instead would leave config.toml unparsable.
+    text, changed = enable_codex_hooks_feature(before)
+    assert (text, changed) == (after, True)
+    if sys.version_info >= (3, 11):
+        import tomllib
+
+        assert tomllib.loads(text)["features"]["hooks"] is True
+
+
+@pytest.mark.parametrize("text", ["features = { hooks = false }\n", "features = { web_search = true }\n"])
+def test_inline_features_table_is_refused_not_corrupted(home, text):
+    apply_hooks(home=home, command=CMD)
+    config = home / ".codex" / "config.toml"
+    config.write_text(text)
+    results = apply_hooks(home=home, command=CMD)
+    codex = next(r for r in results if r.app == "codex")
+    assert codex.status == "error"
+    assert "by hand" in codex.detail
+    assert config.read_text() == text
+
+
 def test_codex_hook_present_but_feature_off_counts_as_update(home):
     apply_hooks(home=home, command=CMD)
     (home / ".codex" / "config.toml").write_text("[features]\nhooks = false\n")

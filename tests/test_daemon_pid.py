@@ -2,7 +2,6 @@
 
 import json
 import os
-import socket
 import subprocess
 import sys
 
@@ -83,6 +82,29 @@ def test_force_stop_kills_the_recorded_process_tree(tmp_path):
             proc.kill()
 
 
+def test_force_stop_leaves_a_replacement_daemons_files(tmp_path, monkeypatch):
+    # A concurrent `open` can start a new daemon on the port while the old one
+    # is being killed; its PID and token files must survive the cleanup.
+    old = {"pid": 4242, "started": "old"}
+    path = daemon_pid.pid_path(tmp_path, 9999)
+    path.write_text(json.dumps(old))
+    token = tmp_path / "daemon-9999.token"
+    token.write_text("old-token")
+    killed = []
+
+    def kill(pid):
+        killed.append(pid)
+        path.write_text(json.dumps({"pid": 4343, "started": "new"}))
+        token.write_text("new-token")
+
+    monkeypatch.setattr(daemon_pid, "_kill_tree", kill)
+    monkeypatch.setattr(daemon_pid, "process_start_time", lambda pid: "old" if pid == 4242 and not killed else None)
+
+    assert daemon_pid.force_stop(tmp_path, 9999, token)[0] == "stopped"
+    assert json.loads(path.read_text())["pid"] == 4343
+    assert token.read_text() == "new-token"
+
+
 # -- kill-all in the CLI ---------------------------------------------------------
 
 
@@ -122,7 +144,7 @@ def test_polite_kill_all_does_not_force(monkeypatch, capsys):
 
 def test_wedged_daemon_is_force_stopped(monkeypatch, capsys):
     def hang(*a, **k):
-        raise socket.timeout("timed out")
+        raise TimeoutError("timed out")
 
     calls = _fake_force(monkeypatch, "stopped")
     code, out = _run(["--port=9400", "kill-all"], monkeypatch, capsys, hang)
@@ -168,3 +190,13 @@ def test_unrecorded_daemon_on_the_port_is_an_error(monkeypatch, capsys):
     assert code == 1
     assert out.startswith("error: port")
     assert "help:" in out
+
+
+def test_kill_all_json_prints_the_reply(monkeypatch, capsys):
+    reply = {"success": True, "output": "Killed 1 session(s) and stopping daemon."}
+    code, out = _run(["--json", "kill-all"], monkeypatch, capsys, lambda *a, **k: reply)
+    assert (code, json.loads(out)) == (0, reply)
+
+    _fake_force(monkeypatch, "stopped", "Force-stopped.")
+    code, out = _run(["--json", "kill-all", "--force"], monkeypatch, capsys, None)
+    assert (code, json.loads(out)) == (0, {"success": True, "output": "Force-stopped."})
