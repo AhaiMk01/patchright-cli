@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
+# fastmcp fails to import on an empty FASTMCP_HTTP_HOST_ORIGIN_PROTECTION (which
+# `${VAR:-}` in a compose file produces); treat it as unset instead.
+if not os.environ.get("FASTMCP_HTTP_HOST_ORIGIN_PROTECTION", "unset").strip():
+    del os.environ["FASTMCP_HTTP_HOST_ORIGIN_PROTECTION"]
+
+import fastmcp
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.tools import ToolResult
@@ -1364,9 +1370,30 @@ async def browser_delete_output(
     return f"Deleted {resolved}"
 
 
+# DNS rebinding lets any web page reach /mcp, even on 127.0.0.1, so HTTP mode needs
+# a token or an explicit decision about fastmcp's Host/Origin checks.
+HTTP_UNPROTECTED_ERROR = """Error: refusing to start `mcp --http` without protection against DNS rebinding.
+Any web page open in a browser on this machine can reach an unauthenticated /mcp
+through a hostname it controls, even when bound to 127.0.0.1. Choose one:
+  (a) set PATCHRIGHT_CLI_MCP_TOKEN; clients send `Authorization: Bearer <token>`.
+  (b) set FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true, and list hostnames other than
+      localhost, 127.0.0.1 and ::1 in FASTMCP_HTTP_ALLOWED_HOSTS as a JSON array,
+      e.g. FASTMCP_HTTP_ALLOWED_HOSTS='["patchright-mcp"]'.
+  (c) set FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=false on purpose, e.g. behind a
+      reverse proxy with auth or an IP allowlist."""
+
+
+def _host_origin_protection_chosen() -> bool:
+    """True when FASTMCP_HTTP_HOST_ORIGIN_PROTECTION was given any value fastmcp accepts."""
+    return "http_host_origin_protection" in fastmcp.settings.model_fields_set
+
+
 def run_mcp_server(*, http: bool = False, host: str = "127.0.0.1", port: int = 8000) -> None:
     """Run the MCP server over stdio or Streamable HTTP."""
     if http:
+        if not TOKEN and not _host_origin_protection_chosen():
+            print(HTTP_UNPROTECTED_ERROR, file=sys.stderr, flush=True)
+            raise SystemExit(1)
         if not TOKEN and host not in {"127.0.0.1", "localhost", "::1"}:
             print(
                 f"Warning: /mcp on {host} accepts unauthenticated requests; set PATCHRIGHT_CLI_MCP_TOKEN.",
