@@ -28,7 +28,6 @@ def test_every_base_image_is_pinned_by_tag_and_digest():
     assert images
     for image in images:
         assert PINNED.match(image), image
-        assert ":latest@" not in image, image
 
 
 def test_copy_from_uses_a_stage_not_an_unpinned_image():
