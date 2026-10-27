@@ -428,3 +428,16 @@ async def test_delete_data_refuses_a_profile_an_outside_chrome_has_open(state, r
 
     assert response["success"] is False
     assert (root / "a").exists()
+
+
+@pytest.mark.parametrize(("value", "sandboxed"), [(None, False), ("0", False), ("", False), ("1", True)])
+@pytest.mark.asyncio
+async def test_chrome_sandbox_only_when_env_is_1(state, root, monkeypatch, value, sandboxed):
+    if value is None:
+        monkeypatch.delenv(daemon.CHROME_SANDBOX_ENV, raising=False)
+    else:
+        monkeypatch.setenv(daemon.CHROME_SANDBOX_ENV, value)
+    await state._launch(Profile(root / "p"), headless=True, proxy=None, context_options={})
+    kwargs = state.playwright.chromium.launch_persistent_context.await_args.kwargs
+    assert kwargs.get("chromium_sandbox", False) is sandboxed
+    assert ("chromium_sandbox" in kwargs) is sandboxed

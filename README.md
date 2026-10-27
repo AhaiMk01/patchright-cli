@@ -141,6 +141,16 @@ PATCHRIGHT_CLI_MCP_TOKEN=replace-with-a-long-random-token docker compose up -d
 
 Both examples publish the port on `127.0.0.1` only, but that alone doesn't stop a web page in your browser from reaching the server through DNS rebinding, so `mcp-http` refuses to start unless you pick one of three defences (see [MCP Server](#mcp-server) for details): set `PATCHRIGHT_CLI_MCP_TOKEN`; set `-e FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` so requests must be addressed to `localhost`, `127.0.0.1` or `::1`, listing any other hostname or IP (a LAN address, a Compose service name) as a JSON array, for example `-e FASTMCP_HTTP_ALLOWED_HOSTS='["patchright-mcp", "192.168.1.20"]'`; or set `-e FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=false` on purpose. A plain `docker run -e PATCHRIGHT_CLI_MODE=mcp-http` with neither variable exits with an error. The example `compose.yml` sets `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION: "false"` so reverse-proxy and MCP hub setups keep working, which makes the token optional there: leave it out if your MCP client can't send an `Authorization` header. A reverse proxy with auth or an IP allowlist can stand in for the token. If you publish the port beyond loopback, protect it one of these ways: the endpoint gives full control of the browser and its saved logins.
 
+### Chrome sandbox
+
+Patchright starts Chrome with `--no-sandbox`, so by default no Chrome process is sandboxed (`chrome://sandbox` lists every one as "Not Sandboxed", on Windows too). Set `PATCHRIGHT_CLI_CHROME_SANDBOX=1` to launch Chrome with its sandbox instead. It is off by default.
+
+The variable is read by the daemon, not by each CLI command. The CLI passes its environment on when it starts the daemon, so set it before the first `open`; a daemon that is already running keeps the setting it started with until you restart it (`patchright-cli kill-all`).
+
+In Docker the image runs as root, and Chrome will not start as root with its sandbox on, so the switch also needs a non-root user (`docker run --user ...` with a writable `HOME`). Even then, Docker's default seccomp profile blocks the namespaces Chrome's Linux sandbox needs: measured on a GitHub Actions runner, as uid 1000 with the switch on, Chrome exits at launch ("Failed to move to new namespace ... Operation not permitted"). Leave the switch off in Docker; the image runs Chrome without its sandbox.
+
+How the sandbox affects bot detection has not been measured.
+
 ---
 
 ## Quick Start
