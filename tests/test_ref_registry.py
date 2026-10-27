@@ -100,14 +100,15 @@ def test_parse_interactive_only():
         '- link "Forgot password"'
     )
     result = registry.parse(raw, interactive_only=True)
-    # Only textbox, button, link should have refs
-    assert len(registry.entries) == 3
-    assert registry.entries["e1"].role == "textbox"
-    assert registry.entries["e2"].role == "button"
-    assert registry.entries["e3"].role == "link"
+    lines = result.splitlines()
+    # Only textbox, button, link show refs, numbered as in the full snapshot
+    assert [line.split("[ref=")[1].rstrip("]") for line in lines if "[ref=" in line] == ["e3", "e5", "e6"]
+    assert registry.entries["e3"].role == "textbox"
+    assert registry.entries["e5"].role == "button"
+    assert registry.entries["e6"].role == "link"
     # Non-interactive lines should still be present but without refs
     assert "heading" in result
-    assert "[ref=" not in result.splitlines()[0]  # heading has no ref
+    assert "[ref=" not in lines[0]  # heading has no ref
 
 
 def test_parse_interactive_only_nested():
@@ -120,11 +121,36 @@ def test_parse_interactive_only_nested():
         '  - heading "Title"\n'
         '  - textbox "Search"'
     )
-    registry.parse(raw, interactive_only=True)
-    assert len(registry.entries) == 3  # 2 links + 1 textbox
-    assert registry.entries["e1"].role == "link"
+    result = registry.parse(raw, interactive_only=True)
+    assert result.count("[ref=") == 3  # 2 links + 1 textbox
     assert registry.entries["e2"].role == "link"
-    assert registry.entries["e3"].role == "textbox"
+    assert registry.entries["e3"].role == "link"
+    assert registry.entries["e6"].role == "textbox"
+
+
+def test_filtered_refs_match_the_full_snapshot():
+    # Every action re-snapshots the full tree. A ref from `snapshot -i` or
+    # `--depth` must name the same element there, or the next command acts on
+    # a different one (e6 was a radio under -i but the Telephone box in full).
+    raw = (
+        "- paragraph:\n"
+        '  - text: "Customer name:"\n'
+        '  - textbox "Customer name:"\n'
+        "- paragraph:\n"
+        '  - text: "Telephone:"\n'
+        '  - textbox "Telephone:"\n'
+        '- group "Pizza Size":\n'
+        '  - radio "Large"\n'
+        '  - checkbox "Bacon"'
+    )
+    full = RefRegistry()
+    full.parse(raw)
+    for kwargs in ({"interactive_only": True}, {"max_depth": 0}):
+        filtered = RefRegistry()
+        text = filtered.parse(raw, **kwargs)
+        for ref in (part.split("]")[0] for part in text.split("[ref=")[1:]):
+            got, want = filtered.entries[ref], full.entries[ref]
+            assert (got.role, got.name, got.nth) == (want.role, want.name, want.nth)
 
 
 def test_parse_interactive_false_same_as_default():
