@@ -209,6 +209,10 @@ The daemon only listens on `127.0.0.1`, but any local process can reach that por
 - Run the CLI as the same user, with the same home directory, as the daemon. In Docker the MCP server and daemon share a user and `HOME`, so this holds.
 - An older CLI talking to a newer daemon gets an error saying the daemon requires an auth token: upgrade, or stop the daemon (`patchright-cli kill-all` from the newer install, or end the process). A newer CLI talking to an older daemon finds no token file and sends none, which the older daemon accepts.
 
+### Stopping a stuck daemon
+
+The daemon runs without a window. `kill-all` asks it to close every session and exit. If it does not answer within 20 seconds, or with `--force`, the CLI ends the daemon process and the browsers it launched (`taskkill /T` on Windows, the daemon's process group elsewhere). It finds the process through `~/.patchright-cli/daemon-<port>.pid`, which the daemon writes at startup with its PID and start time, and kills only a process whose start time still matches, so a reused PID is never touched. A daemon from a version that writes no PID file has to be ended by hand: its command line contains `patchright_cli.daemon`.
+
 ### Daemon client protocol
 
 Third-party clients can use the daemon TCP interface directly. The
@@ -447,7 +451,8 @@ patchright-cli -s=mysession click e6
 patchright-cli -s=mysession close
 patchright-cli list                    # List all sessions
 patchright-cli close-all
-patchright-cli kill-all
+patchright-cli kill-all                # Stop the daemon; force-stops it if it does not answer
+patchright-cli kill-all --force        # Kill the daemon and its browsers without asking
 patchright-cli delete-data             # Delete the profile named after the session
 patchright-cli profile-list           # Profiles, size, and which session uses each
 patchright-cli profile-delete <name>  # Delete an idle named profile

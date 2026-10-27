@@ -492,7 +492,7 @@ highlight <ref> [--style] [--hide]      # Show overlay on element
 # Session
 list                                    # List sessions
 close-all                               # Close all sessions
-kill-all                                # Kill all sessions and stop the daemon
+kill-all [--force]                      # Kill all sessions and stop the daemon
 delete-data                             # Delete this session's profile
 
 # Profiles

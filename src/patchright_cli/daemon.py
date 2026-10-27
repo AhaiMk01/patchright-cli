@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from patchright_cli import daemon_pid
 from patchright_cli.ref_registry import RefRegistry, render_hits
 from patchright_cli.snapshot import save_snapshot, take_snapshot
 
@@ -3731,6 +3732,8 @@ async def _serve(port: int, headless: bool):
         sock.bind(("127.0.0.1", port))
         port = sock.getsockname()[1]
         state.auth_token = write_daemon_token(port)
+        # `kill-all` falls back to killing this PID when the daemon stops answering.
+        daemon_pid.write_pid_file(TOKEN_DIR, port)
     except BaseException:
         sock.close()
         raise
@@ -3738,6 +3741,7 @@ async def _serve(port: int, headless: bool):
         server = await asyncio.start_server(client_handler, sock=sock)
     except BaseException:
         remove_daemon_token(port, state.auth_token)
+        daemon_pid.remove_pid_file(TOKEN_DIR, port)
         raise
     addr = server.sockets[0].getsockname()
     logger.info("Daemon listening on %s:%s", addr[0], addr[1])
@@ -3772,6 +3776,7 @@ async def _serve(port: int, headless: bool):
         server.close()
         await server.wait_closed()
         remove_daemon_token(port, state.auth_token)
+        daemon_pid.remove_pid_file(TOKEN_DIR, port)
         logger.info("Daemon stopped.")
 
 

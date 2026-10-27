@@ -413,6 +413,11 @@ DEFAULT_SOCKET_TIMEOUT = 120
 ANNOTATE_SOCKET_MARGIN = 30
 
 
+# `kill-all` is the way out of a wedged daemon, so it gives up asking quickly
+# and kills the process instead (see _kill_all).
+KILL_ALL_SOCKET_TIMEOUT = 20
+
+
 def _socket_timeout(command: str, options: dict) -> float:
     """How long to wait on the daemon for this command.
 
@@ -420,6 +425,8 @@ def _socket_timeout(command: str, options: dict) -> float:
     they are still drawing. Everything else keeps the generous-but-finite
     default, which is what catches a wedged daemon.
     """
+    if command == "kill-all":
+        return KILL_ALL_SOCKET_TIMEOUT
     if command != "show" or not options.get("annotate"):
         return DEFAULT_SOCKET_TIMEOUT
     try:
@@ -457,6 +464,49 @@ def _send_command(command: str, args: list, options: dict, port: int = DEFAULT_P
         return json.loads(resp_data.decode("utf-8"))
     finally:
         sock.close()
+
+
+def _port_listening(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _kill_all(port: int, options: dict, force: bool) -> int:
+    """Stop the daemon on `port`: ask it, and kill it when it does not answer or with --force."""
+    from patchright_cli import daemon_pid
+    from patchright_cli.daemon import TOKEN_DIR
+
+    if not force:
+        try:
+            response = _send_command("kill-all", [], options, port)
+        except ConnectionRefusedError:
+            response = None
+            if daemon_pid.live_daemon_pid(TOKEN_DIR, port) is None:
+                click.echo(f"No daemon running on port {port} (no-op)")
+                return 0
+        except (ConnectionError, OSError):
+            response = None  # timed out or dropped: the daemon is wedged
+        if response is not None:
+            click.echo(response.get("output", ""))
+            return 0 if response.get("success", True) else 1
+        click.echo(f"The daemon on port {port} did not answer; force-stopping it.")
+
+    status, message = daemon_pid.force_stop(TOKEN_DIR, port, token_path(port))
+    if status == "stopped":
+        click.echo(message)
+        return 0
+    if status == "absent" and not _port_listening(port):
+        click.echo(f"No daemon running on port {port} (no-op)")
+        return 0
+    _print_error(
+        message if status == "failed" else f"port {port} is in use but no running daemon PID is recorded for it",
+        "help: a daemon from an older patchright-cli records no PID; end its python.exe in Task Manager "
+        "(command line contains patchright_cli.daemon) or with `kill`",
+    )
+    return 1
 
 
 def _recv_exact(sock: socket.socket, n: int) -> bytes:
@@ -921,7 +971,11 @@ COMMAND_SPECS: dict[str, dict] = {
     "kill-all": {
         "usage": "kill-all",
         "summary": "Kill all sessions and stop the daemon",
-        "examples": ["kill-all", "--port=9400 kill-all"],
+        "flags": {
+            "force": "Kill the daemon process and its browsers without asking it "
+            "(default: ask, force only if it does not answer)",
+        },
+        "examples": ["kill-all", "--port=9400 kill-all", "kill-all --force"],
     },
     "delete-data": {
         "usage": "delete-data",
@@ -1804,6 +1858,10 @@ def _main():
     if proxy:
         options["proxy"] = proxy
 
+    # kill-all must not start a daemon just to stop it, and must work on a wedged one.
+    if command == "kill-all":
+        sys.exit(_kill_all(port, options, bool(options.pop("force", False))))
+
     # Ensure daemon is running (auto-start for all commands)
     try:
         ensure_daemon_running(port, headless)
@@ -1820,7 +1878,8 @@ def _main():
     except (ConnectionError, OSError) as e:
         _print_error(
             f"cannot reach the daemon on port {port}: {e}",
-            f"help: retry, or run `patchright-cli --port={port} kill-all` and `open` again",
+            f"help: retry, or run `patchright-cli --port={port} kill-all` (it force-stops a daemon that does not "
+            "answer) and `open` again",
         )
         sys.exit(1)
 
