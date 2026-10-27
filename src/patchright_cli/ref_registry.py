@@ -13,7 +13,32 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from patchright.async_api import Page
 
-_NODE_LINE_RE = re.compile(r"^\s*-\s+(\w+)(?:\s+\"((?:[^\"\\]|\\.)*)\")?")
+# Playwright writes each node as `- role "name" [attrs]`, with the name
+# JSON-encoded, except that a name which starts and ends with "/" is written
+# as is (`- link /about/:`). A key containing YAML-special text (": ", " #")
+# is wrapped in YAML single quotes, with ' doubled. A plain key never contains
+# ":" followed by whitespace or the line end, so that marks where its value
+# starts.
+_ITEM_RE = re.compile(r"^\s*-\s+(?:'((?:[^']|'')*)'|((?:[^:]|:(?!\s|$))*))")
+_KEY_RE = re.compile(r"^(\w+)(?:\s+(?:\"((?:[^\"\\]|\\.)*)\"|(/.*/)(?=(?:\s\[[^\]]*\])*$)))?")
+
+# Playwright leaves out names longer than 900 characters, so an unnamed node
+# is an element whose accessible name is empty or over that limit.
+UNNAMED_RE = re.compile(r"^$|^[\s\S]{901,}$")
+
+
+def _parse_node(line: str) -> tuple[str, str] | None:
+    """Return (role, name) for an aria snapshot node line, or None."""
+    item = _ITEM_RE.match(line)
+    if not item:
+        return None
+    key = item.group(1).replace("''", "'") if item.group(1) is not None else item.group(2)
+    m = _KEY_RE.match(key)
+    if not m:
+        return None
+    if m.group(2) is not None:
+        return m.group(1), _unescape_name(m.group(2))
+    return m.group(1), m.group(3) or ""
 
 
 def _unescape_name(raw: str) -> str:
@@ -145,8 +170,8 @@ class RefRegistry:
         result_lines: list[str] = []
 
         for line in aria_text.splitlines():
-            m = _NODE_LINE_RE.match(line)
-            if not m:
+            node = _parse_node(line)
+            if node is None:
                 result_lines.append(line)
                 continue
 
@@ -156,12 +181,11 @@ class RefRegistry:
                 result_lines.append(line)
                 continue
 
-            role = m.group(1)
+            role, name = node
 
             if interactive_only and role not in INTERACTIVE_ROLES:
                 result_lines.append(line)
                 continue
-            name = _unescape_name(m.group(2)) if m.group(2) else ""
 
             self._counter += 1
             ref = f"e{self._counter}"
@@ -239,9 +263,9 @@ class RefRegistry:
             if line_depth >= depth:
                 continue
             depth = line_depth
-            node = _NODE_LINE_RE.match(line)
+            node = _parse_node(line)
             if node:
-                chain.append((node.group(1), _unescape_name(node.group(2)) if node.group(2) else ""))
+                chain.append(node)
             if depth == 0:
                 break
 
@@ -281,12 +305,11 @@ class RefRegistry:
         if not entry:
             raise ValueError(f"Ref @{ref} not found. The page may have changed — run 'snapshot' to refresh.")
 
-        kwargs: dict = {"exact": True}
-        if entry.name:
-            kwargs["name"] = entry.name
-
+        # Always filter by name, even for an unnamed ref: nth counts only the
+        # elements the snapshot shows with this name, so an unfiltered role
+        # query picks the wrong element when named and unnamed ones share a role.
         scope = self.root if self.root is not None else page
-        locator = scope.get_by_role(entry.role, **kwargs)
+        locator = scope.get_by_role(entry.role, name=entry.name or UNNAMED_RE, exact=True)
         return locator.nth(entry.nth)
 
 
