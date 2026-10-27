@@ -163,15 +163,38 @@ def test_polite_kill_all_does_not_force(monkeypatch, capsys):
 
 
 def test_wedged_daemon_is_force_stopped(monkeypatch, capsys):
+    # Alive, port open, and it answers neither kill-all nor the `list` probe.
     def hang(*a, **k):
         raise TimeoutError("timed out")
 
+    monkeypatch.setattr(daemon_pid, "live_daemon_pid", lambda d, p: 4242)
+    monkeypatch.setattr(cli, "_port_listening", lambda port: True)
     calls = _fake_force(monkeypatch, "stopped")
     code, out = _run(["--port=9400", "kill-all"], monkeypatch, capsys, hang)
     assert code == 0
     assert calls == [9400]
-    assert "did not answer; force-stopping it" in out
+    assert "stopped answering; force-stopping it" in out
     assert "Force-stopped the daemon." in out
+
+
+def test_slow_but_responsive_daemon_is_not_killed(monkeypatch, capsys):
+    # kill-all's reply times out while the daemon closes browsers, but it
+    # still answers `list`, so the CLI waits for it to exit instead of killing.
+    state = {"probes": 0}
+
+    def send(command, args, options, port=0, timeout=None):
+        if command == "kill-all":
+            raise TimeoutError("timed out")
+        state["probes"] += 1
+        return {"success": True, "output": ""}
+
+    monkeypatch.setattr(daemon_pid, "live_daemon_pid", lambda d, p: None if state["probes"] >= 2 else 4242)
+    monkeypatch.setattr(cli, "_port_listening", lambda port: state["probes"] < 2)
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    calls = _fake_force(monkeypatch, "stopped")
+    code, out = _run(["--port=9400", "kill-all"], monkeypatch, capsys, send)
+    assert (code, calls) == (0, [])
+    assert out.strip() == "Daemon on port 9400 stopped."
 
 
 def test_force_skips_asking(monkeypatch, capsys):

@@ -13,6 +13,7 @@ import re
 import socket
 import struct
 import sys
+import time
 from pathlib import Path
 
 import click
@@ -38,9 +39,15 @@ def _soften_output_encoding(*streams) -> None:
 def _load_config(config_path: str | None) -> dict:
     """Load JSON config file. If config_path is None, try .patchright-cli/config.json in cwd."""
     p = Path(config_path) if config_path else Path.cwd() / ".patchright-cli" / "config.json"
-    if p.exists():
-        return json.loads(p.read_text(encoding="utf-8"))
-    return {}
+    if not p.exists():
+        return {}
+    try:
+        config = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise UsageError(f"cannot read config file {p}: {e}", "help: fix the file, or pass --config=<path>") from None
+    if not isinstance(config, dict):
+        raise UsageError(f"config file {p} must hold a JSON object", 'help: e.g. {"headless": true}')
+    return config
 
 
 # Options that shape a browser context when it is created; meaningless (and
@@ -154,6 +161,14 @@ def _skill_check_stamp() -> Path:
     return Path.home() / ".patchright-cli" / "skill-check.json"
 
 
+def _stamp_time(data: dict) -> float:
+    """A stamp's `at`, or 0 (long ago) when it is missing or not a number."""
+    try:
+        return float(data.get("at", 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _skill_warning_is_throttled() -> bool:
     """True when this version already warned within the last interval.
 
@@ -167,7 +182,9 @@ def _skill_warning_is_throttled() -> bool:
         data = json.loads(stamp.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
-    if data.get("version") == __version__ and time.time() - float(data.get("at", 0)) < _SKILL_WARN_INTERVAL:
+    if not isinstance(data, dict):
+        data = {}  # a stamp this CLI did not write must not break every command
+    if data.get("version") == __version__ and time.time() - _stamp_time(data) < _SKILL_WARN_INTERVAL:
         return True
     try:
         stamp.parent.mkdir(parents=True, exist_ok=True)
@@ -379,12 +396,14 @@ def _warn_outdated_version() -> None:
         cached = json.loads(stamp.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         cached = {}
+    if not isinstance(cached, dict):
+        cached = {}
 
     latest = cached.get("latest")
     # No `or not latest`: the stamp is written before the request, so a failed
     # fetch still throttles. With it, a machine that cannot reach PyPI paid the
     # timeout on every single `open`.
-    if time.time() - float(cached.get("at", 0)) >= _VERSION_CHECK_INTERVAL:
+    if time.time() - _stamp_time(cached) >= _VERSION_CHECK_INTERVAL:
         try:
             stamp.parent.mkdir(parents=True, exist_ok=True)
             stamp.write_text(json.dumps({"at": time.time(), "latest": latest}), encoding="utf-8")
@@ -416,6 +435,10 @@ ANNOTATE_SOCKET_MARGIN = 30
 # `kill-all` is the way out of a wedged daemon, so it gives up asking quickly
 # and kills the process instead (see _kill_all).
 KILL_ALL_SOCKET_TIMEOUT = 20
+# After that, a daemon that still answers `list` within the probe timeout is
+# given up to the old 120s to finish shutting down before it is killed.
+KILL_ALL_GRACE = 120
+KILL_ALL_PROBE_TIMEOUT = 5
 
 
 def _socket_timeout(command: str, options: dict) -> float:
@@ -436,7 +459,9 @@ def _socket_timeout(command: str, options: dict) -> float:
     return max(DEFAULT_SOCKET_TIMEOUT, wait + ANNOTATE_SOCKET_MARGIN)
 
 
-def _send_command(command: str, args: list, options: dict, port: int = DEFAULT_PORT) -> dict:
+def _send_command(
+    command: str, args: list, options: dict, port: int = DEFAULT_PORT, timeout: float | None = None
+) -> dict:
     """Connect to daemon, send command, receive response."""
     msg = {
         "command": command,
@@ -452,7 +477,7 @@ def _send_command(command: str, args: list, options: dict, port: int = DEFAULT_P
     data = json.dumps(msg).encode("utf-8")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(_socket_timeout(command, options))
+    sock.settimeout(timeout if timeout is not None else _socket_timeout(command, options))
     try:
         sock.connect(("127.0.0.1", port))
         sock.sendall(struct.pack("!I", len(data)) + data)
@@ -474,6 +499,29 @@ def _port_listening(port: int) -> bool:
         return False
 
 
+def _await_daemon_exit(port: int, deadline: float) -> bool:
+    """Wait for a daemon that is shutting down. True once it is gone, False when it is wedged.
+
+    While it still answers `list` it is busy, not stuck, so keep waiting. A
+    closed port means it is in its final cleanup. A connection it accepts but
+    never answers means it is stuck.
+    """
+    from patchright_cli import daemon_pid
+    from patchright_cli.daemon import TOKEN_DIR
+
+    while time.monotonic() < deadline:
+        if daemon_pid.live_daemon_pid(TOKEN_DIR, port) is None and not _port_listening(port):
+            return True
+        try:
+            _send_command("list", [], {"session": "default"}, port, timeout=KILL_ALL_PROBE_TIMEOUT)
+        except ConnectionRefusedError:
+            pass
+        except (ConnectionError, OSError):
+            return False
+        time.sleep(0.5)
+    return False
+
+
 def _kill_all(port: int, options: dict, force: bool) -> dict:
     """Stop the daemon on `port`: ask it, and kill it when it does not answer or with --force.
 
@@ -490,8 +538,12 @@ def _kill_all(port: int, options: dict, force: bool) -> dict:
             if daemon_pid.live_daemon_pid(TOKEN_DIR, port) is None:
                 return {"success": True, "output": f"No daemon running on port {port} (no-op)"}
         except (ConnectionError, OSError):
-            pass  # timed out or dropped: the daemon is wedged
-        note = f"The daemon on port {port} did not answer; force-stopping it.\n"
+            pass  # no reply in time, or the connection dropped
+        # Closing many browsers can outlast the reply timeout. Only a daemon
+        # that stops answering altogether is killed.
+        if _await_daemon_exit(port, time.monotonic() + KILL_ALL_GRACE):
+            return {"success": True, "output": f"Daemon on port {port} stopped."}
+        note = f"The daemon on port {port} stopped answering; force-stopping it.\n"
 
     status, message = daemon_pid.force_stop(TOKEN_DIR, port, token_path(port))
     if status == "stopped":
@@ -619,6 +671,8 @@ COMMAND_SPECS: dict[str, dict] = {
             "all": "Match every role, not just interactive ones (default: off)",
             "limit": "Maximum matches (default: 20)",
         },
+        # `find --regex=<pattern>` carries its text in the flag value.
+        "args_from_flag_value": "regex",
         "examples": ['find "Sign in"', 'find "^Item \\d+" --regex --limit=50'],
     },
     "eval": {
@@ -1194,7 +1248,10 @@ def _validate_flags(command: str, cmd_opts: dict, interactive_flag: str | None =
 
 def _validate_positionals(command: str, args: list, flags: dict) -> None:
     spec = COMMAND_SPECS[command]
-    need = 0 if spec.get("optional_args_with") in flags else _min_args(spec)
+    if spec.get("optional_args_with") in flags or isinstance(flags.get(spec.get("args_from_flag_value")), str):
+        need = 0
+    else:
+        need = _min_args(spec)
     if len(args) < need:
         required = " ".join(t for t in spec["usage"].split()[1:] if t.startswith("<"))
         raise UsageError(
@@ -1522,7 +1579,11 @@ _MORE_HINTS = {
 
 
 def _toon_lines(command: str, response: dict) -> list[str] | None:
-    """TOON rendering of a reply's `data`, or None when it carries none (print as usual)."""
+    """TOON rendering of a reply's `data`, or None to print it as usual.
+
+    None when the reply carries no `data`, or when TOON cannot encode it (a
+    page title with an unpaired surrogate): the text output is still correct.
+    """
     from patchright_cli import toon
 
     data = response.get("data")
@@ -1532,9 +1593,13 @@ def _toon_lines(command: str, response: dict) -> list[str] | None:
     total = response.get("total")
     if isinstance(total, int):
         doc["total"] = total
+    try:
+        encoded = toon.encode(doc)
+    except (TypeError, ValueError):
+        return None
     # split("\n"), not splitlines(): TOON leaves U+2028, U+0085 and the like
     # unescaped inside values, and splitlines() would break a value at them.
-    lines = toon.encode(doc).split("\n")
+    lines = encoded.split("\n")
     if isinstance(total, int) and isinstance(data, list) and total > len(data):
         hint = _MORE_HINTS.get(command, "narrow the request to see the rest")
         lines.append(f"help: showing {len(data)} of {total}; {hint}")
@@ -1838,11 +1903,14 @@ def _main():
                 _print_error(f"file not found: {file_opt}", "help: pass an existing path to --file")
                 sys.exit(1)
         elif args and args[0] == "-" and not end_of_options:
-            # Read JS from stdin
-            args = [sys.stdin.read()]
+            # Read JS from stdin; an empty one is no input
+            piped = sys.stdin.read()
+            args = [piped] if piped.strip() else []
         elif not args and not sys.stdin.isatty():
-            # Piped input with no positional arg
-            args = [sys.stdin.read()]
+            # Piped input with no positional arg; an empty pipe (or /dev/null)
+            # is no input, not an empty script to run.
+            piped = sys.stdin.read()
+            args = [piped] if piped.strip() else []
         if not args:
             raise UsageError(
                 f"`{command}` requires a JS expression, --file=<path>, or piped stdin",
@@ -1859,7 +1927,12 @@ def _main():
         _warn_outdated_version()
 
     # Build options dict (config file values are overridden by explicit CLI flags)
-    config = _load_config(config_path)
+    try:
+        config = _load_config(config_path)
+    except UsageError:
+        if command != "kill-all":
+            raise
+        config = {}  # a broken project config must not block the way out
     if command == "attach" and (extra_opts.get("context") or config.get("context")) == "host":
         # The Host Context's emulation is fixed, so the daemon rejects these.
         # Explicit flags should still fail loudly, but project-wide config

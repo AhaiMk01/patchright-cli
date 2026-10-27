@@ -478,3 +478,62 @@ def test_highlight_hide_without_a_ref_reaches_the_daemon(monkeypatch, capsys):
     code, out, _, _ = _run(["highlight"], monkeypatch, capsys)
     assert code == 2
     assert out.startswith("error: `highlight` requires <ref>")
+
+
+# -- review fixes: find --regex=, empty stdin, --toon fallback, bad config ----
+
+
+def test_find_regex_value_needs_no_text_argument(monkeypatch, capsys):
+    # `find --regex=<pattern>` carries its text in the flag; bare --regex still needs <text>.
+    code, _, _, sent = _run(["find", "--regex=Sign.*"], monkeypatch, capsys)
+    assert (code, sent["command"]) == (0, "find")
+    code, out, _, _ = _run(["find", "--regex"], monkeypatch, capsys)
+    assert code == 2
+    assert out.startswith("error: `find` requires <text>")
+
+
+def test_eval_with_empty_piped_stdin_is_a_usage_error(monkeypatch, capsys):
+    import io
+
+    for argv in (["eval"], ["eval", "-"]):
+        monkeypatch.setattr(sys, "stdin", io.StringIO("  "))
+        code, out, _, sent = _run(argv, monkeypatch, capsys, stdin_tty=False)
+        assert code == 2, argv
+        assert out.startswith("error: `eval` requires a JS expression")
+        assert sent == {}
+
+
+def test_toon_falls_back_to_text_when_it_cannot_encode(monkeypatch, capsys):
+    # A lone surrogate in a page title cannot be encoded; the text output still can.
+    title = "A" + chr(0xD800) + "B"
+    reply = {"success": True, "output": "Example", "data": {"title": title}}
+    code, out = _run_reply(["title", "--toon"], reply, monkeypatch, capsys)
+    assert (code, out) == (0, "Example" + chr(10))
+
+
+def test_malformed_config_is_a_usage_error_naming_the_file(tmp_path):
+    config = tmp_path / "config.json"
+    for text in ("{not json", "[]"):
+        config.write_text(text)
+        with pytest.raises(cli.UsageError, match="config file"):
+            cli._load_config(str(config))
+
+
+def test_malformed_config_does_not_block_kill_all(tmp_path, monkeypatch, capsys):
+    (tmp_path / ".patchright-cli").mkdir()
+    (tmp_path / ".patchright-cli" / "config.json").write_text("{not json")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "_kill_all", lambda port, options, force: {"success": True, "output": "Stopped."})
+    monkeypatch.setattr(cli, "_warn_stale_skills", lambda: None)
+    monkeypatch.setattr(sys, "argv", ["patchright-cli", "kill-all"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+        raise SystemExit(0)
+    assert (exc.value.code or 0, capsys.readouterr().out.strip()) == (0, "Stopped.")
+
+
+@pytest.mark.parametrize("content", ["[]", "null", '{"at": "soon", "version": "x"}'])
+def test_foreign_stamp_files_do_not_break_commands(tmp_path, monkeypatch, content):
+    monkeypatch.setattr(cli, "_skill_check_stamp", lambda: tmp_path / "skill-check.json")
+    (tmp_path / "skill-check.json").write_text(content)
+    assert cli._skill_warning_is_throttled() is False

@@ -14,10 +14,12 @@ merge: entries that are not ours are left exactly as they were.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import shutil
+import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,10 +115,16 @@ def _display(path: Path, home: Path) -> str:
 
 
 def _write_atomic(path: Path, text: str) -> None:
+    # Write through a symlink (dotfiles managers link these configs), and keep
+    # the file's permission bits: os.replace would swap in a fresh file.
+    if path.is_symlink():
+        path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".patchright-cli.tmp")
     with open(tmp, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
+    with contextlib.suppress(OSError):
+        os.chmod(tmp, stat.S_IMODE(path.stat().st_mode))
     os.replace(tmp, path)
 
 
@@ -401,8 +409,10 @@ def apply_hooks(
         command = hook_command()
     wanted = None if uninstall else command
 
-    claude_dir = home / ".claude"
-    codex_dir = home / ".codex"
+    # Both apps let users move their config dir; --home (tests) ignores that.
+    env = {} if home_overridden else os.environ
+    claude_dir = Path(env["CLAUDE_CONFIG_DIR"]).expanduser() if env.get("CLAUDE_CONFIG_DIR") else home / ".claude"
+    codex_dir = Path(env["CODEX_HOME"]).expanduser() if env.get("CODEX_HOME") else home / ".codex"
     opencode_dir = _config_home(home, home_overridden) / "opencode"
 
     results: list[AppResult] = []
@@ -454,4 +464,7 @@ def format_results(results: list[AppResult], command: str | None) -> list[str]:
             lines.append(f"{r.app}: skipped ({r.detail})")
         else:
             lines.append(f"{r.app}: {r.status} {r.detail}")
+            if r.app == "codex" and r.status in ("installed", "updated"):
+                # Codex skips a new or changed non-managed hook until it is trusted.
+                lines.append("help: in Codex, run /hooks and trust the patchright-cli hook, or it will not run")
     return lines

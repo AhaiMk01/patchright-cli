@@ -317,6 +317,7 @@ def test_cli_install_hooks_and_noop(home, monkeypatch, capsys):
         "hook: patchright-cli",
         "claude-code: installed ~/.claude/settings.json",
         "codex: installed ~/.codex/hooks.json",
+        "help: in Codex, run /hooks and trust the patchright-cli hook, or it will not run",
         "opencode: installed ~/.config/opencode/plugins/patchright-cli.js",
     ]
     code, out = _run_install(monkeypatch, capsys, "--hooks", "--home", str(home))
@@ -358,3 +359,58 @@ def test_cli_install_skills_honours_home(tmp_path, monkeypatch, capsys):
     code, out = _run_install(monkeypatch, capsys, "--skills", f"--home={tmp_path}")
     assert code == 0
     assert (tmp_path / ".claude" / "skills" / "patchright-cli" / "SKILL.md").exists()
+
+
+# -- review fixes: symlinked configs, file modes, relocated config dirs -------
+
+
+def test_symlinked_settings_are_written_through(home):
+    # Dotfiles managers symlink these configs; replacing the link with a plain
+    # file would silently fork the user's settings.
+    target = home / "dotfiles-settings.json"
+    target.write_text("{}")
+    link = home / ".claude" / "settings.json"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("cannot create symlinks here")
+    apply_hooks(home=home, command=CMD)
+    assert link.is_symlink()
+    assert "SessionStart" in target.read_text()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_rewritten_config_keeps_its_permissions(home):
+    import stat
+
+    config = home / ".codex" / "config.toml"
+    config.write_text("")
+    config.chmod(0o600)
+    apply_hooks(home=home, command=CMD)
+    assert stat.S_IMODE(config.stat().st_mode) == 0o600
+
+
+def test_relocated_config_dirs_are_honoured(tmp_path, monkeypatch):
+    # CLAUDE_CONFIG_DIR and CODEX_HOME move each app's config dir.
+    fake_home = tmp_path / "home"
+    (fake_home / ".config").mkdir(parents=True)
+    claude, codex = tmp_path / "claude-profile", tmp_path / "codex-home"
+    claude.mkdir()
+    codex.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(fake_home / ".config"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude))
+    monkeypatch.setenv("CODEX_HOME", str(codex))
+    statuses = _statuses(apply_hooks(command=CMD))
+    assert statuses["claude-code"] == "installed"
+    assert statuses["codex"] == "installed"
+    assert (claude / "settings.json").exists()
+    assert (codex / "hooks.json").exists()
+
+
+def test_codex_install_says_to_trust_the_hook(home):
+    # Codex skips a new non-managed hook until the user trusts it in /hooks.
+    lines = format_results(apply_hooks(home=home, command=CMD), CMD)
+    assert any(line.startswith("help: in Codex, run /hooks") for line in lines)
+    again = format_results(apply_hooks(home=home, command=CMD), CMD)
+    assert not any(line.startswith("help: in Codex") for line in again)  # no-op: nothing new to trust
