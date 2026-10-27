@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import socket
 import struct
 import sys
@@ -1134,6 +1135,93 @@ def _suggest_command(command: str) -> str | None:
     return close[0] if close else None
 
 
+# Manual order: the full --help and the generated command block in SKILL.md.
+COMMAND_CATEGORIES = [
+    (
+        "Core",
+        [
+            "open",
+            "attach",
+            "goto",
+            "click",
+            "dblclick",
+            "fill",
+            "type",
+            "hover",
+            "select",
+            "check",
+            "uncheck",
+            "snapshot",
+            "find",
+            "eval",
+            "text",
+            "screenshot",
+            "drag",
+            "drop",
+            "close",
+            "detach",
+        ],
+    ),
+    ("Navigation", ["go-back", "go-forward", "reload", "url", "title"]),
+    ("Keyboard", ["press", "keydown", "keyup"]),
+    ("Mouse", ["mousemove", "mousedown", "mouseup", "mousewheel"]),
+    ("Scroll & Wait", ["scroll", "scroll-to", "wait", "wait-for"]),
+    ("Tabs", ["tab-list", "tab-new", "tab-close", "tab-select"]),
+    ("Dialog", ["dialog-accept", "dialog-dismiss"]),
+    ("Upload/Resize", ["upload", "resize"]),
+    (
+        "Emulation",
+        [
+            "set-color-scheme",
+            "clear-color-scheme",
+            "set-reduced-motion",
+            "clear-reduced-motion",
+            "set-forced-colors",
+            "clear-forced-colors",
+            "set-contrast",
+            "clear-contrast",
+            "set-media",
+            "clear-media",
+        ],
+    ),
+    ("State", ["state-save", "state-load"]),
+    (
+        "Storage",
+        [
+            "cookie-list",
+            "cookie-get",
+            "cookie-set",
+            "cookie-delete",
+            "cookie-clear",
+            "cookie-import",
+            "cookie-export",
+            "localstorage-list",
+            "localstorage-get",
+            "localstorage-set",
+            "localstorage-delete",
+            "localstorage-clear",
+            "sessionstorage-list",
+            "sessionstorage-get",
+            "sessionstorage-set",
+            "sessionstorage-delete",
+            "sessionstorage-clear",
+        ],
+    ),
+    ("Permissions", ["grant-permissions"]),
+    ("Route", ["route", "route-list", "unroute", "network-state-set"]),
+    ("Code", ["run-code"]),
+    ("Tracing", ["tracing-start", "tracing-stop"]),
+    ("Video", ["video-start", "video-stop", "video-chapter", "video-show-actions", "video-hide-actions"]),
+    ("PDF", ["pdf"]),
+    ("DevTools", ["console", "network", "requests", "request", "generate-locator", "highlight"]),
+    ("Session", ["list", "close-all", "kill-all", "delete-data"]),
+    ("Profiles", ["profile-list", "profile-delete"]),
+    ("Dashboard", ["show"]),
+    ("Codegen", ["codegen", "codegen-stop"]),
+    ("Setup", ["install", "mcp", "daemon-info"]),
+]
+
+
 def _print_help():
     click.echo("patchright-cli — Undetected browser automation CLI\n")
     click.echo("Usage: patchright-cli [OPTIONS] <command> [args...]\n")
@@ -1160,7 +1248,7 @@ def _print_help():
     click.echo("  --show-port=N       Dashboard port (default: 9322)")
     click.echo("  --raw               Raw output (strip page/snapshot decorations)")
     click.echo("  --json              Wrap response as JSON ({success, output, ...})")
-    click.echo("  --toon              Reserved for TOON output (currently the default output)")
+    click.echo("  --toon              TOON output for list/url/title results (default: text)")
     click.echo("  -V, --version       Show version")
     click.echo("  --help              Show this help; `<command> --help` shows one command")
     click.echo("\nThese go after the command, not before:")
@@ -1169,96 +1257,194 @@ def _print_help():
     click.echo("  --timeout-navigation=ms Default navigation timeout")
     click.echo("  --web-only            Keep this request's navigations on the web\n")
     click.echo("Commands:")
-    # Group by category
-    categories = [
-        (
-            "Core",
-            [
-                "open",
-                "attach",
-                "goto",
-                "click",
-                "dblclick",
-                "fill",
-                "type",
-                "hover",
-                "select",
-                "check",
-                "uncheck",
-                "snapshot",
-                "find",
-                "eval",
-                "text",
-                "screenshot",
-                "drag",
-                "drop",
-                "close",
-                "detach",
-            ],
-        ),
-        ("Navigation", ["go-back", "go-forward", "reload", "url", "title"]),
-        ("Keyboard", ["press", "keydown", "keyup"]),
-        ("Mouse", ["mousemove", "mousedown", "mouseup", "mousewheel"]),
-        ("Scroll & Wait", ["scroll", "scroll-to", "wait", "wait-for"]),
-        ("Tabs", ["tab-list", "tab-new", "tab-close", "tab-select"]),
-        ("Dialog", ["dialog-accept", "dialog-dismiss"]),
-        ("Upload/Resize", ["upload", "resize"]),
-        (
-            "Emulation",
-            [
-                "set-color-scheme",
-                "clear-color-scheme",
-                "set-reduced-motion",
-                "clear-reduced-motion",
-                "set-forced-colors",
-                "clear-forced-colors",
-                "set-contrast",
-                "clear-contrast",
-                "set-media",
-                "clear-media",
-            ],
-        ),
-        ("State", ["state-save", "state-load"]),
-        (
-            "Storage",
-            [
-                "cookie-list",
-                "cookie-get",
-                "cookie-set",
-                "cookie-delete",
-                "cookie-clear",
-                "cookie-import",
-                "cookie-export",
-                "localstorage-list",
-                "localstorage-get",
-                "localstorage-set",
-                "localstorage-delete",
-                "localstorage-clear",
-                "sessionstorage-list",
-                "sessionstorage-get",
-                "sessionstorage-set",
-                "sessionstorage-delete",
-                "sessionstorage-clear",
-            ],
-        ),
-        ("Permissions", ["grant-permissions"]),
-        ("Route", ["route", "route-list", "unroute", "network-state-set"]),
-        ("Code", ["run-code"]),
-        ("Tracing", ["tracing-start", "tracing-stop"]),
-        ("Video", ["video-start", "video-stop", "video-chapter", "video-show-actions", "video-hide-actions"]),
-        ("PDF", ["pdf"]),
-        ("DevTools", ["console", "network", "requests", "request", "generate-locator", "highlight"]),
-        ("Session", ["list", "close-all", "kill-all", "delete-data"]),
-        ("Profiles", ["profile-list", "profile-delete"]),
-        ("Dashboard", ["show"]),
-        ("Codegen", ["codegen", "codegen-stop"]),
-        ("Setup", ["install", "mcp", "daemon-info"]),
-    ]
-    for cat_name, cmds in categories:
+    for cat_name, cmds in COMMAND_CATEGORIES:
         click.echo(f"\n  {cat_name}:")
         for c in cmds:
             click.echo(f"    {COMMANDS_HELP[c]}")
     click.echo()
+
+
+# ---------------------------------------------------------------------------
+# Home view: what a bare `patchright-cli` prints
+# ---------------------------------------------------------------------------
+
+# A bare run is the SessionStart hook `install --hooks` registers, so this is
+# what an agent reads at the top of every session: short, live, never slow.
+_HOME_DESCRIPTION = "anti-detect Chrome automation CLI (playwright-cli compatible)"
+_HOME_CONNECT_TIMEOUT = 0.3
+_HOME_REPLY_TIMEOUT = 1.5
+_HOME_MAX_SESSIONS = 8
+
+
+def _display_bin(argv0: str | None = None) -> str:
+    """How this CLI was invoked, home collapsed to `~`."""
+    import shutil
+
+    argv0 = sys.argv[0] if argv0 is None else argv0
+    path = Path(argv0) if argv0 else None
+    if path is None or path.suffix == ".py" or path.name == "-c":
+        # `python -m patchright_cli` puts __main__.py in argv[0].
+        return "python -m patchright_cli"
+    if path.parent == Path(""):
+        found = shutil.which(argv0)
+        path = Path(found) if found else path
+    try:
+        path = path.resolve()
+        return "~" + os.sep + str(path.relative_to(Path.home()))
+    except (OSError, ValueError):
+        return str(path)
+
+
+_TAB_COUNT_LINE = re.compile(r"^\s+- (?P<name>.+?)(?: \*)?: (?P<tabs>\d+) tab\(s\)$")
+
+
+def _query_running_daemon(port: int, session: str) -> list[dict] | None:
+    """Sessions of an already-running daemon, or None when there is none to ask.
+
+    Never starts anything: no token file means no daemon of ours, and a closed
+    port fails the short connect. Any failure reads as "not running".
+    """
+    token = read_daemon_token(port)
+    if not token:
+        return None
+    msg = {"command": "list", "args": [], "options": {"session": session}, "cwd": os.getcwd(), "token": token}
+    data = json.dumps(msg).encode("utf-8")
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=_HOME_CONNECT_TIMEOUT) as sock:
+            sock.settimeout(_HOME_REPLY_TIMEOUT)
+            sock.sendall(struct.pack("!I", len(data)) + data)
+            length = struct.unpack("!I", _recv_exact(sock, 4))[0]
+            response = json.loads(_recv_exact(sock, length).decode("utf-8"))
+    except (OSError, ValueError, struct.error):
+        return None
+    if not isinstance(response, dict) or not response.get("success") or not isinstance(response.get("data"), list):
+        return None
+    # `data` has no tab count; the text output has one per session.
+    tabs = {}
+    for line in str(response.get("output", "")).splitlines():
+        m = _TAB_COUNT_LINE.match(line)
+        if m:
+            tabs[m["name"]] = int(m["tabs"])
+    sessions = []
+    for row in response["data"]:
+        if isinstance(row, dict) and "name" in row:
+            sessions.append({**row, "tabs": tabs.get(row["name"], 0)})
+    return sessions
+
+
+def _home_state(port: int, session: str) -> dict:
+    try:
+        sessions = _query_running_daemon(port, session)
+    except Exception:
+        sessions = None
+    return {
+        "bin": _display_bin(),
+        "version": __version__,
+        "daemon": {"port": port, "running": sessions is not None},
+        "sessions": sessions or [],
+    }
+
+
+def _home_hints(state: dict) -> list[str]:
+    port = state["daemon"]["port"]
+    cli = "patchright-cli" if port == DEFAULT_PORT else f"patchright-cli --port={port}"
+    if not state["daemon"]["running"]:
+        hints = [f"help: {cli} open <url>  (starts the daemon and a browser)"]
+    elif not state["sessions"]:
+        hints = [f"help: {cli} open <url>  (the daemon is up, no browser yet)"]
+    else:
+        hints = [
+            f"help: {cli} snapshot  (element refs for the current page; -s=<name> for another session)",
+            f"help: {cli} list  (sessions and their tabs)",
+        ]
+    hints.append("help: patchright-cli --help  (all commands); patchright-cli <command> --help  (one command)")
+    return hints
+
+
+def _home_lines(state: dict) -> list[str]:
+    """The no-arg view: identity, live daemon state, next steps. Stays within ~15 lines."""
+    from patchright_cli import toon
+
+    port = state["daemon"]["port"]
+    lines = [f"{state['bin']} v{state['version']} -- {_HOME_DESCRIPTION}"]
+    if not state["daemon"]["running"]:
+        lines.append(f"daemon: not running on port {port} (0 sessions)")
+    else:
+        sessions = state["sessions"]
+        lines.append(f"daemon: running on port {port} ({len(sessions)} session{'s' if len(sessions) != 1 else ''})")
+        if sessions:
+            shown = sessions[:_HOME_MAX_SESSIONS]
+            lines.extend(toon.encode({"sessions": shown}).splitlines())
+            if len(sessions) > len(shown):
+                lines.append(f"  ... {len(sessions) - len(shown)} more")
+    lines.extend(_home_hints(state))
+    return lines
+
+
+def _render_home(state: dict, as_json: bool, as_toon: bool) -> str:
+    if as_json:
+        return json.dumps(state)
+    if as_toon:
+        from patchright_cli import toon
+
+        return "\n".join([toon.encode(state), *_home_hints(state)])
+    return "\n".join(_home_lines(state))
+
+
+def _print_home(port: int, session: str, *, as_json: bool = False, as_toon: bool = False) -> None:
+    """Print the no-arg view. Must never raise: any failure degrades to the daemon-down view."""
+    try:
+        text = _render_home(_home_state(port, session), as_json, as_toon)
+    except Exception:
+        down = {"bin": "patchright-cli", "version": __version__, "daemon": {"port": port, "running": False}}
+        text = _render_home({**down, "sessions": []}, as_json, as_toon)
+    click.echo(text)
+
+
+# ---------------------------------------------------------------------------
+# --toon: render a reply's structured `data` as TOON
+# ---------------------------------------------------------------------------
+
+# The key a list reply's `data` sits under; anything unnamed is `items`.
+_TOON_NOUNS = {
+    "list": "sessions",
+    "tab-list": "tabs",
+    "cookie-list": "cookies",
+    "localstorage-list": "entries",
+    "sessionstorage-list": "entries",
+    "route-list": "routes",
+    "console": "messages",
+    "network": "requests",
+    "requests": "requests",
+    "profile-list": "profiles",
+    "find": "matches",
+}
+
+# What to do when a list reply was cut short (`total` > shown).
+_MORE_HINTS = {
+    "find": "narrow the query, or raise --limit=N",
+    "console": "only the newest 50 are kept in view; filter by level, e.g. `console error`",
+    "network": "only the newest 50 are shown; `network --clear` then reproduce to see a fresh window",
+    "requests": "only the newest 50 are shown; `requests --clear` then reproduce to see a fresh window",
+}
+
+
+def _toon_lines(command: str, response: dict) -> list[str] | None:
+    """TOON rendering of a reply's `data`, or None when it carries none (print as usual)."""
+    from patchright_cli import toon
+
+    data = response.get("data")
+    if data is None:
+        return None
+    doc = dict(data) if isinstance(data, dict) else {_TOON_NOUNS.get(command, "items"): data}
+    total = response.get("total")
+    if isinstance(total, int):
+        doc["total"] = total
+    lines = toon.encode(doc).splitlines()
+    if isinstance(total, int) and isinstance(data, list) and total > len(data):
+        hint = _MORE_HINTS.get(command, "narrow the request to see the rest")
+        lines.append(f"help: showing {len(data)} of {total}; {hint}")
+    return lines
 
 
 def _parse_port(value: str) -> int:
@@ -1467,12 +1653,18 @@ def _main():
         (n for n, a in enumerate(remaining) if a == "--" or not a.startswith("-")),
         len(remaining),
     )
+    if as_json and toon and not want_help:
+        raise UsageError("--json and --toon are mutually exclusive", "help: pick one output format")
+
     if command_at == len(remaining) or remaining[command_at] == "--":
         if remaining[:command_at]:
             raise UsageError(
                 f"unknown flag {remaining[0].split('=', 1)[0]}", "help: run `patchright-cli --help` for all commands"
             )
-        _print_help()
+        if want_help:
+            _print_help()
+        else:
+            _print_home(port, session_name, as_json=as_json, as_toon=toon)
         sys.exit(0)
 
     command = remaining[command_at]
@@ -1620,14 +1812,13 @@ def _main():
     output = response.get("output", "")
     success = response.get("success", True)
 
-    # --- TOON output hook ------------------------------------------------------
-    # `--toon` is parsed and accepted on every command but not rendered yet:
-    # another change wires TOON rendering of `response` in here, at the output
-    # boundary. Until then it falls through to the default output below.
-    if toon:
-        pass
+    # --toon renders a successful reply's structured `data`; a reply without
+    # it, or a failure, prints exactly as it would without the flag.
+    toon_lines = _toon_lines(command, response) if toon and success else None
 
-    if as_json:
+    if toon_lines is not None:
+        click.echo("\n".join(toon_lines))
+    elif as_json:
         payload = dict(response)
         if raw and isinstance(payload.get("output"), str):
             payload["output"] = _strip_raw_output(payload["output"])

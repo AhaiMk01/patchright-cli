@@ -374,3 +374,89 @@ def test_version_is_close_to_the_interpreter_floor():
     version = _best_of([sys.executable, "-m", "patchright_cli", "--version"])
     # Generous: importing the full CLI costs several floors on its own.
     assert version < floor * 3 + 0.15, f"--version took {version:.3f}s against a {floor:.3f}s floor"
+
+
+# -- 7. --toon renders structured `data` ------------------------------------
+
+
+def _run_reply(argv, reply, monkeypatch, capsys):
+    """Run main() against a daemon that answers every command with `reply`."""
+    monkeypatch.setattr(cli, "ensure_daemon_running", lambda *a, **k: False)
+    monkeypatch.setattr(cli, "_send_command", lambda *a, **k: reply)
+    monkeypatch.setattr(cli, "_warn_stale_skills", lambda: None)
+    monkeypatch.setattr(cli, "_load_config", lambda p: {})
+    monkeypatch.setattr(sys, "argv", ["patchright-cli", *argv])
+    code = 0
+    try:
+        cli.main()
+    except SystemExit as exc:
+        code = exc.code or 0
+    return code, capsys.readouterr().out
+
+
+TAB_REPLY = {
+    "success": True,
+    "output": "### Tabs\n- 0: (current) [Example] (https://example.com/)",
+    "data": [{"index": 0, "title": "Example", "url": "https://example.com/", "active": True}],
+}
+
+
+def test_toon_renders_a_data_list(monkeypatch, capsys):
+    code, out = _run_reply(["--toon", "tab-list"], TAB_REPLY, monkeypatch, capsys)
+    assert code == 0
+    assert out.splitlines() == ["tabs[1]{index,title,url,active}:", '  0,Example,"https://example.com/",true']
+
+
+def test_toon_renders_a_data_dict(monkeypatch, capsys):
+    reply = {"success": True, "output": "https://example.com/", "data": {"url": "https://example.com/"}}
+    code, out = _run_reply(["url", "--toon"], reply, monkeypatch, capsys)
+    assert code == 0
+    assert out == 'url: "https://example.com/"\n'
+
+
+def test_toon_empty_list_is_explicit(monkeypatch, capsys):
+    reply = {"success": True, "output": "0 cookies in this session", "data": []}
+    _, out = _run_reply(["--toon", "cookie-list"], reply, monkeypatch, capsys)
+    assert out == "cookies: []\n"
+
+
+def test_toon_without_data_falls_back_to_text(monkeypatch, capsys):
+    reply = {"success": True, "output": "### Page\n- Page URL: about:blank"}
+    _, plain = _run_reply(["snapshot"], reply, monkeypatch, capsys)
+    _, toon = _run_reply(["--toon", "snapshot"], reply, monkeypatch, capsys)
+    assert toon == plain == "### Page\n- Page URL: about:blank\n"
+
+
+def test_toon_leaves_failures_alone(monkeypatch, capsys):
+    reply = {"success": False, "output": "Session 'default' is not open", "data": []}
+    code, out = _run_reply(["--toon", "tab-list"], reply, monkeypatch, capsys)
+    assert code == 1
+    assert out == "Session 'default' is not open\n"
+
+
+def test_toon_truncated_list_carries_total_and_a_hint(monkeypatch, capsys):
+    reply = {
+        "success": True,
+        "output": "Found 1 of 340 matches",
+        "data": [{"ref": "e1", "role": "link", "name": "Sign in"}],
+        "total": 340,
+    }
+    _, out = _run_reply(["--toon", "find", "Sign"], reply, monkeypatch, capsys)
+    lines = out.splitlines()
+    assert lines[:2] == ["matches[1]{ref,role,name}:", "  e1,link,Sign in"]
+    assert "total: 340" in lines
+    assert lines[-1] == "help: showing 1 of 340; narrow the query, or raise --limit=N"
+
+
+def test_default_output_ignores_data(monkeypatch, capsys):
+    _, out = _run_reply(["tab-list"], TAB_REPLY, monkeypatch, capsys)
+    assert out == TAB_REPLY["output"] + "\n"
+
+
+def test_json_and_toon_conflict(monkeypatch, capsys):
+    _forbid_daemon(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["patchright-cli", "--json", "--toon", "tab-list"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert capsys.readouterr().out.startswith("error: --json and --toon are mutually exclusive")
