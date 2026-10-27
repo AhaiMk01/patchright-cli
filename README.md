@@ -209,6 +209,12 @@ The daemon only listens on `127.0.0.1`, but any local process can reach that por
 - Run the CLI as the same user, with the same home directory, as the daemon. In Docker the MCP server and daemon share a user and `HOME`, so this holds.
 - An older CLI talking to a newer daemon gets an error saying the daemon requires an auth token: upgrade, or stop the daemon (`patchright-cli kill-all` from the newer install, or end the process). A newer CLI talking to an older daemon finds no token file and sends none, which the older daemon accepts.
 
+### Daemon client protocol
+
+Third-party clients can use the daemon TCP interface directly. The
+[client protocol reference](docs/daemon-protocol.md) defines discovery,
+authentication, message framing, replies, and compatibility rules.
+
 ---
 
 <details>
@@ -553,9 +559,3 @@ This project builds on the work of:
 ## License
 
 Apache 2.0 — same as [playwright-cli](https://github.com/microsoft/playwright-cli)
-
-## Public daemon client protocol
-
-Third-party clients can use the daemon TCP interface directly. The
-[client protocol reference](docs/daemon-protocol.md) defines discovery,
-authentication, message framing, replies, and compatibility rules.

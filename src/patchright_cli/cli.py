@@ -430,7 +430,6 @@ def _recv_exact(sock: socket.socket, n: int) -> bytes:
 # ---------------------------------------------------------------------------
 
 COMMANDS_HELP = {
-    "daemon-info": "daemon-info --json                 Show daemon client protocol and token path without starting it",
     # Core
     "open": "open [url]           Open browser (starts daemon if needed) [--block-networks=link-local|private] [--web-only]",
     "attach": "attach --cdp=<url> [--context=new|host]  Attach to running Chrome via CDP",
@@ -559,6 +558,7 @@ COMMANDS_HELP = {
     # Setup
     "install": "install --skills      Install skill files for AI agents",
     "mcp": "mcp [--http] [--host=HOST] [--port=N]  Start MCP server (stdio by default)",
+    "daemon-info": "daemon-info --json                 Show daemon client protocol and token path without starting it",
 }
 
 ALL_COMMANDS = list(COMMANDS_HELP.keys())
