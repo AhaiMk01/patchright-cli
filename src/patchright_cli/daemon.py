@@ -143,6 +143,13 @@ class Session:
         self.console_messages: list[dict] = []
         self.network_log: list[dict] = []
         self._pending_dialog_action: tuple | None = None
+        # Media features set by `set-color-scheme` and friends, as emulate_media
+        # keyword arguments. emulate_media is per Page, so every Page this
+        # Session sees gets them, including ones opened later.
+        self.emulation: dict[str, str] = {}
+        # Held while emulation changes and while it is applied to pages, so two
+        # clients setting media at once can't leave pages disagreeing with it.
+        self.emulation_lock = asyncio.Lock()
         # The Profile a Launched Session runs on (None for Attached Sessions).
         self.profile: Profile | None = None
         self._cdp_sessions: dict[int, object] = {}
@@ -172,7 +179,16 @@ class Session:
         if page not in self.pages:
             self.pages.append(page)
             self.current_tab = len(self.pages) - 1
+        # Emulate before the listener setup awaits, so a popup's own scripts
+        # see the session's media features as early as possible.
+        await self.apply_emulation(page)
         await self._attach_page_listeners(page)
+
+    async def apply_emulation(self, page) -> None:
+        """Give `page` this Session's emulated media features, if any are set."""
+        async with self.emulation_lock:
+            if self.emulation and not page.is_closed():
+                await page.emulate_media(**self.emulation)
 
     async def _attach_page_listeners(self, page):
         # Use CDP for console messages (Patchright suppresses page.on('console'))
@@ -400,6 +416,9 @@ class Session:
         """Open a Page in this Session's context and record it as ours."""
         page = await self.context.new_page()
         self.own_pages.add(page)
+        # The context's "page" handler applies this too, but runs as a task;
+        # applying here means the caller never navigates an unemulated page.
+        await self.apply_emulation(page)
         return page
 
     def may_close_page(self, page) -> bool:
@@ -2249,6 +2268,60 @@ async def cmd_resize(session: Session, page, args: list, options: dict, cwd: str
     return {"success": True, "output": f"Viewport resized to {w}x{h}"}
 
 
+# -- Emulation ---------------------------------------------------------------
+
+# Command suffix -> (emulate_media keyword, allowed values, value clear-* restores).
+# The values match playwright-cli's. emulate_media's "null" would drop the
+# override and expose the OS setting, but a page starts out with Playwright's
+# context defaults (light, no-preference, none, ...), so clearing restores those.
+_EMULATED_MEDIA = {
+    "color-scheme": ("color_scheme", ("dark", "light", "no-preference"), "light"),
+    "reduced-motion": ("reduced_motion", ("reduce", "no-preference"), "no-preference"),
+    "forced-colors": ("forced_colors", ("active", "none"), "none"),
+    "contrast": ("contrast", ("more", "no-preference"), "no-preference"),
+    "media": ("media", ("screen", "print"), "null"),
+}
+
+
+async def _emulate_on_all_pages(session: Session, **features: str) -> None:
+    for p in list(session.pages):
+        if p.is_closed():
+            continue
+        try:
+            await p.emulate_media(**features)
+        except Exception:
+            # A page closing mid-loop must not stop the rest; a live page's error still counts.
+            if not p.is_closed():
+                raise
+
+
+def _register_emulation(feature: str, kwarg: str, allowed: tuple[str, ...], default: str) -> None:
+    async def cmd_set(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+        value = args[0] if args else ""
+        if value not in allowed:
+            return {
+                "success": False,
+                "output": f"Usage: set-{feature} <{'|'.join(allowed)}> (got {value!r})",
+            }
+        async with session.emulation_lock:
+            session.emulation[kwarg] = value
+            await _emulate_on_all_pages(session, **{kwarg: value})
+        return {"success": True, "output": f"Emulating {feature}: {value}"}
+
+    async def cmd_clear(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+        async with session.emulation_lock:
+            session.emulation.pop(kwarg, None)
+            await _emulate_on_all_pages(session, **{kwarg: default})
+        return {"success": True, "output": f"Cleared {feature} emulation"}
+
+    register(f"set-{feature}")(cmd_set)
+    register(f"clear-{feature}")(cmd_clear)
+
+
+for _feature, (_kwarg, _allowed, _default) in _EMULATED_MEDIA.items():
+    _register_emulation(_feature, _kwarg, _allowed, _default)
+
+
 # -- Permissions -------------------------------------------------------------
 
 
@@ -2928,6 +3001,7 @@ _CODEGEN_RECORDABLE = {
     "tab-select",
     "upload",
     "resize",
+    *(f"{verb}-{feature}" for feature in _EMULATED_MEDIA for verb in ("set", "clear")),
     "cookie-set",
     "cookie-delete",
     "cookie-clear",

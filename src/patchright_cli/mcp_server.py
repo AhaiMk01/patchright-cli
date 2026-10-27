@@ -450,6 +450,61 @@ TOOL_SPECS = {
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
+    "patchright_set_color_scheme": {
+        "description": "CLI command: set-color-scheme Emulate the prefers-color-scheme media feature on every tab of the session.",
+        "params": [
+            ("value", "string", True, None, "Dark, light or no-preference."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_clear_color_scheme": {
+        "description": "CLI command: clear-color-scheme Stop emulating the prefers-color-scheme media feature.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_set_reduced_motion": {
+        "description": "CLI command: set-reduced-motion Emulate the prefers-reduced-motion media feature on every tab of the session.",
+        "params": [
+            ("value", "string", True, None, "Reduce or no-preference."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_clear_reduced_motion": {
+        "description": "CLI command: clear-reduced-motion Stop emulating the prefers-reduced-motion media feature.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_set_forced_colors": {
+        "description": "CLI command: set-forced-colors Emulate the forced-colors media feature on every tab of the session.",
+        "params": [
+            ("value", "string", True, None, "Active or none."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_clear_forced_colors": {
+        "description": "CLI command: clear-forced-colors Stop emulating the forced-colors media feature.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_set_contrast": {
+        "description": "CLI command: set-contrast Emulate the prefers-contrast media feature on every tab of the session.",
+        "params": [
+            ("value", "string", True, None, "More or no-preference."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_clear_contrast": {
+        "description": "CLI command: clear-contrast Stop emulating the prefers-contrast media feature.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_set_media": {
+        "description": "CLI command: set-media Emulate the CSS media type on every tab of the session.",
+        "params": [
+            ("value", "string", True, None, "Screen or print."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_clear_media": {
+        "description": "CLI command: clear-media Stop emulating the CSS media type.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
     "patchright_state_save": {
         "description": "CLI command: state-save Save cookies and storage state.",
         "params": [
@@ -961,6 +1016,16 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         "patchright_sessionstorage_set": ("sessionstorage-set", ["key", "value"]),
         "patchright_sessionstorage_delete": ("sessionstorage-delete", ["key"]),
         "patchright_network_state_set": ("network-state-set", ["state"]),
+        "patchright_set_color_scheme": ("set-color-scheme", ["value"]),
+        "patchright_clear_color_scheme": ("clear-color-scheme", []),
+        "patchright_set_reduced_motion": ("set-reduced-motion", ["value"]),
+        "patchright_clear_reduced_motion": ("clear-reduced-motion", []),
+        "patchright_set_forced_colors": ("set-forced-colors", ["value"]),
+        "patchright_clear_forced_colors": ("clear-forced-colors", []),
+        "patchright_set_contrast": ("set-contrast", ["value"]),
+        "patchright_clear_contrast": ("clear-contrast", []),
+        "patchright_set_media": ("set-media", ["value"]),
+        "patchright_clear_media": ("clear-media", []),
         "patchright_tracing_stop": ("tracing-stop", []),
         "patchright_video_chapter": ("video-chapter", ["title"]),
         "patchright_codegen": ("codegen", []),
@@ -1270,6 +1335,16 @@ def _python_type(type_name: str) -> type:
     return {"string": str, "boolean": bool, "number": int}[type_name]
 
 
+# Allowed values for each set-* emulation tool, in the daemon's order.
+_EMULATION_VALUES = {
+    "patchright_set_color_scheme": ("dark", "light", "no-preference"),
+    "patchright_set_reduced_motion": ("reduce", "no-preference"),
+    "patchright_set_forced_colors": ("active", "none"),
+    "patchright_set_contrast": ("more", "no-preference"),
+    "patchright_set_media": ("screen", "print"),
+}
+
+
 def _parameter_type(tool_name: str, param_name: str, type_name: str) -> Any:
     if tool_name == "patchright_attach" and param_name == "context":
         return Literal["new", "host"]
@@ -1288,6 +1363,9 @@ def _parameter_type(tool_name: str, param_name: str, type_name: str) -> Any:
 
     if tool_name == "patchright_network_state_set" and param_name == "state":
         return Literal["online", "offline"]
+
+    if tool_name in _EMULATION_VALUES and param_name == "value":
+        return Literal[_EMULATION_VALUES[tool_name]]
 
     return _python_type(type_name)
 

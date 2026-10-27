@@ -497,6 +497,17 @@ COMMANDS_HELP = {
     # Upload / Resize
     "upload": "upload <file> [ref]   Upload file to input",
     "resize": "resize <w> <h>        Resize viewport",
+    # Emulation
+    "set-color-scheme": "set-color-scheme <dark|light|no-preference>  Emulate prefers-color-scheme",
+    "clear-color-scheme": "clear-color-scheme   Stop emulating prefers-color-scheme",
+    "set-reduced-motion": "set-reduced-motion <reduce|no-preference>  Emulate prefers-reduced-motion",
+    "clear-reduced-motion": "clear-reduced-motion Stop emulating prefers-reduced-motion",
+    "set-forced-colors": "set-forced-colors <active|none>  Emulate forced-colors",
+    "clear-forced-colors": "clear-forced-colors  Stop emulating forced-colors",
+    "set-contrast": "set-contrast <more|no-preference>  Emulate prefers-contrast",
+    "clear-contrast": "clear-contrast       Stop emulating prefers-contrast",
+    "set-media": "set-media <screen|print>  Emulate CSS media type",
+    "clear-media": "clear-media          Stop emulating the CSS media type",
     # State
     "state-save": "state-save [file]    Save cookies+storage to JSON",
     "state-load": "state-load <file>    Load saved state",
@@ -619,6 +630,21 @@ def _print_help():
         ("Tabs", ["tab-list", "tab-new", "tab-close", "tab-select"]),
         ("Dialog", ["dialog-accept", "dialog-dismiss"]),
         ("Upload/Resize", ["upload", "resize"]),
+        (
+            "Emulation",
+            [
+                "set-color-scheme",
+                "clear-color-scheme",
+                "set-reduced-motion",
+                "clear-reduced-motion",
+                "set-forced-colors",
+                "clear-forced-colors",
+                "set-contrast",
+                "clear-contrast",
+                "set-media",
+                "clear-media",
+            ],
+        ),
         ("State", ["state-save", "state-load"]),
         (
             "Storage",
