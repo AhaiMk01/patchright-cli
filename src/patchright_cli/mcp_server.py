@@ -784,11 +784,18 @@ def _empty_config() -> str:
     return str(path)
 
 
-def _navigation_policy_args() -> list[str]:
-    """Tell the daemon what this server allows, so its own navigations (a link
-    `click` follows, `go-back`, `go-forward`) obey it too, not only our URL checks."""
-    args = [] if BLOCK_NETWORKS == "none" else [f"--block-networks={BLOCK_NETWORKS}"]
-    return args if UNRESTRICTED_FILESYSTEM else [*args, "--web-only"]
+def _block_networks_args() -> list[str]:
+    return [] if BLOCK_NETWORKS == "none" else [f"--block-networks={BLOCK_NETWORKS}"]
+
+
+def _web_only_args() -> list[str]:
+    """Tell the daemon, on every call, that its own navigations (a link `click`
+    follows, `go-back`, `go-forward`) must stay on the web, not only our URL checks.
+
+    Per call rather than per session: a client can drive any session on the
+    daemon by name, including one the user opened with the plain CLI.
+    """
+    return [] if UNRESTRICTED_FILESYSTEM else ["--web-only"]
 
 
 def _decode_b64(value: str, name: str) -> str:
@@ -814,7 +821,8 @@ async def _run_patchright(
     command = [*CLI, f"--port={DAEMON_PORT}", f"--config={_empty_config()}"]
     if session is not None:
         command.append(f"-s={session}")
-    command.extend(_split_values(args))
+    # Flags go before `--`, so the CLI reads this one after the command name.
+    command.extend(_split_values([*args, *_web_only_args()]))
 
     process = await asyncio.create_subprocess_exec(
         *command,
@@ -887,7 +895,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
                 args.append(f"--{flag}={p[key]}")
         # After the command name: the CLI reads a leading unknown flag as the command.
         args.append("open")
-        args += _navigation_policy_args()
+        args += _block_networks_args()
         if p["url"]:
             _validate_url(p["url"])
             args.append(_V(p["url"]))
@@ -901,7 +909,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         if p["headless"]:
             args.append("--headless")
         args += [f"--cdp={p['cdp_url']}", f"--cdp-timeout={p['cdp_timeout']}", f"--context={p['context']}"]
-        args += _navigation_policy_args()
+        args += _block_networks_args()
         return args
 
     # Straightforward commands

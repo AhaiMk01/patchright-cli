@@ -26,7 +26,6 @@ def test_attach_builds_host_context_args():
         "--cdp-timeout=30000",
         "--context=host",
         "--block-networks=link-local",
-        "--web-only",
     ]
 
 
@@ -187,7 +186,7 @@ def test_snapshot_with_filename_builds_args(tmp_path, monkeypatch):
 
 def test_open_accepts_profile_name():
     args = mcp_server._build_args("patchright_open", _defaults("patchright_open", profile="work", headless=False))
-    assert args == ["--profile=work", "open", "--block-networks=link-local", "--web-only"]
+    assert args == ["--profile=work", "open", "--block-networks=link-local"]
 
 
 def test_open_rejects_profile_dir_outside_root(tmp_path, monkeypatch):
@@ -257,26 +256,94 @@ def test_attach_rejects_non_cdp_schemes():
 
 def test_block_networks_none_drops_the_flag(monkeypatch):
     monkeypatch.setattr(mcp_server, "BLOCK_NETWORKS", "none")
-    assert mcp_server._build_args("patchright_open", _defaults("patchright_open", headless=False)) == [
-        "open",
-        "--web-only",
-    ]
+    assert mcp_server._build_args("patchright_open", _defaults("patchright_open", headless=False)) == ["open"]
 
 
-def test_unrestricted_filesystem_drops_web_only(monkeypatch):
+# Optional parameters some tools still need one of.
+_TOOL_EXTRAS = {"patchright_drop": {"data": "x"}}
+
+
+def _tool_argv(monkeypatch, tmp_path, tool, **overrides):
+    """The CLI argv `tool` runs, with required parameters filled in."""
+    import asyncio
+
+    monkeypatch.setattr(mcp_server, "MCP_ROOT", tmp_path)
+    monkeypatch.setattr(mcp_server, "OUTPUT_ROOT", tmp_path / "output")
+    (tmp_path / "input.json").write_text("{}", encoding="utf-8")
+    params = _defaults(tool)
+    for name, kind, required, _, _ in mcp_server.TOOL_SPECS[tool]["params"]:
+        if required and kind == "string":
+            params[name] = {
+                "url": "https://example.test/",
+                "cdp_url": "http://127.0.0.1:9222",
+                "path": str(tmp_path / "input.json"),
+            }.get(name, "e1")
+        elif required and kind == "number":
+            params[name] = 1
+    params.update(_TOOL_EXTRAS.get(tool, {}), **overrides)
+    calls = []
+
+    class Process:
+        returncode = 0
+
+        async def communicate(self):
+            return b"", b""
+
+    async def spawn(*command, **kwargs):
+        calls.append(list(command))
+        return Process()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    if tool == "patchright_snapshot":
+        asyncio.run(mcp_server._snapshot_tool(params))
+    else:
+        asyncio.run(mcp_server._run_registered_tool(tool, params))
+    (command,) = calls
+    return command[len(mcp_server.CLI) :]
+
+
+def _flags(argv):
+    return argv[: argv.index("--")] if "--" in argv else argv
+
+
+def test_every_tool_sends_web_only_before_the_values(monkeypatch, tmp_path):
+    """A client can drive a session the plain CLI opened, so the policy rides on every call."""
+    for tool in mcp_server.TOOL_SPECS:
+        if tool == "patchright_install_skills":  # refused unless the filesystem is unrestricted
+            continue
+        argv = _tool_argv(monkeypatch, tmp_path, tool)
+        flags = _flags(argv)
+        assert flags.count("--web-only") == 1, (tool, argv)
+        # After the command name: a leading unknown flag would be read as the command.
+        command = next(a for a in flags if not a.startswith("-"))
+        assert flags.index("--web-only") > flags.index(command), (tool, argv)
+
+
+def test_unrestricted_filesystem_drops_web_only(monkeypatch, tmp_path):
     monkeypatch.setattr(mcp_server, "UNRESTRICTED_FILESYSTEM", True)
-    assert mcp_server._build_args("patchright_open", _defaults("patchright_open", headless=False)) == [
-        "open",
-        "--block-networks=link-local",
-    ]
-    attach = mcp_server._build_args("patchright_attach", _defaults("patchright_attach", cdp_url="http://h:9222"))
-    assert "--web-only" not in attach
+    for tool in mcp_server.TOOL_SPECS:
+        assert "--web-only" not in _tool_argv(monkeypatch, tmp_path, tool), tool
 
 
-def test_web_only_reaches_the_daemon_as_an_option(monkeypatch, tmp_path):
+def test_a_client_value_cannot_stand_in_for_web_only(monkeypatch, tmp_path):
+    argv = _tool_argv(monkeypatch, tmp_path, "patchright_type", text="--web-only")
+    assert _flags(argv).count("--web-only") == 1
+    assert argv[argv.index("--") :] == ["--", "--web-only"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "command", "args"),
+    [
+        ("patchright_open", "open", ["https://example.test/"]),
+        ("patchright_click", "click", ["e1", "left"]),
+        ("patchright_go_back", "go-back", []),
+        ("patchright_title", "title", []),
+    ],
+)
+def test_web_only_reaches_the_daemon_as_an_option(monkeypatch, tmp_path, tool, command, args):
+    argv = _tool_argv(monkeypatch, tmp_path, tool, url="https://example.test/")
     monkeypatch.chdir(tmp_path)
-    args = mcp_server._build_args("patchright_open", _defaults("patchright_open", url="https://example.test/"))
-    monkeypatch.setattr(sys, "argv", ["patchright-cli", *mcp_server._split_values(args)])
+    monkeypatch.setattr(sys, "argv", ["patchright-cli", *argv])
     sent = {}
 
     def send(command, args, options, port):
@@ -289,9 +356,9 @@ def test_web_only_reaches_the_daemon_as_an_option(monkeypatch, tmp_path):
         cli.main()
     except SystemExit as exc:
         assert not exc.code
-    assert sent["command"] == "open"
+    assert sent["command"] == command
     assert sent["options"]["web-only"] is True
-    assert sent["args"] == ["https://example.test/"]
+    assert sent["args"] == args
 
 
 def test_tab_select_requires_index():

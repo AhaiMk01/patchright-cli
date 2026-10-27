@@ -93,7 +93,7 @@ async def test_history_replay_navigates_when_allowed():
     assert [c.args[0] for c in page.goto.await_args_list] == ["http://a.test/", "http://b.test/"]
 
 
-async def _click_link(href, guard):
+async def _click_link(href, guard, options=None):
     page = _page()
     session = _session(guard, page)
     session.network_guard = guard
@@ -106,7 +106,9 @@ async def _click_link(href, guard):
     with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as snap:
         snap.return_value = ("snapshot", registry)
         with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
-            response = await handle_command(state, {"command": "click", "args": ["e1"], "options": {"session": "s"}})
+            response = await handle_command(
+                state, {"command": "click", "args": ["e1"], "options": {"session": "s", **(options or {})}}
+            )
     return response, page, elem
 
 
@@ -257,3 +259,103 @@ async def test_tab_new_refuses_before_opening_a_page():
     )
     assert response["success"] is False
     session.new_page.assert_not_awaited()
+
+
+# The MCP server sends --web-only on every call, so it holds on a session the
+# plain CLI opened, while the CLI's own later commands there stay unrestricted.
+
+
+async def test_request_web_only_refuses_a_file_link_on_a_plain_session():
+    response, page, elem = await _click_link("file:///etc/passwd", None, {"web-only": True})
+    assert response["success"] is False
+    assert "--web-only" in response["output"]
+    page.goto.assert_not_awaited()
+    elem.click.assert_not_awaited()
+
+
+async def test_request_web_only_keeps_the_sessions_network_guard():
+    response, page, _ = await _click_link("http://169.254.169.254/", NetworkGuard("link-local"), {"web-only": True})
+    assert response["success"] is False
+    assert "block-networks" in response["output"]
+    page.goto.assert_not_awaited()
+
+
+async def _history_session():
+    page = _page()
+    session = _session(None, page)
+    session.push_history("file:///etc/passwd")
+    session.push_history("http://example.test/")
+    session.push_history("file:///etc/shadow")
+    session._history_index = 1
+    state = daemon.DaemonState()
+    state.sessions["s"] = session
+    return state, session, page
+
+
+@pytest.mark.parametrize("command", ["go-back", "go-forward"])
+async def test_request_web_only_refuses_a_file_history_entry(command):
+    state, session, page = await _history_session()
+    with patch("patchright_cli.daemon._page_info", new=AsyncMock(return_value={"success": True, "output": ""})):
+        response = await handle_command(
+            state, {"command": command, "args": [], "options": {"session": "s", "web-only": True}}
+        )
+    assert response["success"] is False
+    assert "--web-only" in response["output"]
+    page.goto.assert_not_awaited()
+    assert session._history_index == 1
+    assert session.network_guard is None  # the request never changes the session
+
+
+@pytest.mark.parametrize(("command", "url"), [("go-back", "file:///etc/passwd"), ("go-forward", "file:///etc/shadow")])
+async def test_plain_cli_history_still_replays_file_entries(command, url):
+    state, _, page = await _history_session()
+    with patch("patchright_cli.daemon._page_info", new=AsyncMock(return_value={"success": True, "output": ""})):
+        response = await handle_command(state, {"command": command, "args": [], "options": {"session": "s"}})
+    assert response["success"] is True
+    page.goto.assert_awaited_once_with(url)
+
+
+async def test_plain_cli_click_after_a_web_only_request_still_follows_file_links():
+    page = _page()
+    session = _session(None, page)
+    elem = MagicMock(evaluate=AsyncMock(return_value="file:///tmp/page.html"), click=AsyncMock())
+    registry = MagicMock()
+    registry.resolve.return_value = elem
+    session.ref_registry = registry
+    state = daemon.DaemonState()
+    state.sessions["s"] = session
+    with (
+        patch("patchright_cli.daemon.take_snapshot", new=AsyncMock(return_value=("snapshot", registry))),
+        patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"),
+    ):
+        refused = await handle_command(
+            state, {"command": "click", "args": ["e1"], "options": {"session": "s", "web-only": True}}
+        )
+        followed = await handle_command(state, {"command": "click", "args": ["e1"], "options": {"session": "s"}})
+    assert refused["success"] is False
+    assert followed["success"] is True
+    page.goto.assert_awaited_once_with("file:///tmp/page.html")
+
+
+@pytest.mark.parametrize("command", ["goto", "tab-new"])
+async def test_request_web_only_refuses_direct_urls_on_a_plain_session(command):
+    session = _session(None)
+    session.new_page = AsyncMock()
+    state = daemon.DaemonState()
+    state.sessions["s"] = session
+    response = await handle_command(
+        state, {"command": command, "args": ["file:///etc/passwd"], "options": {"session": "s", "web-only": True}}
+    )
+    assert response["success"] is False
+    session.page.goto.assert_not_awaited()
+    session.new_page.assert_not_awaited()
+
+
+async def test_commands_that_do_not_navigate_ignore_web_only():
+    session = _session(None, _page("file:///tmp/page.html"))
+    state = daemon.DaemonState()
+    state.sessions["s"] = session
+    response = await handle_command(
+        state, {"command": "url", "args": [], "options": {"session": "s", "web-only": True}}
+    )
+    assert response == {"success": True, "output": "file:///tmp/page.html"}

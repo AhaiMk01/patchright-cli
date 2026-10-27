@@ -440,14 +440,17 @@ class Session:
         if self.browser is not None:
             await _disconnect_quietly(self.browser)
 
-    async def check_navigation(self, url: str) -> None:
-        """Raise when this Session's guard refuses navigating to `url`."""
-        if self.network_guard is not None:
-            await self.network_guard.check_navigation(url)
+    async def check_navigation(self, url: str, web_only: bool = False) -> None:
+        """Raise when this Session's guard, or a request's `--web-only`, refuses navigating to `url`."""
+        await _check_navigation(self.network_guard, url, web_only)
 
-    async def goto(self, page, url: str) -> None:
-        """Navigate `page` to `url`. Every navigation the daemon starts goes through here."""
-        await _guarded_goto(self.network_guard, page, url)
+    async def goto(self, page, url: str, web_only: bool = False) -> None:
+        """Navigate `page` to `url`. Every navigation the daemon starts goes through here.
+
+        `web_only` comes from the request (the MCP server sends `--web-only` on every
+        call), so it holds for this navigation without changing the session's guard.
+        """
+        await _guarded_goto(self.network_guard, page, url, web_only)
 
     def push_history(self, url: str) -> None:
         """Record a URL in our navigation history."""
@@ -456,19 +459,19 @@ class Session:
         history.append(url)
         self._history_index = len(history) - 1
 
-    async def go_back(self) -> str | None:
+    async def go_back(self, web_only: bool = False) -> str | None:
         if self._history_index <= 0:
             return None
         url = self._history[self._history_index - 1]
-        await self.goto(self.page, url)
+        await self.goto(self.page, url, web_only)
         self._history_index -= 1
         return url
 
-    async def go_forward(self) -> str | None:
+    async def go_forward(self, web_only: bool = False) -> str | None:
         if self._history_index >= len(self._history) - 1:
             return None
         url = self._history[self._history_index + 1]
-        await self.goto(self.page, url)
+        await self.goto(self.page, url, web_only)
         self._history_index += 1
         return url
 
@@ -813,10 +816,13 @@ class NetworkGuard:
         parts = [f"--block-networks={self.mode}"] if self.mode != "none" else []
         return " ".join(parts + (["--web-only"] if self.web_only else []))
 
-    async def check_navigation(self, url: str) -> None:
-        """Raise before navigating a page to `url` when this guard refuses it."""
-        if self.web_only and url != "about:blank" and _url_scheme(url) not in ("http", "https"):
-            raise ValueError(f"URL {url} is refused by --web-only: only http, https and about:blank are allowed.")
+    async def check_navigation(self, url: str, web_only: bool = False) -> None:
+        """Raise before navigating a page to `url` when this guard refuses it.
+
+        `web_only` adds the scheme check for one request on top of the guard's own.
+        """
+        if self.web_only or web_only:
+            _check_web_scheme(url)
         await self.check_url(url, "URL")
 
     def install(self, context) -> None:
@@ -838,10 +844,23 @@ class NetworkGuard:
                 logger.warning("Could not leave %s, refused by %s: %s", url, self.flags, exc)
 
 
-async def _guarded_goto(guard: NetworkGuard | None, page, url: str) -> None:
-    """Navigate `page` to `url` once `guard` (if any) allows it."""
+def _check_web_scheme(url: str) -> None:
+    """Raise unless `url` is one a `--web-only` navigation may go to."""
+    if url != "about:blank" and _url_scheme(url) not in ("http", "https"):
+        raise ValueError(f"URL {url} is refused by --web-only: only http, https and about:blank are allowed.")
+
+
+async def _check_navigation(guard: NetworkGuard | None, url: str, web_only: bool = False) -> None:
+    """Raise when `guard` (if any), or `web_only` for this request, refuses navigating to `url`."""
     if guard is not None:
-        await guard.check_navigation(url)
+        await guard.check_navigation(url, web_only)
+    elif web_only:
+        _check_web_scheme(url)
+
+
+async def _guarded_goto(guard: NetworkGuard | None, page, url: str, web_only: bool = False) -> None:
+    """Navigate `page` to `url` once `guard` (if any) and the request's `web_only` allow it."""
+    await _check_navigation(guard, url, web_only)
     await page.goto(url)
 
 
@@ -1327,16 +1346,21 @@ async def _apply_timeouts(page, options: dict) -> None:
 # -- Navigation --------------------------------------------------------------
 
 
+def _web_only(options: dict) -> bool:
+    """Whether this request carries `--web-only`. Commands that never navigate ignore it."""
+    return bool(options.get("web-only", False))
+
+
 @register("goto")
 async def cmd_goto(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    await session.goto(page, args[0])
+    await session.goto(page, args[0], _web_only(options))
     session.push_history(page.url)
     return await _page_info(session, cwd)
 
 
 @register("go-back")
 async def cmd_go_back(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    url = await session.go_back()
+    url = await session.go_back(_web_only(options))
     if url is None:
         return {"success": False, "output": "No previous page in history"}
     return await _page_info(session, cwd)
@@ -1346,7 +1370,7 @@ async def cmd_go_back(session: Session, page, args: list, options: dict, cwd: st
 async def cmd_go_forward(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    url = await session.go_forward()
+    url = await session.go_forward(_web_only(options))
     if url is None:
         return {"success": False, "output": "No next page in history"}
     return await _page_info(session, cwd)
@@ -1383,7 +1407,7 @@ async def cmd_click(session: Session, page, args: list, options: dict, cwd: str 
         "el => { while (el) { if (el.tagName === 'A') return el.href; el = el.parentElement; } return null; }"
     )
     if link_href:
-        await session.goto(page, link_href)
+        await session.goto(page, link_href, _web_only(options))
         session.push_history(page.url)
     else:
         await elem.click(button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None)
@@ -1870,10 +1894,10 @@ async def cmd_tab_list(session: Session, page, args: list, options: dict, cwd: s
 @register("tab-new")
 async def cmd_tab_new(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     url = args[0] if args else "about:blank"
-    await session.check_navigation(url)
+    await session.check_navigation(url, _web_only(options))
     new_page = await session.new_page()
     if url and url != "about:blank":
-        await session.goto(new_page, url)
+        await session.goto(new_page, url, _web_only(options))
     return await _page_info(session, cwd)
 
 
@@ -3008,7 +3032,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 user_agent=options.get("user-agent") or options.get("userAgent"),
                 grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
                 block_networks=options.get("block-networks"),
-                web_only=bool(options.get("web-only", False)),
+                web_only=_web_only(options),
             )
             if named_tab:
                 if not existed:
@@ -3016,10 +3040,10 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                     # session alive once the named tabs are all closed.
                     session.default_in_use = False
                 if url:
-                    await session.check_navigation(url)
+                    await session.check_navigation(url, _web_only(options))
                 tab = await session.open_tab(tab_name)
                 if url:
-                    await session.goto(tab.page, url)
+                    await session.goto(tab.page, url, _web_only(options))
             else:
                 session.default_in_use = True
                 session._ensure_default_tab()
@@ -3049,7 +3073,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 user_agent=options.get("user-agent") or options.get("userAgent"),
                 grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
                 block_networks=options.get("block-networks"),
-                web_only=bool(options.get("web-only", False)),
+                web_only=_web_only(options),
             )
             if session.page:
                 session.push_history(session.page.url)
