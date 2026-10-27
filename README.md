@@ -141,6 +141,16 @@ PATCHRIGHT_CLI_MCP_TOKEN=replace-with-a-long-random-token docker compose up -d
 
 The token is optional. Leave it out if your MCP client can't send an `Authorization` header. Both examples publish the port on `127.0.0.1` only, but that alone doesn't stop a web page in your browser from reaching the server through DNS rebinding. Without a token, consider turning on FastMCP's Host and Origin checks with `-e FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` (off by default). Requests must then be addressed to `localhost`, `127.0.0.1` or `::1`. To reach the server by another hostname or IP, such as a LAN address or a Compose service name, list it as a JSON array, for example `-e FASTMCP_HTTP_ALLOWED_HOSTS='["patchright-mcp", "192.168.1.20"]'`. If you publish the port beyond loopback, set a token: the endpoint gives full control of the browser and its saved logins.
 
+### Chrome sandbox
+
+Patchright starts Chrome with `--no-sandbox`, so by default no Chrome process is sandboxed (`chrome://sandbox` lists every one as "Not Sandboxed", on Windows too). Set `PATCHRIGHT_CLI_CHROME_SANDBOX=1` to launch Chrome with its sandbox instead. It is off by default.
+
+The variable is read by the daemon, not by each CLI command. The CLI passes its environment on when it starts the daemon, so set it before the first `open`; a daemon that is already running keeps the setting it started with until you restart it (`patchright-cli kill-all`).
+
+In Docker the image runs as root, and Chrome will not start as root with its sandbox on, so the switch also needs a non-root user (`docker run --user ...` with a writable `HOME`). Docker's default seccomp profile and the host's user-namespace settings can still stop the Linux sandbox from starting; `--security-opt seccomp=unconfined` is one way past the first, at the cost of the container's own syscall filter. CI measures these cases but does not require them to pass.
+
+How the sandbox affects bot detection has not been measured.
+
 ---
 
 ## Quick Start

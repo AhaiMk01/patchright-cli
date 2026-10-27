@@ -471,6 +471,10 @@ DEFAULT_ANNOTATE_WAIT = 300.0
 DEFAULT_IDLE_TIMEOUT = 1800.0
 IDLE_TIMEOUT_ENV = "PATCHRIGHT_CLI_IDLE_TIMEOUT"
 
+# Patchright starts Chrome with --no-sandbox unless told otherwise. Read from the
+# daemon's own environment, which the CLI passes on when it spawns the daemon.
+CHROME_SANDBOX_ENV = "PATCHRIGHT_CLI_CHROME_SANDBOX"
+
 
 def _parse_idle_timeout(value) -> float:
     """Seconds of idleness before the daemon exits. Raises ValueError if unusable.
@@ -1080,6 +1084,8 @@ class DaemonState:
             "headless": headless,
             "args": ["--disable-blink-features=AutomationControlled"],
         }
+        if os.environ.get(CHROME_SANDBOX_ENV) == "1":
+            launch_kwargs["chromium_sandbox"] = True
         # Chrome sizes the page to the window unless a viewport is asked for.
         # `no_viewport` and `viewport` are mutually exclusive in Playwright.
         if "viewport" not in context_options:
