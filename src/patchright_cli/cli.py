@@ -17,7 +17,7 @@ from pathlib import Path
 import click
 
 from patchright_cli import __version__
-from patchright_cli.daemon import DEFAULT_PORT, ensure_daemon_running, read_daemon_token
+from patchright_cli.daemon import DEFAULT_PORT, PROTOCOL_VERSION, ensure_daemon_running, read_daemon_token, token_path
 
 
 def _soften_output_encoding(*streams) -> None:
@@ -430,6 +430,7 @@ def _recv_exact(sock: socket.socket, n: int) -> bytes:
 # ---------------------------------------------------------------------------
 
 COMMANDS_HELP = {
+    "daemon-info": "daemon-info --json                 Show daemon client protocol and token path without starting it",
     # Core
     "open": "open [url]           Open browser (starts daemon if needed) [--block-networks=link-local|private] [--web-only]",
     "attach": "attach --cdp=<url> [--context=new|host]  Attach to running Chrome via CDP",
@@ -653,7 +654,7 @@ def _print_help():
         ("Profiles", ["profile-list", "profile-delete"]),
         ("Dashboard", ["show"]),
         ("Codegen", ["codegen", "codegen-stop"]),
-        ("Setup", ["install", "mcp"]),
+        ("Setup", ["install", "mcp", "daemon-info"]),
     ]
     for cat_name, cmds in categories:
         click.echo(f"\n  {cat_name}:")
@@ -822,6 +823,22 @@ def main():
         click.echo(f"Unknown command: {command}\n", err=True)
         _print_help()
         sys.exit(1)
+
+    if command == "daemon-info":
+        if not as_json or args or extra_opts:
+            click.echo("Usage: patchright-cli daemon-info --json [--port=N]", err=True)
+            sys.exit(1)
+        click.echo(
+            json.dumps(
+                {
+                    "version": __version__,
+                    "protocol": PROTOCOL_VERSION,
+                    "port": port,
+                    "token_path": str(token_path(port).resolve()),
+                }
+            )
+        )
+        return
 
     if command == "install":
         _handle_install(args + [k if v is True else f"{k}={v}" for k, v in extra_opts.items()])

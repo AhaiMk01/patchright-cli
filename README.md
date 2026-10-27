@@ -527,3 +527,9 @@ This project builds on the work of:
 ## License
 
 Apache 2.0 — same as [playwright-cli](https://github.com/microsoft/playwright-cli)
+
+## Public daemon client protocol
+
+Third-party clients can use the daemon TCP interface directly. The
+[client protocol reference](docs/daemon-protocol.md) defines discovery,
+authentication, message framing, replies, and compatibility rules.
