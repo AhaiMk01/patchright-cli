@@ -26,6 +26,7 @@ def test_attach_builds_host_context_args():
         "--cdp-timeout=30000",
         "--context=host",
         "--block-networks=link-local",
+        "--web-only",
     ]
 
 
@@ -186,7 +187,7 @@ def test_snapshot_with_filename_builds_args(tmp_path, monkeypatch):
 
 def test_open_accepts_profile_name():
     args = mcp_server._build_args("patchright_open", _defaults("patchright_open", profile="work", headless=False))
-    assert args == ["--profile=work", "open", "--block-networks=link-local"]
+    assert args == ["--profile=work", "open", "--block-networks=link-local", "--web-only"]
 
 
 def test_open_rejects_profile_dir_outside_root(tmp_path, monkeypatch):
@@ -256,7 +257,41 @@ def test_attach_rejects_non_cdp_schemes():
 
 def test_block_networks_none_drops_the_flag(monkeypatch):
     monkeypatch.setattr(mcp_server, "BLOCK_NETWORKS", "none")
-    assert mcp_server._build_args("patchright_open", _defaults("patchright_open", headless=False)) == ["open"]
+    assert mcp_server._build_args("patchright_open", _defaults("patchright_open", headless=False)) == [
+        "open",
+        "--web-only",
+    ]
+
+
+def test_unrestricted_filesystem_drops_web_only(monkeypatch):
+    monkeypatch.setattr(mcp_server, "UNRESTRICTED_FILESYSTEM", True)
+    assert mcp_server._build_args("patchright_open", _defaults("patchright_open", headless=False)) == [
+        "open",
+        "--block-networks=link-local",
+    ]
+    attach = mcp_server._build_args("patchright_attach", _defaults("patchright_attach", cdp_url="http://h:9222"))
+    assert "--web-only" not in attach
+
+
+def test_web_only_reaches_the_daemon_as_an_option(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    args = mcp_server._build_args("patchright_open", _defaults("patchright_open", url="https://example.test/"))
+    monkeypatch.setattr(sys, "argv", ["patchright-cli", *mcp_server._split_values(args)])
+    sent = {}
+
+    def send(command, args, options, port):
+        sent.update(command=command, args=args, options=options)
+        return {"success": True, "output": ""}
+
+    monkeypatch.setattr(cli, "ensure_daemon_running", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "_send_command", send)
+    try:
+        cli.main()
+    except SystemExit as exc:
+        assert not exc.code
+    assert sent["command"] == "open"
+    assert sent["options"]["web-only"] is True
+    assert sent["args"] == ["https://example.test/"]
 
 
 def test_tab_select_requires_index():

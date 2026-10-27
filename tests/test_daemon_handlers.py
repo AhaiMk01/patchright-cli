@@ -1,5 +1,6 @@
 """Unit tests for daemon command dispatch."""
 
+from functools import partial
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,6 +36,8 @@ def mock_session():
     session.activate_tab = MagicMock()
     session.uses_host_context = False
     session.network_guard = None
+    session.goto = partial(Session.goto, session)
+    session.check_navigation = partial(Session.check_navigation, session)
     return session
 
 

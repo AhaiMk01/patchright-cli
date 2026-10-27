@@ -784,8 +784,11 @@ def _empty_config() -> str:
     return str(path)
 
 
-def _block_networks_args() -> list[str]:
-    return [] if BLOCK_NETWORKS == "none" else [f"--block-networks={BLOCK_NETWORKS}"]
+def _navigation_policy_args() -> list[str]:
+    """Tell the daemon what this server allows, so its own navigations (a link
+    `click` follows, `go-back`, `go-forward`) obey it too, not only our URL checks."""
+    args = [] if BLOCK_NETWORKS == "none" else [f"--block-networks={BLOCK_NETWORKS}"]
+    return args if UNRESTRICTED_FILESYSTEM else [*args, "--web-only"]
 
 
 def _decode_b64(value: str, name: str) -> str:
@@ -884,7 +887,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
                 args.append(f"--{flag}={p[key]}")
         # After the command name: the CLI reads a leading unknown flag as the command.
         args.append("open")
-        args += _block_networks_args()
+        args += _navigation_policy_args()
         if p["url"]:
             _validate_url(p["url"])
             args.append(_V(p["url"]))
@@ -898,7 +901,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         if p["headless"]:
             args.append("--headless")
         args += [f"--cdp={p['cdp_url']}", f"--cdp-timeout={p['cdp_timeout']}", f"--context={p['context']}"]
-        args += _block_networks_args()
+        args += _navigation_policy_args()
         return args
 
     # Straightforward commands

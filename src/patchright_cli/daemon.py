@@ -440,6 +440,15 @@ class Session:
         if self.browser is not None:
             await _disconnect_quietly(self.browser)
 
+    async def check_navigation(self, url: str) -> None:
+        """Raise when this Session's guard refuses navigating to `url`."""
+        if self.network_guard is not None:
+            await self.network_guard.check_navigation(url)
+
+    async def goto(self, page, url: str) -> None:
+        """Navigate `page` to `url`. Every navigation the daemon starts goes through here."""
+        await _guarded_goto(self.network_guard, page, url)
+
     def push_history(self, url: str) -> None:
         """Record a URL in our navigation history."""
         self._history = self._history[: self._history_index + 1]
@@ -450,17 +459,17 @@ class Session:
     async def go_back(self) -> str | None:
         if self._history_index <= 0:
             return None
+        url = self._history[self._history_index - 1]
+        await self.goto(self.page, url)
         self._history_index -= 1
-        url = self._history[self._history_index]
-        await self.page.goto(url)
         return url
 
     async def go_forward(self) -> str | None:
         if self._history_index >= len(self._history) - 1:
             return None
+        url = self._history[self._history_index + 1]
+        await self.goto(self.page, url)
         self._history_index += 1
-        url = self._history[self._history_index]
-        await self.page.goto(url)
         return url
 
 
@@ -661,6 +670,10 @@ _GUARD_TTL = 60.0
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 # Schemes whose URLs Chrome parses with the WHATWG "special" rules.
 _SPECIAL_SCHEMES = frozenset({"http", "https", "ws", "wss", "ftp", "file"})
+# Where a `--web-only` session may land. The pre-navigation check is stricter
+# (http, https, about:blank); these also cover what a page loads in a frame
+# (data:, blob:, about:srcdoc) and Chrome's own error page.
+_WEB_LANDING_SCHEMES = frozenset({"http", "https", "about", "data", "blob", "chrome-error"})
 _IPV4_PART = {16: re.compile(r"[0-9a-f]*"), 8: re.compile(r"[0-7]*"), 10: re.compile(r"[0-9]+")}
 
 
@@ -721,6 +734,13 @@ def _browser_host(url: str) -> str | None:
     return _whatwg_ipv4(host) or host or None
 
 
+def _url_scheme(url: str) -> str | None:
+    """The scheme Chrome reads from `url`, lowercased, or None when it has none."""
+    url = re.sub(r"[\t\n\r]", "", url.strip("".join(map(chr, range(33)))))
+    match = re.match(r"([A-Za-z][A-Za-z0-9+.-]*):", url)
+    return match.group(1).lower() if match else None
+
+
 def _blocked_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, mode: str) -> bool:
     """Whether `--block-networks=<mode>` forbids connecting to `ip`.
 
@@ -742,10 +762,11 @@ def _blocked_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, mode: st
 
 
 class NetworkGuard:
-    """Keeps a session's frames off the address ranges a `--block-networks` mode names.
+    """Keeps a session's frames off the address ranges a `--block-networks` mode
+    names and, with `--web-only`, off every scheme but http, https and about:blank.
 
     It checks URLs before the browser goes there and sends any frame that still
-    lands in a refused range (a redirect, a script) back to about:blank. It never
+    lands somewhere refused (a redirect, a script) back to about:blank. It never
     intercepts requests: Playwright turns the HTTP cache off while any route is
     active. So subresources, fetch() and WebSockets are not checked (CORS still
     hides their responses), and a DNS server that answers differently each time
@@ -753,10 +774,13 @@ class NetworkGuard:
     boundary.
     """
 
-    def __init__(self, mode: str) -> None:
+    def __init__(self, mode: str, web_only: bool = False) -> None:
         if mode not in BLOCK_NETWORK_MODES:
             raise ValueError(f"Invalid --block-networks={mode!r}; expected one of: {', '.join(BLOCK_NETWORK_MODES)}.")
         self.mode = mode
+        # Set by `--web-only`. A goto the daemon makes itself is browser-initiated,
+        # so unlike a page's own navigation Chrome lets it open file:// URLs.
+        self.web_only = web_only
         self._verdicts: dict[str, tuple[float, bool]] = {}
 
     async def blocks(self, host: str | None) -> bool:
@@ -783,6 +807,18 @@ class NetworkGuard:
         if await self.blocks(_browser_host(url)):
             raise ValueError(f"{what} {url} is in a network refused by --block-networks={self.mode}.")
 
+    @property
+    def flags(self) -> str:
+        """The options this guard was made from, for messages."""
+        parts = [f"--block-networks={self.mode}"] if self.mode != "none" else []
+        return " ".join(parts + (["--web-only"] if self.web_only else []))
+
+    async def check_navigation(self, url: str) -> None:
+        """Raise before navigating a page to `url` when this guard refuses it."""
+        if self.web_only and url != "about:blank" and _url_scheme(url) not in ("http", "https"):
+            raise ValueError(f"URL {url} is refused by --web-only: only http, https and about:blank are allowed.")
+        await self.check_url(url, "URL")
+
     def install(self, context) -> None:
         def watch(page) -> None:
             page.on("framenavigated", self._enforce)
@@ -792,11 +828,21 @@ class NetworkGuard:
         context.on("page", watch)
 
     async def _enforce(self, frame) -> None:
-        if await self.blocks(_browser_host(frame.url)):
+        url = frame.url
+        scheme = _url_scheme(url)
+        off_web = self.web_only and scheme is not None and scheme not in _WEB_LANDING_SCHEMES
+        if off_web or await self.blocks(_browser_host(url)):
             try:
                 await frame.goto("about:blank")
             except Exception as exc:
-                logger.warning("Could not leave %s, refused by --block-networks=%s: %s", frame.url, self.mode, exc)
+                logger.warning("Could not leave %s, refused by %s: %s", url, self.flags, exc)
+
+
+async def _guarded_goto(guard: NetworkGuard | None, page, url: str) -> None:
+    """Navigate `page` to `url` once `guard` (if any) allows it."""
+    if guard is not None:
+        await guard.check_navigation(url)
+    await page.goto(url)
 
 
 async def _fetch_cdp_version(cdp_endpoint: str, headers: dict | None, timeout: float = 5) -> dict:
@@ -917,18 +963,20 @@ class DaemonState:
         context_mode: str = "new",
         profile_base: str | None = None,
         block_networks: str | None = None,
+        web_only: bool = False,
     ) -> Session:
         if context_mode not in CDP_CONTEXT_MODES:
             raise ValueError(f"Invalid --context={context_mode!r}; expected one of: {', '.join(CDP_CONTEXT_MODES)}.")
         use_host = bool(cdp_endpoint) and context_mode == "host"
-        guard = NetworkGuard(block_networks) if block_networks and block_networks != "none" else None
+        mode = block_networks or "none"
+        guard = NetworkGuard(mode, web_only) if mode != "none" or web_only else None
         if guard is not None:
             if cdp_endpoint:
                 await guard.check_url(cdp_endpoint, "CDP endpoint")
             if proxy:
                 await guard.check_url(proxy if "://" in proxy else f"http://{proxy}", "Proxy")
             if url:
-                await guard.check_url(url, "URL")
+                await guard.check_navigation(url)
 
         notices: list[str] = []
         existing = self.sessions.get(name)
@@ -953,10 +1001,9 @@ class DaemonState:
                         if not existing.uses_host_context:
                             guard.install(existing.context)
                         existing.network_guard = guard
-                    elif current.mode != guard.mode:
+                    elif current.flags != guard.flags:
                         raise ValueError(
-                            f"Session '{name}' runs with --block-networks={current.mode}. "
-                            f"`close` it first to use --block-networks={guard.mode}."
+                            f"Session '{name}' runs with {current.flags}. `close` it first to use {guard.flags}."
                         )
                 return existing
 
@@ -1053,7 +1100,7 @@ class DaemonState:
                 created_pages.append(page)
                 pages = [page]
             if url:
-                await pages[0].goto(url)
+                await _guarded_goto(guard, pages[0], url)
 
             session = Session(
                 name,
@@ -1282,9 +1329,7 @@ async def _apply_timeouts(page, options: dict) -> None:
 
 @register("goto")
 async def cmd_goto(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    if session.network_guard is not None:
-        await session.network_guard.check_url(args[0], "URL")
-    await page.goto(args[0])
+    await session.goto(page, args[0])
     session.push_history(page.url)
     return await _page_info(session, cwd)
 
@@ -1338,7 +1383,7 @@ async def cmd_click(session: Session, page, args: list, options: dict, cwd: str 
         "el => { while (el) { if (el.tagName === 'A') return el.href; el = el.parentElement; } return null; }"
     )
     if link_href:
-        await page.goto(link_href)
+        await session.goto(page, link_href)
         session.push_history(page.url)
     else:
         await elem.click(button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None)
@@ -1825,11 +1870,10 @@ async def cmd_tab_list(session: Session, page, args: list, options: dict, cwd: s
 @register("tab-new")
 async def cmd_tab_new(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     url = args[0] if args else "about:blank"
-    if session.network_guard is not None:
-        await session.network_guard.check_url(url, "URL")
+    await session.check_navigation(url)
     new_page = await session.new_page()
     if url and url != "about:blank":
-        await new_page.goto(url)
+        await session.goto(new_page, url)
     return await _page_info(session, cwd)
 
 
@@ -2964,17 +3008,18 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 user_agent=options.get("user-agent") or options.get("userAgent"),
                 grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
                 block_networks=options.get("block-networks"),
+                web_only=bool(options.get("web-only", False)),
             )
             if named_tab:
                 if not existed:
                     # Nobody asked for the default tab, so it must not keep the
                     # session alive once the named tabs are all closed.
                     session.default_in_use = False
+                if url:
+                    await session.check_navigation(url)
                 tab = await session.open_tab(tab_name)
                 if url:
-                    if session.network_guard is not None:
-                        await session.network_guard.check_url(url, "URL")
-                    await tab.page.goto(url)
+                    await session.goto(tab.page, url)
             else:
                 session.default_in_use = True
                 session._ensure_default_tab()
@@ -3004,6 +3049,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 user_agent=options.get("user-agent") or options.get("userAgent"),
                 grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
                 block_networks=options.get("block-networks"),
+                web_only=bool(options.get("web-only", False)),
             )
             if session.page:
                 session.push_history(session.page.url)
