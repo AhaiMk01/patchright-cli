@@ -3195,7 +3195,7 @@ def _create_owner_only_file(path: Path) -> int:
     inherits its parent directory's ACL, which may grant other accounts read
     access, so the file is created with a protected DACL (no inherited ACEs)
     holding a single full-access ACE for the current user's SID. The security
-    descriptor is passed to CreateFileW, so the file never exists with any
+    descriptor is passed to CreateFile, so the file never exists with any
     other ACL. SYSTEM and administrators get no ACE: they can read any file
     through their privileges anyway, so an ACE would grant them nothing. The
     user's SID is used rather than OWNER RIGHTS because an elevated process's
@@ -3204,89 +3204,36 @@ def _create_owner_only_file(path: Path) -> int:
     if os.name != "nt":
         return os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 
-    import ctypes
     import msvcrt
-    from ctypes import wintypes
 
-    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
-    kernel32.LocalFree.restype = ctypes.c_void_p
-    kernel32.CreateFileW.argtypes = [
-        wintypes.LPCWSTR,
-        wintypes.DWORD,
-        wintypes.DWORD,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-        wintypes.DWORD,
-        wintypes.HANDLE,
-    ]
-    kernel32.CreateFileW.restype = wintypes.HANDLE
-    advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
-    advapi32.GetTokenInformation.argtypes = [
-        wintypes.HANDLE,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-        ctypes.POINTER(wintypes.DWORD),
-    ]
-    advapi32.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR)]
-    advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
-        wintypes.LPCWSTR,
-        wintypes.DWORD,
-        ctypes.POINTER(ctypes.c_void_p),
-        ctypes.c_void_p,
-    ]
+    import pywintypes
+    import win32api
+    import win32con
+    import win32file
+    import win32security
 
-    class SECURITY_ATTRIBUTES(ctypes.Structure):
-        _fields_ = [
-            ("nLength", wintypes.DWORD),
-            ("lpSecurityDescriptor", ctypes.c_void_p),
-            ("bInheritHandle", wintypes.BOOL),
-        ]
-
-    def fail(step: str) -> OSError:
-        err = ctypes.get_last_error()
-        return OSError(err, f"cannot create {path} with an owner-only ACL ({step}): {ctypes.FormatError(err)}")
-
-    token = wintypes.HANDLE()
-    if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):  # TOKEN_QUERY
-        raise fail("OpenProcessToken")
     try:
-        size = wintypes.DWORD()
-        advapi32.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))  # 1 = TokenUser
-        buf = ctypes.create_string_buffer(size.value)
-        if not advapi32.GetTokenInformation(token, 1, buf, size, ctypes.byref(size)):
-            raise fail("GetTokenInformation")
-    finally:
-        kernel32.CloseHandle(token)
-    # TOKEN_USER starts with the user's PSID.
-    sid = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p))[0]
-    sid_str = wintypes.LPWSTR()
-    if not advapi32.ConvertSidToStringSidW(sid, ctypes.byref(sid_str)):
-        raise fail("ConvertSidToStringSidW")
+        process_token = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32con.TOKEN_QUERY)
+        try:
+            sid, _ = win32security.GetTokenInformation(process_token, win32security.TokenUser)
+        finally:
+            process_token.Close()
+        sd = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(
+            f"D:P(A;;FA;;;{win32security.ConvertSidToStringSid(sid)})", win32security.SDDL_REVISION_1
+        )
+        attributes = win32security.SECURITY_ATTRIBUTES()
+        attributes.SECURITY_DESCRIPTOR = sd
+        handle = win32file.CreateFile(
+            str(path), win32con.GENERIC_WRITE, 0, attributes, win32con.CREATE_NEW, win32con.FILE_ATTRIBUTE_NORMAL, None
+        )
+    except pywintypes.error as e:
+        message = f"cannot create {path} with an owner-only ACL ({e.funcname}): {e.strerror}"
+        raise OSError(0, message, None, e.winerror) from e
+    raw = handle.Detach()
     try:
-        sddl = f"D:P(A;;FA;;;{sid_str.value})"
-    finally:
-        kernel32.LocalFree(sid_str)
-
-    sd = ctypes.c_void_p()
-    if not advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(sd), None):
-        raise fail("ConvertStringSecurityDescriptorToSecurityDescriptorW")
-    try:
-        sa = SECURITY_ATTRIBUTES(ctypes.sizeof(SECURITY_ATTRIBUTES), sd, False)
-        # GENERIC_WRITE, no sharing, CREATE_NEW, FILE_ATTRIBUTE_NORMAL
-        handle = kernel32.CreateFileW(str(path), 0x40000000, 0, ctypes.byref(sa), 1, 0x80, None)
-        if handle is None or handle == ctypes.c_void_p(-1).value:
-            raise fail("CreateFileW")
-    finally:
-        kernel32.LocalFree(sd)
-    try:
-        return msvcrt.open_osfhandle(handle, os.O_WRONLY)
+        return msvcrt.open_osfhandle(raw, os.O_WRONLY)
     except BaseException:
-        kernel32.CloseHandle(handle)
+        win32api.CloseHandle(raw)
         raise
 
 
