@@ -9,11 +9,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import hmac
 import ipaddress
 import json
 import logging
 import os
 import re
+import secrets
 import signal
 import socket
 import struct
@@ -33,6 +35,8 @@ logger = logging.getLogger("patchright-cli.daemon")
 
 DEFAULT_PORT = 9321
 PROFILES_ROOT = Path.home() / ".patchright-cli" / "profiles"
+# Holds daemon-<port>.token, the shared secret every client message must carry.
+TOKEN_DIR = Path.home() / ".patchright-cli"
 # Profile names become directory names under PROFILES_ROOT, so keep them to
 # characters every filesystem accepts and nothing that can climb out of it.
 _PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -858,6 +862,8 @@ class DaemonState:
         # watchdog tore the browser down underneath it.
         self.commands_in_flight: int = 0
         self.shutdown_event: asyncio.Event | None = None
+        # The Daemon Token clients must send; None rejects every message.
+        self.auth_token: str | None = None
         # Serialises Host Context attaches: the one-Session-per-Host-Context
         # check and the registration it guards straddle awaits.
         self._host_attach_lock = asyncio.Lock()
@@ -3169,6 +3175,77 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def token_path(port: int) -> Path:
+    """The token file for the daemon on `port`, so daemons on different ports coexist."""
+    return TOKEN_DIR / f"daemon-{port}.token"
+
+
+def read_daemon_token(port: int) -> str | None:
+    """The token of the daemon on `port`, or None when it wrote none (it predates tokens)."""
+    try:
+        return token_path(port).read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def write_daemon_token(port: int) -> str:
+    """Generate a fresh token and write it to the port's token file, replacing a stale one.
+
+    The file is created 0600 through a temp file and os.replace, so it is never
+    world-readable, not even briefly. On Windows POSIX modes do not apply; the
+    file is protected by the ACL of the user's profile directory instead.
+    """
+    token = secrets.token_urlsafe(32)
+    path = token_path(port)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    with contextlib.suppress(FileNotFoundError):
+        tmp.unlink()
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(token)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
+    return token
+
+
+def remove_daemon_token(port: int, token: str) -> None:
+    """Delete the port's token file if it still holds `token`."""
+    if read_daemon_token(port) == token:
+        with contextlib.suppress(OSError):
+            token_path(port).unlink()
+
+
+def check_auth(msg: object, expected: str | None, port: int) -> str | None:
+    """Return why `msg` is not authorised, or None when its token matches."""
+    if not isinstance(msg, dict):
+        return "Daemon error: malformed message."
+    sent = msg.get("token")
+    if sent is None:
+        return (
+            "Error: the patchright-cli daemon requires an auth token and this request had none. "
+            "The client is probably older than the daemon: upgrade patchright-cli, or stop the "
+            f"daemon on port {port} (`patchright-cli kill-all` from the newer install, or end the "
+            "daemon process) and rerun so this client starts its own. If the client is current, "
+            f"its token file {token_path(port)} is missing: stop the daemon process and rerun."
+        )
+    if (
+        expected is None
+        or not isinstance(sent, str)
+        or not hmac.compare_digest(sent.encode("utf-8"), expected.encode("utf-8"))
+    ):
+        return (
+            f"Error: the patchright-cli daemon on port {port} rejected the auth token. "
+            f"Run the client as the same user (same home directory) as the daemon; if {token_path(port)} "
+            "was replaced, stop the daemon process and rerun."
+        )
+    return None
+
+
 async def _read_message(reader: asyncio.StreamReader) -> dict | None:
     """Read a length-prefixed JSON message from the stream."""
     header = await reader.readexactly(4)
@@ -3190,13 +3267,19 @@ async def _handle_client(
     state: DaemonState,
 ):
     """Handle a single client connection: read one command, respond, close."""
-    state.last_activity = time.monotonic()
     addr = writer.get_extra_info("peername")
     logger.debug("Client connected: %s", addr)
     try:
         msg = await _read_message(reader)
         if msg is None:
             return
+        port = writer.get_extra_info("sockname")[1]
+        denied = check_auth(msg, state.auth_token, port)
+        if denied:
+            logger.warning("Rejected unauthenticated command from %s", addr)
+            await _write_message(writer, {"success": False, "output": denied})
+            return
+        state.last_activity = time.monotonic()
         with state.command_running():
             response = await handle_command(state, msg)
         await _write_message(writer, response)
@@ -3236,7 +3319,24 @@ async def run_daemon(port: int = DEFAULT_PORT, headless: bool = False):
     async def client_handler(reader, writer):
         await _handle_client(reader, writer, state)
 
-    server = await asyncio.start_server(client_handler, "127.0.0.1", port)
+    # Bind first so a daemon already on this port keeps its token file, then
+    # write the token before listen(): the readiness probe in
+    # ensure_daemon_running cannot connect before the token exists.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if os.name == "posix":
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", port))
+        port = sock.getsockname()[1]
+        state.auth_token = write_daemon_token(port)
+    except BaseException:
+        sock.close()
+        raise
+    try:
+        server = await asyncio.start_server(client_handler, sock=sock)
+    except BaseException:
+        remove_daemon_token(port, state.auth_token)
+        raise
     addr = server.sockets[0].getsockname()
     logger.info("Daemon listening on %s:%s", addr[0], addr[1])
     print(f"patchright-cli daemon listening on {addr[0]}:{addr[1]}", flush=True)
@@ -3269,6 +3369,7 @@ async def run_daemon(port: int = DEFAULT_PORT, headless: bool = False):
         await state.shutdown()
         server.close()
         await server.wait_closed()
+        remove_daemon_token(port, state.auth_token)
         logger.info("Daemon stopped.")
 
 

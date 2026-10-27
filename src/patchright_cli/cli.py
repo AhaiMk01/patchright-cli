@@ -17,7 +17,7 @@ from pathlib import Path
 import click
 
 from patchright_cli import __version__
-from patchright_cli.daemon import DEFAULT_PORT, ensure_daemon_running
+from patchright_cli.daemon import DEFAULT_PORT, ensure_daemon_running, read_daemon_token
 
 
 def _soften_output_encoding(*streams) -> None:
@@ -392,6 +392,11 @@ def _send_command(command: str, args: list, options: dict, port: int = DEFAULT_P
         "options": options,
         "cwd": os.getcwd(),
     }
+    # A daemon that predates tokens writes no token file and accepts the
+    # message without one, so a missing file is not an error here.
+    token = read_daemon_token(port)
+    if token:
+        msg["token"] = token
     data = json.dumps(msg).encode("utf-8")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

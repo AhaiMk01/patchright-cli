@@ -10,14 +10,14 @@ from pathlib import Path
 
 import pytest
 
-from patchright_cli.daemon import ensure_daemon_running
+from patchright_cli.daemon import ensure_daemon_running, read_daemon_token
 
 FIXTURE_URL = "file://" + os.path.join(os.path.dirname(__file__), "fixture.html")
 TEST_PORT = 19321
 
 
 def _send_tcp(port: int, cmd: str, args=None, options=None) -> dict:
-    msg = {"command": cmd, "args": args or [], "options": options or {}}
+    msg = {"command": cmd, "args": args or [], "options": options or {}, "token": read_daemon_token(port)}
     data = json.dumps(msg).encode("utf-8")
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(30)
