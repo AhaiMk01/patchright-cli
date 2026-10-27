@@ -19,8 +19,9 @@ from patchright_cli import __version__
 
 IMAGE = os.environ.get("PATCHRIGHT_CLI_DOCKER_IMAGE")
 TOKEN = "docker-test-token"
-TITLE = "Docker Smoke"
-PAGE_URL = f"data:text/html,<title>{TITLE.replace(' ', '%20')}</title><h1>hi</h1>"
+# MCP only opens http, https and about:blank; the CI runner has network access.
+PAGE_URL = "https://example.com"
+TITLE = "Example Domain"
 SCREENSHOT = "/patchright/output/docker-test.png"
 
 pytestmark = pytest.mark.skipif(not IMAGE, reason="PATCHRIGHT_CLI_DOCKER_IMAGE not set")
