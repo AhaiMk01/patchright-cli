@@ -184,7 +184,7 @@ graph LR
 
 The daemon only listens on `127.0.0.1`, but any local process can reach that port, so every message must carry a secret token. On startup the daemon writes a fresh random token to `~/.patchright-cli/daemon-<port>.token` (one file per port, so daemons on different ports coexist), before it starts listening, and deletes the file on a clean shutdown. The CLI (and the MCP server, which runs the CLI) reads the file for its `--port` and sends the token with each command; a message with a missing or wrong token is rejected and nothing runs.
 
-- On Linux/macOS the file is created with mode `0600`. On Windows, POSIX modes do not apply: the file is protected by the ACL on your user profile directory.
+- On Linux/macOS the file is created with mode `0600`. On Windows, POSIX modes do not apply, so the file is created with its own protected ACL: one full-access entry for your user account and nothing inherited from `~/.patchright-cli`, whatever that directory grants. If the daemon cannot create the file that way it does not start.
 - Run the CLI as the same user, with the same home directory, as the daemon. In Docker the MCP server and daemon share a user and `HOME`, so this holds.
 - An older CLI talking to a newer daemon gets an error saying the daemon requires an auth token: upgrade, or stop the daemon (`patchright-cli kill-all` from the newer install, or end the process). A newer CLI talking to an older daemon finds no token file and sends none, which the older daemon accepts.
 

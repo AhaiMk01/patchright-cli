@@ -3188,12 +3188,115 @@ def read_daemon_token(port: int) -> str | None:
         return None
 
 
+def _create_owner_only_file(path: Path) -> int:
+    """Create `path`, which must not exist, readable and writable only by this user; return a write fd.
+
+    On POSIX that is mode 0600. On Windows modes do nothing and a new file
+    inherits its parent directory's ACL, which may grant other accounts read
+    access, so the file is created with a protected DACL (no inherited ACEs)
+    holding a single full-access ACE for the current user's SID. The security
+    descriptor is passed to CreateFileW, so the file never exists with any
+    other ACL. SYSTEM and administrators get no ACE: they can read any file
+    through their privileges anyway, so an ACE would grant them nothing. The
+    user's SID is used rather than OWNER RIGHTS because an elevated process's
+    default owner is the Administrators group, not the user.
+    """
+    if os.name != "nt":
+        return os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    advapi32.GetTokenInformation.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    advapi32.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR)]
+    advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.c_void_p,
+    ]
+
+    class SECURITY_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [
+            ("nLength", wintypes.DWORD),
+            ("lpSecurityDescriptor", ctypes.c_void_p),
+            ("bInheritHandle", wintypes.BOOL),
+        ]
+
+    def fail(step: str) -> OSError:
+        err = ctypes.get_last_error()
+        return OSError(err, f"cannot create {path} with an owner-only ACL ({step}): {ctypes.FormatError(err)}")
+
+    token = wintypes.HANDLE()
+    if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):  # TOKEN_QUERY
+        raise fail("OpenProcessToken")
+    try:
+        size = wintypes.DWORD()
+        advapi32.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))  # 1 = TokenUser
+        buf = ctypes.create_string_buffer(size.value)
+        if not advapi32.GetTokenInformation(token, 1, buf, size, ctypes.byref(size)):
+            raise fail("GetTokenInformation")
+    finally:
+        kernel32.CloseHandle(token)
+    # TOKEN_USER starts with the user's PSID.
+    sid = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p))[0]
+    sid_str = wintypes.LPWSTR()
+    if not advapi32.ConvertSidToStringSidW(sid, ctypes.byref(sid_str)):
+        raise fail("ConvertSidToStringSidW")
+    try:
+        sddl = f"D:P(A;;FA;;;{sid_str.value})"
+    finally:
+        kernel32.LocalFree(sid_str)
+
+    sd = ctypes.c_void_p()
+    if not advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(sd), None):
+        raise fail("ConvertStringSecurityDescriptorToSecurityDescriptorW")
+    try:
+        sa = SECURITY_ATTRIBUTES(ctypes.sizeof(SECURITY_ATTRIBUTES), sd, False)
+        # GENERIC_WRITE, no sharing, CREATE_NEW, FILE_ATTRIBUTE_NORMAL
+        handle = kernel32.CreateFileW(str(path), 0x40000000, 0, ctypes.byref(sa), 1, 0x80, None)
+        if handle is None or handle == ctypes.c_void_p(-1).value:
+            raise fail("CreateFileW")
+    finally:
+        kernel32.LocalFree(sd)
+    try:
+        return msvcrt.open_osfhandle(handle, os.O_WRONLY)
+    except BaseException:
+        kernel32.CloseHandle(handle)
+        raise
+
+
 def write_daemon_token(port: int) -> str:
     """Generate a fresh token and write it to the port's token file, replacing a stale one.
 
-    The file is created 0600 through a temp file and os.replace, so it is never
-    world-readable, not even briefly. On Windows POSIX modes do not apply; the
-    file is protected by the ACL of the user's profile directory instead.
+    The file is created owner-only (see _create_owner_only_file) through a temp
+    file and os.replace, so no other account can read it, not even briefly; a
+    rename keeps the temp file's own permissions. If the file cannot be created
+    that way this raises and the daemon does not start.
     """
     token = secrets.token_urlsafe(32)
     path = token_path(port)
@@ -3201,7 +3304,7 @@ def write_daemon_token(port: int) -> str:
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     with contextlib.suppress(FileNotFoundError):
         tmp.unlink()
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    fd = _create_owner_only_file(tmp)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(token)

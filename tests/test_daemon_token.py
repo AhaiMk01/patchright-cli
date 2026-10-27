@@ -162,3 +162,86 @@ def test_cli_sends_token_and_omits_it_without_a_token_file(token_dir, monkeypatc
     cli._send_command("list", [], {}, 9398)
     assert "token" not in sent[0]
     assert sent[1]["token"] == token
+
+
+def _dacl_sddl(path) -> str:
+    """The DACL of `path` as SDDL, which names principals by SID whatever the system language."""
+    import ctypes
+    from ctypes import wintypes
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32.GetNamedSecurityInfoW.argtypes = [
+        wintypes.LPCWSTR,
+        ctypes.c_int,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    advapi32.ConvertSecurityDescriptorToStringSecurityDescriptorW.argtypes = [
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.LPWSTR),
+        ctypes.c_void_p,
+    ]
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    sd = ctypes.c_void_p()
+    # SE_FILE_OBJECT = 1, DACL_SECURITY_INFORMATION = 4
+    err = advapi32.GetNamedSecurityInfoW(str(path), 1, 4, None, None, None, None, ctypes.byref(sd))
+    assert err == 0, ctypes.FormatError(err)
+    text = wintypes.LPWSTR()
+    try:
+        assert advapi32.ConvertSecurityDescriptorToStringSecurityDescriptorW(sd, 1, 4, ctypes.byref(text), None)
+        return text.value
+    finally:
+        kernel32.LocalFree(text)
+        kernel32.LocalFree(sd)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows ACL inheritance")
+def test_token_file_ignores_a_broad_inherited_acl(token_dir):
+    import subprocess
+
+    # Everyone (WD) gets inheritable read on the token directory.
+    subprocess.run(["icacls", str(token_dir), "/grant", "*S-1-1-0:(OI)(CI)(R)"], check=True, capture_output=True)
+    control = token_dir / "control.txt"
+    control.write_text("x")
+    assert ";;;WD)" in _dacl_sddl(control), "the test ACL did not take effect"
+    # A stale token file that inherited the broad ACL is replaced, not reused.
+    daemon.token_path(9398).write_text("stale")
+
+    token = daemon.write_daemon_token(9398)
+
+    assert daemon.read_daemon_token(9398) == token
+    sddl = _dacl_sddl(daemon.token_path(9398))
+    assert sddl.startswith("D:P"), sddl  # protected: nothing inherited from the directory
+    aces = sddl[3:].strip("()").split(")(")
+    assert len(aces) == 1, sddl
+    rights, sid = aces[0].split(";")[2], aces[0].split(";")[5]
+    assert rights == "FA"
+    assert sid == _current_user_sid()
+    assert "ID" not in aces[0].split(";")[1]  # not an inherited ACE
+
+
+def _current_user_sid() -> str:
+    import subprocess
+
+    out = subprocess.run(["whoami", "/user", "/fo", "csv", "/nh"], check=True, capture_output=True, text=True).stdout
+    return out.strip().split(",")[-1].strip('"')
+
+
+def test_daemon_does_not_start_when_the_token_file_cannot_be_protected(token_dir, monkeypatch):
+    def refuse(path):
+        raise OSError(5, f"cannot create {path} with an owner-only ACL (CreateFileW): Access is denied.")
+
+    monkeypatch.setattr(daemon, "_create_owner_only_file", refuse)
+    port = _free_port()
+    with pytest.raises(OSError, match="owner-only ACL"):
+        asyncio.run(daemon.run_daemon(port, headless=True))
+    assert not daemon.token_path(port).exists()
+    with pytest.raises(OSError), socket.create_connection(("127.0.0.1", port), timeout=1):
+        pass
