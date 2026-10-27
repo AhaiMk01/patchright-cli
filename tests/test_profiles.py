@@ -313,10 +313,24 @@ async def test_profile_list_shows_profiles_and_who_uses_them(state, root):
 
 
 @pytest.mark.asyncio
+async def test_profile_list_data(state, root):
+    (root / "idle").mkdir(parents=True)
+    (root / "idle" / "data").write_bytes(b"x" * 1234)
+    await state.get_or_create_session("agent", profile="work")
+
+    response = await _run(state, "profile-list")
+
+    assert {"name": "idle", "size": 1234, "session": None} in response["data"]
+    assert {"name": "work", "size": 0, "session": "agent"} in response["data"]
+
+
+@pytest.mark.asyncio
 async def test_profile_list_when_there_are_none(state):
     response = await _run(state, "profile-list")
 
+    assert "0 profiles" in response["output"]
     assert "none yet" in response["output"]
+    assert response["data"] == []
 
 
 @pytest.mark.asyncio
@@ -366,8 +380,8 @@ async def test_profile_delete_refuses_a_profile_an_outside_chrome_has_open(state
 async def test_profile_delete_of_a_missing_profile(state):
     response = await _run(state, "profile-delete", ["ghost"])
 
-    assert response["success"] is False
-    assert "No profile named 'ghost'" in response["output"]
+    assert response["success"] is True
+    assert response["output"] == "No profile named 'ghost' (no-op)"
 
 
 # -- delete-data only ever deletes the Session's own Profile ------------------------------

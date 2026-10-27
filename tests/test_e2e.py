@@ -170,7 +170,7 @@ class TestE2E:
 
         resp = _cmd(daemon, "find", args=["nonexistent-element"])
         assert resp["success"] is True
-        assert "No matches" in resp["output"]
+        assert "0 matches" in resp["output"]
 
     def test_snapshot_scoped_by_css_selector(self, daemon):
         goto = _cmd(daemon, "goto", args=[FIXTURE_URL])
