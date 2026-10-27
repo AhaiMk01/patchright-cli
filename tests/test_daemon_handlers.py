@@ -34,6 +34,7 @@ def mock_session():
     session.tabs = {"default": MagicMock()}
     session.activate_tab = MagicMock()
     session.uses_host_context = False
+    session.network_guard = None
     return session
 
 

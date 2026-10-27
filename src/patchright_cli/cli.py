@@ -426,7 +426,7 @@ def _recv_exact(sock: socket.socket, n: int) -> bytes:
 
 COMMANDS_HELP = {
     # Core
-    "open": "open [url]           Open browser (starts daemon if needed)",
+    "open": "open [url]           Open browser (starts daemon if needed) [--block-networks=link-local|private]",
     "attach": "attach --cdp=<url> [--context=new|host]  Attach to running Chrome via CDP",
     "goto": "goto <url>           Navigate to URL",
     "click": "click <ref> [button]  Click element [--modifiers=Alt,Shift]",
@@ -688,6 +688,10 @@ def main():
     i = 0
     while i < len(argv):
         arg = argv[i]
+        if arg == "--":
+            # End of options: the rest is positional, even text that looks like a flag.
+            remaining.extend(argv[i:])
+            break
         if arg == "--headless":
             headless = True
         elif arg == "--persistent":
@@ -832,8 +836,13 @@ def main():
     # Separate --key=value and --flag from positional args
     positional_args = []
     cmd_opts: dict = {}
+    end_of_options = False
     for a in args:
-        if a.startswith("--") and "=" in a:
+        if end_of_options:
+            positional_args.append(a)
+        elif a == "--":
+            end_of_options = True
+        elif a.startswith("--") and "=" in a:
             k, v = a[2:].split("=", 1)
             cmd_opts[k] = v
         elif a.startswith("--"):
@@ -855,7 +864,7 @@ def main():
             except FileNotFoundError:
                 click.echo(f"File not found: {file_opt}", err=True)
                 sys.exit(1)
-        elif args and args[0] == "-":
+        elif args and args[0] == "-" and not end_of_options:
             # Read JS from stdin
             args = [sys.stdin.read()]
         elif not args and not sys.stdin.isatty():

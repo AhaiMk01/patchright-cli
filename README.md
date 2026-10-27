@@ -423,7 +423,9 @@ FastMCP's Host and Origin checks are off by default, so binding to `127.0.0.1` a
 
 One token covers one trust domain. Any client holding it can open, read or close any session by name, and `patchright_kill_all` closes them all. Clients that must not reach each other's browsers need separate servers, each with its own token. Two servers on one host share the daemon unless their `PATCHRIGHT_CLI_MCP_DAEMON_PORT` values differ, and they always share saved profiles in `~/.patchright-cli/profiles`. For full separation, run each server in its own container or as a different OS user.
 
-File paths passed to MCP tools (uploads, state and cookie files, screenshot/PDF/snapshot output, profile directories) must be absolute and beneath the MCP root, so a client cannot reach arbitrary host files. Outputs without a path land in `<root>/output/`, which `browser_delete_output` can clean up. `patchright_eval` and `patchright_run_code` still run arbitrary JavaScript in the page, so protect HTTP deployments regardless.
+File paths passed to MCP tools (uploads, state and cookie files, screenshot/PDF/snapshot output, profile directories) must be absolute and beneath the MCP root, so a client cannot reach arbitrary host files. Outputs without a path land in `<root>/output/`, which `browser_delete_output` can clean up. `patchright_eval` and `patchright_run_code` still run arbitrary JavaScript in the page, so protect HTTP deployments regardless. The MCP server never loads a `.patchright-cli/config.json`, since clients can write files beneath the root; tool arguments carry every option.
+
+URLs passed to `patchright_open`, `patchright_goto` and `patchright_tab_new` must be `http`, `https` or `about:blank`, so the browser cannot read local files through `file://` (allowed again with `PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESYSTEM=1`). The browser also stays off `169.254.0.0/16` and `fe80::/10`, where cloud metadata services hand out credentials: `patchright_open`, `patchright_goto`, `patchright_tab_new` and `patchright_attach` refuse those hosts (the proxy too), and a frame that still lands there through a redirect or a script is sent back to `about:blank`. Set `PATCHRIGHT_CLI_MCP_BLOCK_NETWORKS=private` to refuse every address that is not globally routable as well (loopback, RFC 1918, CGNAT, unique local), or `none` to turn the check off. It never intercepts requests, so the HTTP cache stays on, and in `attach --context=host` sessions it only checks URLs before navigating, leaving the Host's other pages alone. That also means it is not a hard boundary: images, `fetch()` and WebSockets are not checked (CORS still hides their responses from the page), and a DNS server that answers differently each time can get past it. For that, restrict the container's or host's outbound traffic.
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -432,6 +434,7 @@ File paths passed to MCP tools (uploads, state and cookie files, screenshot/PDF/
 | `PATCHRIGHT_CLI_MCP_UNRESTRICTED_FILESYSTEM` | unset | `1` drops the path check and enables `patchright_install_skills` |
 | `PATCHRIGHT_CLI_MCP_HEADLESS` | unset (headed) | `1` makes `patchright_open` default to headless, for hosts without a display |
 | `PATCHRIGHT_CLI_MCP_DAEMON_PORT` | `9321` | Daemon port the tools talk to |
+| `PATCHRIGHT_CLI_MCP_BLOCK_NETWORKS` | `link-local` | Address ranges the browser may not reach: `link-local`, `private` or `none` |
 | `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION` | unset (off) | `true` rejects requests whose Host is not loopback or allowed, and foreign Origins |
 | `FASTMCP_HTTP_ALLOWED_HOSTS` | unset | JSON array of extra hostnames the Host check accepts |
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import ipaddress
 import json
 import logging
 import os
@@ -23,7 +24,7 @@ import traceback
 import weakref
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from patchright_cli.ref_registry import RefRegistry, render_hits
 from patchright_cli.snapshot import save_snapshot, take_snapshot
@@ -127,6 +128,8 @@ class Session:
         # What `attach` should tell the caller beyond the page info, e.g. that a
         # stale Session was replaced. Consumed by the attach handler.
         self.attach_notices: list[str] = []
+        # Set by `--block-networks`; keeps frames off the address ranges it names.
+        self.network_guard: NetworkGuard | None = None
         self.current_tab: int = 0
         self.tabs: dict[str, Tab] = {DEFAULT_TAB: Tab(DEFAULT_TAB)}
         # Whether anyone actually works in the implicit default tab. A session
@@ -644,6 +647,170 @@ def _check_reattach(session: Session, cdp_endpoint: str, use_host: bool) -> None
         )
 
 
+BLOCK_NETWORK_MODES = ("none", "link-local", "private")
+# How long a resolved host keeps its verdict; glibc does not cache lookups.
+_GUARD_TTL = 60.0
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+# Schemes whose URLs Chrome parses with the WHATWG "special" rules.
+_SPECIAL_SCHEMES = frozenset({"http", "https", "ws", "wss", "ftp", "file"})
+_IPV4_PART = {16: re.compile(r"[0-9a-f]*"), 8: re.compile(r"[0-7]*"), 10: re.compile(r"[0-9]+")}
+
+
+def _whatwg_ipv4(host: str) -> str | None:
+    """Dotted form of `host` when Chrome reads it as IPv4: 0xA9FEA9FE, 2852039166, 0251.0376.43518."""
+    parts = host.split(".")
+    if parts[-1] == "" and len(parts) > 1:
+        parts.pop()
+    if not 1 <= len(parts) <= 4:
+        return None
+    numbers = []
+    for part in parts:
+        if part.startswith("0x"):
+            base, digits = 16, part[2:]
+        elif len(part) > 1 and part.startswith("0"):
+            base, digits = 8, part[1:]
+        else:
+            base, digits = 10, part
+        if not _IPV4_PART[base].fullmatch(digits):
+            return None
+        numbers.append(int(digits or "0", base))
+    if any(n > 255 for n in numbers[:-1]) or numbers[-1] >= 256 ** (5 - len(numbers)):
+        return None
+    value = numbers[-1]
+    for i, n in enumerate(numbers[:-1]):
+        value += n << (8 * (3 - i))
+    return str(ipaddress.IPv4Address(value))
+
+
+def _browser_host(url: str) -> str | None:
+    """The host Chrome will connect to for `url`.
+
+    `urlparse` disagrees with Chrome's WHATWG parser on exactly the spellings
+    that matter here: `http://169.254.169.254\\@example.com/` (Chrome reads the
+    backslash as a slash), `http:169.254.169.254` (no slashes needed),
+    percent-escaped and full-width hosts, and numeric IPv4 forms.
+    """
+    url = re.sub(r"[\t\n\r]", "", url.strip("".join(map(chr, range(33)))))
+    match = re.match(r"([A-Za-z][A-Za-z0-9+.-]*):(.*)", url, re.DOTALL)
+    if not match:
+        return None
+    scheme, rest = match.group(1).lower(), match.group(2)
+    if scheme in _SPECIAL_SCHEMES:
+        rest = rest.replace("\\", "/").lstrip("/")
+    elif rest.startswith("//"):
+        rest = rest[2:]
+    else:
+        return None
+    host = re.split(r"[/?#]", rest, maxsplit=1)[0].rpartition("@")[2]
+    if host.startswith("["):
+        return host[1 : host.find("]")].lower() if "]" in host else None
+    host = unquote(host.partition(":")[0])
+    try:
+        host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        pass
+    host = host.lower()
+    return _whatwg_ipv4(host) or host or None
+
+
+def _blocked_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, mode: str) -> bool:
+    """Whether `--block-networks=<mode>` forbids connecting to `ip`.
+
+    `link-local` refuses 169.254.0.0/16 and fe80::/10, where cloud metadata
+    services hand out credentials. `private` refuses every address that is not
+    globally routable: loopback, RFC 1918, CGNAT, unique local and the rest.
+    """
+    # The same host spelled as IPv6: ::ffff:a.b.c.d, or the NAT64 prefix 64:ff9b::/96.
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        elif ip in _NAT64:
+            ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    if mode == "link-local":
+        return ip.is_link_local
+    if mode == "private":
+        return not ip.is_global
+    return False
+
+
+class NetworkGuard:
+    """Keeps a session's frames off the address ranges a `--block-networks` mode names.
+
+    It checks URLs before the browser goes there and sends any frame that still
+    lands in a refused range (a redirect, a script) back to about:blank. It never
+    intercepts requests: Playwright turns the HTTP cache off while any route is
+    active. So subresources, fetch() and WebSockets are not checked (CORS still
+    hides their responses), and a DNS server that answers differently each time
+    can slip past. Egress rules on the host or container network are the hard
+    boundary.
+    """
+
+    def __init__(self, mode: str) -> None:
+        if mode not in BLOCK_NETWORK_MODES:
+            raise ValueError(f"Invalid --block-networks={mode!r}; expected one of: {', '.join(BLOCK_NETWORK_MODES)}.")
+        self.mode = mode
+        self._verdicts: dict[str, tuple[float, bool]] = {}
+
+    async def blocks(self, host: str | None) -> bool:
+        if self.mode == "none" or not host:
+            return False
+        try:
+            return _blocked_address(ipaddress.ip_address(host), self.mode)
+        except ValueError:
+            pass
+        now = time.monotonic()
+        cached = self._verdicts.get(host)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+        try:
+            infos = await asyncio.get_running_loop().getaddrinfo(host, None)
+        except OSError:
+            infos = []  # Chrome's own lookup fails the same way
+        blocked = any(_blocked_address(ipaddress.ip_address(info[4][0]), self.mode) for info in infos)
+        self._verdicts[host] = (now + _GUARD_TTL, blocked)
+        return blocked
+
+    async def check_url(self, url: str, what: str) -> None:
+        """Raise before connecting anywhere when `url` points into a refused range."""
+        if await self.blocks(_browser_host(url)):
+            raise ValueError(f"{what} {url} is in a network refused by --block-networks={self.mode}.")
+
+    def install(self, context) -> None:
+        def watch(page) -> None:
+            page.on("framenavigated", self._enforce)
+
+        for page in context.pages:
+            watch(page)
+        context.on("page", watch)
+
+    async def _enforce(self, frame) -> None:
+        if await self.blocks(_browser_host(frame.url)):
+            try:
+                await frame.goto("about:blank")
+            except Exception as exc:
+                logger.warning("Could not leave %s, refused by --block-networks=%s: %s", frame.url, self.mode, exc)
+
+
+async def _fetch_cdp_version(cdp_endpoint: str, headers: dict | None, timeout: float = 5) -> dict:
+    """GET `<endpoint>/json/version` without following redirects.
+
+    A redirect could point at a host `--block-networks` refuses, and Chrome's
+    /json/version never redirects.
+    """
+    import urllib.request
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    def fetch() -> dict:
+        request = urllib.request.Request(cdp_endpoint.rstrip("/") + "/json/version", headers=headers or {})
+        with urllib.request.build_opener(_NoRedirect).open(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    return await asyncio.to_thread(fetch)
+
+
 async def _resolve_host_key(cdp_endpoint: str, headers: dict | None) -> str:
     """Identify the Chrome process behind a CDP endpoint.
 
@@ -653,20 +820,11 @@ async def _resolve_host_key(cdp_endpoint: str, headers: dict | None) -> str:
     restarted Chrome a new one. Falls back to the endpoint text when the id
     cannot be read.
     """
-    import urllib.request
-
     parsed = urlparse(cdp_endpoint)
     ws_path = parsed.path
     if parsed.scheme not in ("ws", "wss"):
-        version_url = cdp_endpoint.rstrip("/") + "/json/version"
-
-        def fetch() -> dict:
-            request = urllib.request.Request(version_url, headers=headers or {})
-            with urllib.request.urlopen(request, timeout=5) as response:
-                return json.loads(response.read().decode("utf-8"))
-
         try:
-            ws_path = urlparse((await asyncio.to_thread(fetch))["webSocketDebuggerUrl"]).path
+            ws_path = urlparse((await _fetch_cdp_version(cdp_endpoint, headers))["webSocketDebuggerUrl"]).path
         except Exception:
             ws_path = ""
     if "/devtools/browser/" in ws_path:
@@ -748,10 +906,19 @@ class DaemonState:
         cdp_timeout: int = 30000,
         context_mode: str = "new",
         profile_base: str | None = None,
+        block_networks: str | None = None,
     ) -> Session:
         if context_mode not in CDP_CONTEXT_MODES:
             raise ValueError(f"Invalid --context={context_mode!r}; expected one of: {', '.join(CDP_CONTEXT_MODES)}.")
         use_host = bool(cdp_endpoint) and context_mode == "host"
+        guard = NetworkGuard(block_networks) if block_networks and block_networks != "none" else None
+        if guard is not None:
+            if cdp_endpoint:
+                await guard.check_url(cdp_endpoint, "CDP endpoint")
+            if proxy:
+                await guard.check_url(proxy if "://" in proxy else f"http://{proxy}", "Proxy")
+            if url:
+                await guard.check_url(url, "URL")
 
         notices: list[str] = []
         existing = self.sessions.get(name)
@@ -770,6 +937,17 @@ class DaemonState:
                         f"Session '{name}' is already open on profile '{existing.profile.label}'. "
                         f"`close` it first, or use another -s for profile '{profile}'."
                     )
+                if guard is not None:
+                    current = existing.network_guard
+                    if current is None:
+                        if not existing.uses_host_context:
+                            guard.install(existing.context)
+                        existing.network_guard = guard
+                    elif current.mode != guard.mode:
+                        raise ValueError(
+                            f"Session '{name}' runs with --block-networks={current.mode}. "
+                            f"`close` it first to use --block-networks={guard.mode}."
+                        )
                 return existing
 
         if self.playwright is None:
@@ -836,8 +1014,14 @@ class DaemonState:
         created_pages: list = []
         try:
             if cdp_endpoint:
+                connect_to = cdp_endpoint
+                if guard is not None and urlparse(cdp_endpoint).scheme in ("http", "https"):
+                    # Playwright would connect wherever /json/version points; check that first.
+                    version = await _fetch_cdp_version(cdp_endpoint, cdp_headers, timeout=cdp_timeout / 1000)
+                    connect_to = version["webSocketDebuggerUrl"]
+                    await guard.check_url(connect_to, "CDP WebSocket")
                 attached_browser = await self.playwright.chromium.connect_over_cdp(
-                    cdp_endpoint, headers=cdp_headers, timeout=cdp_timeout
+                    connect_to, headers=cdp_headers, timeout=cdp_timeout
                 )
                 if use_host:
                     if not attached_browser.contexts:
@@ -850,6 +1034,9 @@ class DaemonState:
                     context = await attached_browser.new_context(**context_options)
             else:
                 context = await self._launch(chosen, use_headless, proxy, context_options)
+            # Never in a Host Context: its other Pages are someone else's browsing.
+            if guard is not None and not use_host:
+                guard.install(context)
             pages = context.pages or []
             if not pages:
                 page = await context.new_page()
@@ -871,6 +1058,7 @@ class DaemonState:
             for created in created_pages:
                 session.own_pages.add(created)
             session.attach_notices = notices
+            session.network_guard = guard
             session.profile = chosen
             await session.setup_listeners()
         except BaseException:
@@ -1082,6 +1270,8 @@ async def _apply_timeouts(page, options: dict) -> None:
 
 @register("goto")
 async def cmd_goto(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    if session.network_guard is not None:
+        await session.network_guard.check_url(args[0], "URL")
     await page.goto(args[0])
     session.push_history(page.url)
     return await _page_info(session, cwd)
@@ -1623,6 +1813,8 @@ async def cmd_tab_list(session: Session, page, args: list, options: dict, cwd: s
 @register("tab-new")
 async def cmd_tab_new(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     url = args[0] if args else "about:blank"
+    if session.network_guard is not None:
+        await session.network_guard.check_url(url, "URL")
     new_page = await session.new_page()
     if url and url != "about:blank":
         await new_page.goto(url)
@@ -2759,6 +2951,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 geolocation=options.get("geolocation"),
                 user_agent=options.get("user-agent") or options.get("userAgent"),
                 grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
+                block_networks=options.get("block-networks"),
             )
             if named_tab:
                 if not existed:
@@ -2767,6 +2960,8 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                     session.default_in_use = False
                 tab = await session.open_tab(tab_name)
                 if url:
+                    if session.network_guard is not None:
+                        await session.network_guard.check_url(url, "URL")
                     await tab.page.goto(url)
             else:
                 session.default_in_use = True
@@ -2796,6 +2991,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 geolocation=options.get("geolocation"),
                 user_agent=options.get("user-agent") or options.get("userAgent"),
                 grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
+                block_networks=options.get("block-networks"),
             )
             if session.page:
                 session.push_history(session.page.url)
