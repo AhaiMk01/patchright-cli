@@ -223,8 +223,31 @@ def test_token_file_ignores_a_broad_inherited_acl(token_dir):
     assert len(aces) == 1, sddl
     rights, sid = aces[0].split(";")[2], aces[0].split(";")[5]
     assert rights == "FA"
-    assert sid == _current_user_sid()
+    assert _canonical_sid(sid) == _current_user_sid()
     assert "ID" not in aces[0].split(";")[1]  # not an inherited ACE
+
+
+def _canonical_sid(sid: str) -> str:
+    """Expand an SDDL alias such as LA (the built-in Administrator, which CI runs as) to its S-1-... form."""
+    import ctypes
+    from ctypes import wintypes
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    advapi32.ConvertStringSidToSidW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_void_p)]
+    advapi32.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR)]
+    psid = ctypes.c_void_p()
+    assert advapi32.ConvertStringSidToSidW(sid, ctypes.byref(psid)), ctypes.FormatError(ctypes.get_last_error())
+    try:
+        text = wintypes.LPWSTR()
+        assert advapi32.ConvertSidToStringSidW(psid, ctypes.byref(text)), ctypes.FormatError(ctypes.get_last_error())
+        try:
+            return text.value
+        finally:
+            kernel32.LocalFree(text)
+    finally:
+        kernel32.LocalFree(psid)
 
 
 def _current_user_sid() -> str:
