@@ -1273,7 +1273,13 @@ def _print_help():
 _HOME_DESCRIPTION = "anti-detect Chrome automation CLI (playwright-cli compatible)"
 _HOME_CONNECT_TIMEOUT = 0.3
 _HOME_REPLY_TIMEOUT = 1.5
-_HOME_MAX_SESSIONS = 8
+_HOME_MAX_SESSIONS = 5
+# The core loop, so an agent can start without reading the full --help manual.
+_HOME_COMMAND_GROUPS = [
+    ("session", ["open", "goto", "close", "kill-all"]),
+    ("act on snapshot refs (e12)", ["snapshot", "click", "fill", "select", "check", "press"]),
+    ("read", ["eval", "screenshot", "tab-list"]),
+]
 
 
 def _display_bin(argv0: str | None = None) -> str:
@@ -1361,6 +1367,15 @@ def _home_hints(state: dict) -> list[str]:
     return hints
 
 
+def _home_command_lines() -> list[str]:
+    return [
+        f"{label}: "
+        + " | ".join(COMMAND_SPECS[name]["usage"] for name in names)
+        + ("  (kill-all stops the daemon)" if "kill-all" in names else "")
+        for label, names in _HOME_COMMAND_GROUPS
+    ]
+
+
 def _home_lines(state: dict) -> list[str]:
     """The no-arg view: identity, live daemon state, next steps. Stays within ~15 lines."""
     from patchright_cli import toon
@@ -1377,6 +1392,7 @@ def _home_lines(state: dict) -> list[str]:
             lines.extend(toon.encode({"sessions": shown}).splitlines())
             if len(sessions) > len(shown):
                 lines.append(f"  ... {len(sessions) - len(shown)} more")
+    lines.extend(_home_command_lines())
     lines.extend(_home_hints(state))
     return lines
 

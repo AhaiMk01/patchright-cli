@@ -91,6 +91,15 @@ def test_daemon_down(monkeypatch, capsys):
     assert len(lines) <= LINE_BUDGET
 
 
+def test_lists_core_commands_from_specs(monkeypatch, capsys):
+    # The core loop is on the home view so an agent need not read the full manual.
+    _daemon_down(monkeypatch)
+    _, out, _ = _run([], monkeypatch, capsys)
+    for _, names in cli._HOME_COMMAND_GROUPS:
+        for name in names:
+            assert cli.COMMAND_SPECS[name]["usage"] in out
+
+
 def test_daemon_up_lists_sessions_with_tab_counts(monkeypatch, capsys):
     seen = []
     _daemon_up(monkeypatch, LIST_REPLY, seen)
