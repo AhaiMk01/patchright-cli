@@ -37,7 +37,7 @@ Repository = "https://github.com/AhaiMk01/patchright-cli"
 Issues = "https://github.com/AhaiMk01/patchright-cli/issues"
 
 [project.scripts]
-patchright-cli = "patchright_cli.cli:main"
+patchright-cli = "patchright_cli._entry:main"
 
 [build-system]
 requires = ["hatchling"]
