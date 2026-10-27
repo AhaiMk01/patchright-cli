@@ -27,6 +27,8 @@ dependencies = [
     "pyyaml",
     "click",
     "aiohttp>=3.9",
+    # Windows ACL for the daemon token file
+    "pywin32>=306; sys_platform == 'win32'",
 ]
 
 [project.urls]

@@ -9,11 +9,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import hmac
 import ipaddress
 import json
 import logging
 import os
 import re
+import secrets
 import signal
 import socket
 import struct
@@ -33,6 +35,8 @@ logger = logging.getLogger("patchright-cli.daemon")
 
 DEFAULT_PORT = 9321
 PROFILES_ROOT = Path.home() / ".patchright-cli" / "profiles"
+# Holds daemon-<port>.token, the shared secret every client message must carry.
+TOKEN_DIR = Path.home() / ".patchright-cli"
 # Profile names become directory names under PROFILES_ROOT, so keep them to
 # characters every filesystem accepts and nothing that can climb out of it.
 _PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -862,6 +866,8 @@ class DaemonState:
         # watchdog tore the browser down underneath it.
         self.commands_in_flight: int = 0
         self.shutdown_event: asyncio.Event | None = None
+        # The Daemon Token clients must send; None rejects every message.
+        self.auth_token: str | None = None
         # Serialises Host Context attaches: the one-Session-per-Host-Context
         # check and the registration it guards straddle awaits.
         self._host_attach_lock = asyncio.Lock()
@@ -3175,6 +3181,176 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def token_path(port: int) -> Path:
+    """The token file for the daemon on `port`, so daemons on different ports coexist."""
+    return TOKEN_DIR / f"daemon-{port}.token"
+
+
+def read_daemon_token(port: int) -> str | None:
+    """The token of the daemon on `port`, or None when it wrote none (it predates tokens)."""
+    try:
+        return token_path(port).read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def _create_owner_only_file(path: Path) -> int:
+    """Create `path`, which must not exist, readable and writable only by this user; return a write fd.
+
+    On POSIX that is mode 0600. On Windows modes do nothing and a new file
+    inherits its parent directory's ACL, which may grant other accounts read
+    access, so the file is created with a protected DACL (no inherited ACEs)
+    holding a single full-access ACE for the current user's SID. The security
+    descriptor is passed to CreateFile, so the file never exists with any
+    other ACL. SYSTEM and administrators get no ACE: they can read any file
+    through their privileges anyway, so an ACE would grant them nothing. The
+    user's SID is used rather than OWNER RIGHTS because an elevated process's
+    default owner is the Administrators group, not the user.
+    """
+    if os.name != "nt":
+        return os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+
+    import msvcrt
+
+    import pywintypes
+    import win32api
+    import win32con
+    import win32file
+    import win32security
+
+    try:
+        process_token = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32con.TOKEN_QUERY)
+        try:
+            sid, _ = win32security.GetTokenInformation(process_token, win32security.TokenUser)
+        finally:
+            process_token.Close()
+        sd = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(
+            f"D:P(A;;FA;;;{win32security.ConvertSidToStringSid(sid)})", win32security.SDDL_REVISION_1
+        )
+        attributes = win32security.SECURITY_ATTRIBUTES()
+        attributes.SECURITY_DESCRIPTOR = sd
+        handle = win32file.CreateFile(
+            str(path), win32con.GENERIC_WRITE, 0, attributes, win32con.CREATE_NEW, win32con.FILE_ATTRIBUTE_NORMAL, None
+        )
+    except pywintypes.error as e:
+        message = f"cannot create {path} with an owner-only ACL ({e.funcname}): {e.strerror}"
+        raise OSError(0, message, None, e.winerror) from e
+    raw = handle.Detach()
+    try:
+        return msvcrt.open_osfhandle(raw, os.O_WRONLY)
+    except BaseException:
+        win32api.CloseHandle(raw)
+        raise
+
+
+def write_daemon_token(port: int) -> str:
+    """Generate a fresh token and write it to the port's token file, replacing a stale one.
+
+    The file is created owner-only (see _create_owner_only_file) through a temp
+    file and os.replace, so no other account can read it, not even briefly; a
+    rename keeps the temp file's own permissions. If the file cannot be created
+    that way this raises and the daemon does not start.
+    """
+    token = secrets.token_urlsafe(32)
+    path = token_path(port)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    with contextlib.suppress(FileNotFoundError):
+        tmp.unlink()
+    fd = _create_owner_only_file(tmp)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(token)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
+    return token
+
+
+def remove_daemon_token(port: int, token: str) -> None:
+    """Delete the port's token file if it still holds `token`."""
+    if read_daemon_token(port) == token:
+        with contextlib.suppress(OSError):
+            token_path(port).unlink()
+
+
+class DaemonAlreadyRunning(RuntimeError):
+    """Another daemon holds this port's lock."""
+
+
+def lock_path(port: int) -> Path:
+    """The lock file a daemon on `port` holds for its whole lifetime."""
+    return TOKEN_DIR / f"daemon-{port}.lock"
+
+
+def acquire_daemon_lock(port: int) -> int:
+    """Take the port's exclusive daemon lock without waiting; return the fd that holds it.
+
+    Only the holder may write or remove the port's token file, so two daemons
+    started at once cannot overwrite or delete each other's token. The OS drops
+    the lock when the holder exits, even on a crash, so a leftover lock file is
+    harmless. The file is never deleted: a daemon that opened it just before the
+    unlink could then lock the orphaned inode while another locks a new file.
+    """
+    path = lock_path(port)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as e:
+        os.close(fd)
+        raise DaemonAlreadyRunning(
+            f"another patchright-cli daemon holds {path}, so one is already running or starting on port {port}"
+        ) from e
+    return fd
+
+
+def release_daemon_lock(fd: int) -> None:
+    """Release a lock taken by acquire_daemon_lock."""
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        with contextlib.suppress(OSError):
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    os.close(fd)
+
+
+def check_auth(msg: object, expected: str | None, port: int) -> str | None:
+    """Return why `msg` is not authorised, or None when its token matches."""
+    if not isinstance(msg, dict):
+        return "Daemon error: malformed message."
+    sent = msg.get("token")
+    if sent is None:
+        return (
+            "Error: the patchright-cli daemon requires an auth token and this request had none. "
+            "The client is probably older than the daemon: upgrade patchright-cli, or stop the "
+            f"daemon on port {port} (`patchright-cli kill-all` from the newer install, or end the "
+            "daemon process) and rerun so this client starts its own. If the client is current, "
+            f"its token file {token_path(port)} is missing: stop the daemon process and rerun."
+        )
+    if (
+        expected is None
+        or not isinstance(sent, str)
+        or not hmac.compare_digest(sent.encode("utf-8"), expected.encode("utf-8"))
+    ):
+        return (
+            f"Error: the patchright-cli daemon on port {port} rejected the auth token. "
+            f"Run the client as the same user (same home directory) as the daemon; if {token_path(port)} "
+            "was replaced, stop the daemon process and rerun."
+        )
+    return None
+
+
 async def _read_message(reader: asyncio.StreamReader) -> dict | None:
     """Read a length-prefixed JSON message from the stream."""
     header = await reader.readexactly(4)
@@ -3196,13 +3372,19 @@ async def _handle_client(
     state: DaemonState,
 ):
     """Handle a single client connection: read one command, respond, close."""
-    state.last_activity = time.monotonic()
     addr = writer.get_extra_info("peername")
     logger.debug("Client connected: %s", addr)
     try:
         msg = await _read_message(reader)
         if msg is None:
             return
+        port = writer.get_extra_info("sockname")[1]
+        denied = check_auth(msg, state.auth_token, port)
+        if denied:
+            logger.warning("Rejected unauthenticated command from %s", addr)
+            await _write_message(writer, {"success": False, "output": denied})
+            return
+        state.last_activity = time.monotonic()
         with state.command_running():
             response = await handle_command(state, msg)
         await _write_message(writer, response)
@@ -3234,7 +3416,19 @@ async def idle_watchdog(state: DaemonState):
 
 
 async def run_daemon(port: int = DEFAULT_PORT, headless: bool = False):
-    """Start the daemon TCP server."""
+    """Start the daemon TCP server, holding the port's daemon lock until it stops.
+
+    Raises DaemonAlreadyRunning, without touching the token file, when another
+    daemon holds the lock.
+    """
+    lock_fd = acquire_daemon_lock(port)
+    try:
+        await _serve(port, headless)
+    finally:
+        release_daemon_lock(lock_fd)
+
+
+async def _serve(port: int, headless: bool):
     state = DaemonState()
     state.default_headless = headless
     state.shutdown_event = asyncio.Event()
@@ -3242,7 +3436,26 @@ async def run_daemon(port: int = DEFAULT_PORT, headless: bool = False):
     async def client_handler(reader, writer):
         await _handle_client(reader, writer, state)
 
-    server = await asyncio.start_server(client_handler, "127.0.0.1", port)
+    # The caller holds the port's lock, so no other new daemon is writing the
+    # token file. Bind before writing it so a failed bind (an older daemon,
+    # which takes no lock, or another program on the port) leaves the file
+    # alone, and write it before listen() so the readiness probe in
+    # ensure_daemon_running cannot connect before the token exists.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if os.name == "posix":
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", port))
+        port = sock.getsockname()[1]
+        state.auth_token = write_daemon_token(port)
+    except BaseException:
+        sock.close()
+        raise
+    try:
+        server = await asyncio.start_server(client_handler, sock=sock)
+    except BaseException:
+        remove_daemon_token(port, state.auth_token)
+        raise
     addr = server.sockets[0].getsockname()
     logger.info("Daemon listening on %s:%s", addr[0], addr[1])
     print(f"patchright-cli daemon listening on {addr[0]}:{addr[1]}", flush=True)
@@ -3275,6 +3488,7 @@ async def run_daemon(port: int = DEFAULT_PORT, headless: bool = False):
         await state.shutdown()
         server.close()
         await server.wait_closed()
+        remove_daemon_token(port, state.auth_token)
         logger.info("Daemon stopped.")
 
 
@@ -3284,7 +3498,11 @@ def start_daemon(port: int = DEFAULT_PORT, headless: bool = False):
         level=logging.DEBUG if os.environ.get("PATCHRIGHT_DEBUG") else logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
-    asyncio.run(run_daemon(port, headless))
+    try:
+        asyncio.run(run_daemon(port, headless))
+    except DaemonAlreadyRunning as e:
+        logger.error("Not starting: %s.", e)
+        sys.exit(1)
 
 
 def ensure_daemon_running(port: int = DEFAULT_PORT, headless: bool = False) -> bool:
