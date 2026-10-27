@@ -1403,7 +1403,7 @@ def _print_help():
 
 # A bare run is the SessionStart hook `install --hooks` registers, so this is
 # what an agent reads at the top of every session: short, live, never slow.
-_HOME_DESCRIPTION = "anti-detect Chrome automation CLI (playwright-cli compatible)"
+_HOME_DESCRIPTION = "anti-detect Chrome automation CLI (playwright-cli style commands)"
 _HOME_CONNECT_TIMEOUT = 0.3
 _HOME_REPLY_TIMEOUT = 1.5
 _HOME_MAX_SESSIONS = 5

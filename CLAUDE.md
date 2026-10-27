@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-patchright-cli is an anti-detect browser automation CLI built on [Patchright](https://github.com/kaliiiiiiiiii/patchright-python) (undetected Playwright fork). It provides the same command interface as Microsoft's playwright-cli but bypasses bot detection (Akamai, Cloudflare, etc.).
+patchright-cli is an anti-detect browser automation CLI built on [Patchright](https://github.com/kaliiiiiiiiii/patchright-python) (undetected Playwright fork). Its commands follow Microsoft's playwright-cli, but it bypasses bot detection (Akamai, Cloudflare, etc.) and is not a drop-in replacement: playwright-cli features Patchright cannot support (other browsers, extensions) are left out, and unknown flags are rejected with exit 2 rather than ignored.
 
 ## Development Setup
 

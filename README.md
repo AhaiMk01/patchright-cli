@@ -9,7 +9,7 @@
 [![GitHub issues](https://img.shields.io/github/issues/AhaiMk01/patchright-cli?label=Issues)](https://github.com/AhaiMk01/patchright-cli/issues)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-Anti-detect browser automation CLI. Same command interface as [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli) but using [Patchright](https://github.com/kaliiiiiiiiii/patchright-python) (undetected Playwright fork) to bypass bot detection.
+Anti-detect browser automation CLI. Commands follow [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli), but it uses [Patchright](https://github.com/kaliiiiiiiiii/patchright-python) (undetected Playwright fork) to bypass bot detection.
 
 [Install](#install) · [Quick Start](#quick-start) · [Commands](#-commands) · [Snapshots](#snapshots) · [Agent Integration](#agent-integration)
 
@@ -18,7 +18,7 @@ Anti-detect browser automation CLI. Same command interface as [Microsoft's playw
 | | Feature |
 |---|---|
 | :shield: | Bypasses Akamai, Cloudflare, and other anti-bot systems |
-| :rocket: | Same command interface as playwright-cli — zero learning curve |
+| :rocket: | playwright-cli's command names and arguments — little to relearn |
 | :robot: | Built for AI agents (Claude Code, Codex, etc.) with YAML snapshots |
 | :zap: | Daemon architecture — browser stays open between commands |
 | :package: | `pip install` / `uvx` — no Docker, no config files |
@@ -430,7 +430,7 @@ the open sessions with their URL and tab count, and what to run next. It only as
 already running and never starts one. Add `--toon` or `--json` for the same state as data.
 
 ```
-~/.local/bin/patchright-cli v0.10.0 -- anti-detect Chrome automation CLI (playwright-cli compatible)
+~/.local/bin/patchright-cli v0.10.0 -- anti-detect Chrome automation CLI (playwright-cli style commands)
 daemon: running on port 9321 (1 session)
 sessions[1]{name,status,url,tabs}:
   default,open,"https://example.com/",2
@@ -585,7 +585,7 @@ URLs passed to `patchright_open`, `patchright_goto` and `patchright_tab_new` mus
 <details>
 <summary><h2>Differences from playwright-cli</h2></summary>
 
-patchright-cli aims for full command parity with [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli). The following playwright-cli features are **intentionally not implemented** due to Patchright's architecture:
+patchright-cli follows the command names and arguments of [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli) where Patchright allows it, but it is **not a drop-in replacement**. Some playwright-cli features cannot work on Patchright and are not implemented:
 
 | Feature | Reason |
 |---------|--------|
@@ -593,7 +593,7 @@ patchright-cli aims for full command parity with [Microsoft's playwright-cli](ht
 | `--extension` | Browser extension connection not supported. Patchright uses CDP directly. |
 | `install` / `install-browser` | Use `python -m patchright install chromium` instead. |
 
-All other commands and options are fully supported.
+Each command accepts only the flags it implements. A playwright-cli flag patchright-cli does not support, such as `open --browser=firefox`, is rejected with `error: unknown flag` and exit code 2 rather than silently ignored, so a script ported from playwright-cli fails loudly where it would otherwise behave differently. `patchright-cli <command> --help` lists a command's flags.
 
 </details>
 
