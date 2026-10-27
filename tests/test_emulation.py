@@ -95,20 +95,6 @@ async def test_set_applies_to_every_page_and_clear_resets_only_that_feature(feat
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("feature", FEATURES)
-async def test_clear_on_attached_session_drops_the_override(feature):
-    # Over CDP, Playwright emulates no media, so the user's own browser
-    # settings are the starting state: clearing must not force light etc.
-    kwarg, value, _, _ = FEATURES[feature]
-    page = _fake_page()
-    session = _session([page])
-    session.is_attached = True
-    await _run(f"set-{feature}", session, value)
-    await _run(f"clear-{feature}", session)
-    page.emulate_media.assert_awaited_with(**{kwarg: "null"})
-
-
-@pytest.mark.asyncio
 async def test_tab_opened_later_gets_the_stored_emulation():
     session = _session([_fake_page()])
     await _run("set-color-scheme", session, "dark")

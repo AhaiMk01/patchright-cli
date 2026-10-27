@@ -2268,8 +2268,6 @@ async def cmd_resize(session: Session, page, args: list, options: dict, cwd: str
 # The values match playwright-cli's. emulate_media's "null" would drop the
 # override and expose the OS setting, but a page starts out with Playwright's
 # context defaults (light, no-preference, none, ...), so clearing restores those.
-# An Attached Session's browser has no such defaults (Playwright does not emulate
-# media over CDP), so there "null" is the starting state and clearing uses it.
 _EMULATED_MEDIA = {
     "color-scheme": ("color_scheme", ("dark", "light", "no-preference"), "light"),
     "reduced-motion": ("reduced_motion", ("reduce", "no-preference"), "no-preference"),
@@ -2298,7 +2296,7 @@ def _register_emulation(feature: str, kwarg: str, allowed: tuple[str, ...], defa
         return {"success": True, "output": f"Emulating {feature}: {value}"}
 
     async def cmd_clear(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-        await _emulate_on_all_pages(session, **{kwarg: "null" if session.is_attached else default})
+        await _emulate_on_all_pages(session, **{kwarg: default})
         session.emulation.pop(kwarg, None)
         return {"success": True, "output": f"Cleared {feature} emulation"}
 
