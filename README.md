@@ -147,7 +147,7 @@ Patchright starts Chrome with `--no-sandbox`, so by default no Chrome process is
 
 The variable is read by the daemon, not by each CLI command. The CLI passes its environment on when it starts the daemon, so set it before the first `open`; a daemon that is already running keeps the setting it started with until you restart it (`patchright-cli kill-all`).
 
-In Docker the image runs as root, and Chrome will not start as root with its sandbox on, so the switch also needs a non-root user (`docker run --user ...` with a writable `HOME`). Docker's default seccomp profile and the host's user-namespace settings can still stop the Linux sandbox from starting; `--security-opt seccomp=unconfined` is one way past the first, at the cost of the container's own syscall filter. CI measures these cases but does not require them to pass.
+In Docker the image runs as root, and Chrome will not start as root with its sandbox on, so the switch also needs a non-root user (`docker run --user ...` with a writable `HOME`). Docker's default seccomp profile and the host's user-namespace settings may still stop the Linux sandbox from starting; whether it starts in the image is not yet confirmed.
 
 How the sandbox affects bot detection has not been measured.
 
