@@ -465,6 +465,8 @@ patchright-cli --port=9322 open        # Custom daemon port
 
 ## Agent Integration
 
+The CLI follows the [AXI](https://github.com/kunchenguid/axi) standard for agent-facing tools: errors and hints on stdout, exit 2 for usage errors, `(no-op)` for repeated actions, and a no-argument home view with live state.
+
 There are two ways to teach your agent about patchright-cli. Both get it to the same place, so you only need one.
 
 | | Session hook | Skill |
@@ -611,6 +613,8 @@ This project builds on the work of:
 - **[Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright)** by [@Kaliiiiiiiiii-Vinyzu](https://github.com/Kaliiiiiiiiii-Vinyzu) — the undetected Playwright fork that makes this possible. All anti-detect capabilities come from Patchright.
 - **[playwright-cli](https://github.com/microsoft/playwright-cli)** by Microsoft — the original CLI that patchright-cli's command interface is modeled after.
 - **[camoufox-cli](https://github.com/Bin-Huang/camoufox-cli)** by [@Bin-Huang](https://github.com/Bin-Huang) — inspiration for the CLI-first approach to anti-detect browser automation and the SKILL.md agent integration pattern.
+- **[AXI (Agent eXperience Interface)](https://github.com/kunchenguid/axi)** by [@kunchenguid](https://github.com/kunchenguid) — the standard for agent-facing CLIs that shaped the home view, strict per-command flags, `error:`/`help:` output, `(no-op)` replies, explicit empty states and the session-start hook.
+- **[TOON](https://github.com/toon-format/spec)** — the token-oriented output format behind `--toon`.
 
 ---
 
