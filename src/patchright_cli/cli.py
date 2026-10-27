@@ -431,7 +431,7 @@ def _recv_exact(sock: socket.socket, n: int) -> bytes:
 
 COMMANDS_HELP = {
     # Core
-    "open": "open [url]           Open browser (starts daemon if needed) [--block-networks=link-local|private]",
+    "open": "open [url]           Open browser (starts daemon if needed) [--block-networks=link-local|private] [--web-only]",
     "attach": "attach --cdp=<url> [--context=new|host]  Attach to running Chrome via CDP",
     "goto": "goto <url>           Navigate to URL",
     "click": "click <ref> [button]  Click element [--modifiers=Alt,Shift]",
