@@ -60,3 +60,6 @@ jobs:
           file: ./Dockerfile
           push: ${{ inputs.publish_docker }}
           tags: ${{ steps.tags.outputs.tags }}
+          # Attestations need the docker-container driver that setup-buildx-action creates above.
+          provenance: mode=max
+          sbom: true
