@@ -221,14 +221,58 @@ def _install_skills_to_dir(target: Path) -> None:
         shutil.copytree(refs_src, refs_dst)
 
 
+_INSTALL_USAGE = "usage: patchright-cli install --skills | --hooks [--uninstall] [--home=DIR]"
+_INSTALL_FLAGS = "--skills, --hooks, --uninstall, --home=DIR"
+
+
 def _handle_install(args: list) -> None:
-    """Handle the install command."""
-    if "--skills" not in args:
-        click.echo("Usage: patchright-cli install --skills")
+    """Handle the install command: --skills copies skill files, --hooks registers session-start hooks."""
+    from patchright_cli import agent_hooks
+
+    flags: set[str] = set()
+    home: Path | None = None
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in ("--skills", "--hooks", "--uninstall"):
+            flags.add(arg)
+        elif arg.startswith("--home="):
+            home = Path(arg.split("=", 1)[1]).expanduser()
+        elif arg == "--home" and i + 1 < len(args):
+            i += 1
+            home = Path(args[i]).expanduser()
+        else:
+            click.echo(f"error: unknown flag {arg} for `install`")
+            click.echo(f"help: valid flags for `install`: {_INSTALL_FLAGS} (--help always allowed)")
+            sys.exit(2)
+        i += 1
+
+    if "--uninstall" in flags and "--hooks" not in flags:
+        click.echo("error: --uninstall only applies to --hooks")
+        click.echo("help: patchright-cli install --hooks --uninstall")
+        sys.exit(2)
+
+    if not flags & {"--skills", "--hooks"}:
+        click.echo(_INSTALL_USAGE)
         click.echo("\nTo install the browser, use: python -m patchright install chromium")
         sys.exit(0)
 
-    agents = _detect_agent_dirs()
+    if "--hooks" in flags:
+        uninstall = "--uninstall" in flags
+        try:
+            command = None if uninstall else agent_hooks.hook_command()
+            results = agent_hooks.apply_hooks(home=home, uninstall=uninstall, command=command)
+        except Exception as e:
+            click.echo(f"error: {e}")
+            sys.exit(1)
+        for line in agent_hooks.format_results(results, command):
+            click.echo(line)
+        if any(r.status == "error" for r in results):
+            sys.exit(1)
+        if "--skills" not in flags:
+            return
+
+    agents = _detect_agent_dirs(home=home)
     if not agents:
         click.echo("No AI agent installations detected.")
         click.echo("\nManual install — copy skills to your agent's directory:")
@@ -556,7 +600,7 @@ COMMANDS_HELP = {
     "codegen": "codegen [file]        Start recording interactions",
     "codegen-stop": "codegen-stop [file]   Stop recording and save script",
     # Setup
-    "install": "install --skills      Install skill files for AI agents",
+    "install": "install --skills | --hooks [--uninstall]  Install agent skill files, or session-start hooks",
     "mcp": "mcp [--http] [--host=HOST] [--port=N]  Start MCP server (stdio by default)",
     "daemon-info": "daemon-info --json                 Show daemon client protocol and token path without starting it",
 }
