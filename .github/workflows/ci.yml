@@ -73,36 +73,3 @@ jobs:
           docker logs cli || true
           docker logs mcp || true
           docker logs mcp-open || true
-
-  # Measurement only: does Chrome start sandboxed in the image as a non-root
-  # user with PATCHRIGHT_CLI_CHROME_SANDBOX=1? Root cannot use the sandbox, and
-  # Docker's default seccomp profile blocks the namespaces it needs (Chrome exits
-  # at launch). The job prints chrome://sandbox for both runs. It is kept
-  # apart from `docker` and allowed to fail so it cannot break that job.
-  chrome-sandbox:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - run: docker build -t patchright-cli:ci .
-      - name: chrome://sandbox as uid 1000
-        run: |
-          measure() {
-            label=$1; shift
-            echo "::group::$label"
-            docker run -d --name "$label" --user 1000:1000 -e HOME=/tmp/home \
-              -e PYTHONDONTWRITEBYTECODE=1 -e PATCHRIGHT_CLI_NO_VERSION_CHECK=1 -e PATCHRIGHT_CLI_NO_SKILL_CHECK=1 \
-              "$@" --entrypoint sleep patchright-cli:ci infinity
-            cli() { docker exec -w /tmp "$label" /app/.venv/bin/patchright-cli "$@"; }
-            cli open chrome://sandbox --headless || echo "open failed"
-            echo "--- chrome://sandbox ($label) ---"
-            cli eval document.body.innerText || echo "eval failed"
-            echo "--- renderer processes / those started with --no-sandbox ($label) ---"
-            docker exec "$label" sh -c 'for f in /proc/[0-9]*/cmdline; do tr "\0" " " < "$f"; echo; done' \
-              | grep -- "--type=renderer" > renderers.txt || true
-            echo "$(wc -l < renderers.txt) / $(grep -c -- "--no-sandbox" renderers.txt)"
-            cli kill-all || true
-            echo "::endgroup::"
-          }
-          measure default
-          measure sandbox -e PATCHRIGHT_CLI_CHROME_SANDBOX=1
