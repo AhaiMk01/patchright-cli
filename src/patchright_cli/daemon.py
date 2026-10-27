@@ -3323,6 +3323,55 @@ def remove_daemon_token(port: int, token: str) -> None:
             token_path(port).unlink()
 
 
+class DaemonAlreadyRunning(RuntimeError):
+    """Another daemon holds this port's lock."""
+
+
+def lock_path(port: int) -> Path:
+    """The lock file a daemon on `port` holds for its whole lifetime."""
+    return TOKEN_DIR / f"daemon-{port}.lock"
+
+
+def acquire_daemon_lock(port: int) -> int:
+    """Take the port's exclusive daemon lock without waiting; return the fd that holds it.
+
+    Only the holder may write or remove the port's token file, so two daemons
+    started at once cannot overwrite or delete each other's token. The OS drops
+    the lock when the holder exits, even on a crash, so a leftover lock file is
+    harmless. The file is never deleted: a daemon that opened it just before the
+    unlink could then lock the orphaned inode while another locks a new file.
+    """
+    path = lock_path(port)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as e:
+        os.close(fd)
+        raise DaemonAlreadyRunning(
+            f"another patchright-cli daemon holds {path}, so one is already running or starting on port {port}"
+        ) from e
+    return fd
+
+
+def release_daemon_lock(fd: int) -> None:
+    """Release a lock taken by acquire_daemon_lock."""
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        with contextlib.suppress(OSError):
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    os.close(fd)
+
+
 def check_auth(msg: object, expected: str | None, port: int) -> str | None:
     """Return why `msg` is not authorised, or None when its token matches."""
     if not isinstance(msg, dict):
@@ -3414,7 +3463,19 @@ async def idle_watchdog(state: DaemonState):
 
 
 async def run_daemon(port: int = DEFAULT_PORT, headless: bool = False):
-    """Start the daemon TCP server."""
+    """Start the daemon TCP server, holding the port's daemon lock until it stops.
+
+    Raises DaemonAlreadyRunning, without touching the token file, when another
+    daemon holds the lock.
+    """
+    lock_fd = acquire_daemon_lock(port)
+    try:
+        await _serve(port, headless)
+    finally:
+        release_daemon_lock(lock_fd)
+
+
+async def _serve(port: int, headless: bool):
     state = DaemonState()
     state.default_headless = headless
     state.shutdown_event = asyncio.Event()
@@ -3422,8 +3483,10 @@ async def run_daemon(port: int = DEFAULT_PORT, headless: bool = False):
     async def client_handler(reader, writer):
         await _handle_client(reader, writer, state)
 
-    # Bind first so a daemon already on this port keeps its token file, then
-    # write the token before listen(): the readiness probe in
+    # The caller holds the port's lock, so no other new daemon is writing the
+    # token file. Bind before writing it so a failed bind (an older daemon,
+    # which takes no lock, or another program on the port) leaves the file
+    # alone, and write it before listen() so the readiness probe in
     # ensure_daemon_running cannot connect before the token exists.
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -3482,7 +3545,11 @@ def start_daemon(port: int = DEFAULT_PORT, headless: bool = False):
         level=logging.DEBUG if os.environ.get("PATCHRIGHT_DEBUG") else logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
-    asyncio.run(run_daemon(port, headless))
+    try:
+        asyncio.run(run_daemon(port, headless))
+    except DaemonAlreadyRunning as e:
+        logger.error("Not starting: %s.", e)
+        sys.exit(1)
 
 
 def ensure_daemon_running(port: int = DEFAULT_PORT, headless: bool = False) -> bool:

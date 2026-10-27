@@ -245,3 +245,57 @@ def test_daemon_does_not_start_when_the_token_file_cannot_be_protected(token_dir
     assert not daemon.token_path(port).exists()
     with pytest.raises(OSError), socket.create_connection(("127.0.0.1", port), timeout=1):
         pass
+
+
+def test_second_daemon_on_a_locked_port_leaves_the_first_ones_token_alone(token_dir):
+    port = _free_port()
+
+    def body(port):
+        path = daemon.token_path(port)
+        before = (path.read_text(), path.stat().st_mtime_ns)
+        with pytest.raises(daemon.DaemonAlreadyRunning, match="already running"):
+            asyncio.run(daemon.run_daemon(port, headless=True))
+        after = (path.read_text(), path.stat().st_mtime_ns)
+        return before, after, cli._send_command("list", [], {}, port)
+
+    before, after, listed = asyncio.run(_with_daemon(port, body))
+    assert before == after
+    assert listed["success"] is True
+    # The first daemon's lock went with it, so the port can be taken again.
+    daemon.release_daemon_lock(daemon.acquire_daemon_lock(port))
+
+
+def test_lock_holder_whose_bind_fails_writes_and_removes_no_token(token_dir):
+    # Something without the lock (an older daemon, another program) owns the port.
+    with socket.socket() as other:
+        other.bind(("127.0.0.1", 0))
+        other.listen()
+        port = other.getsockname()[1]
+        daemon.token_path(port).write_text("theirs")
+        with pytest.raises(OSError):
+            asyncio.run(daemon.run_daemon(port, headless=True))
+    assert daemon.read_daemon_token(port) == "theirs"
+    daemon.release_daemon_lock(daemon.acquire_daemon_lock(port))
+
+
+def test_daemon_process_exits_when_another_holds_the_port_lock(tmp_path, monkeypatch):
+    import os
+    import subprocess
+
+    monkeypatch.setattr(daemon, "TOKEN_DIR", tmp_path / ".patchright-cli")
+    port = _free_port()
+    fd = daemon.acquire_daemon_lock(port)
+    try:
+        env = {**os.environ, "HOME": str(tmp_path), "USERPROFILE": str(tmp_path)}
+        proc = subprocess.run(
+            [sys.executable, "-m", "patchright_cli.daemon", "--port", str(port)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    finally:
+        daemon.release_daemon_lock(fd)
+    assert proc.returncode == 1
+    assert "already running or starting on port" in proc.stderr
+    assert not daemon.token_path(port).exists()
