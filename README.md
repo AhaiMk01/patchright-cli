@@ -431,10 +431,34 @@ patchright-cli --port=9322 open        # Custom daemon port
 
 ## Agent Integration
 
-Works with Claude Code, Cursor, Gemini CLI, Codex, and [40+ other agents](https://github.com/vercel-labs/skills).
+There are two ways to teach your agent about patchright-cli. Both get it to the same place, so you only need one.
+
+| | Session hook | Skill |
+|---|---|---|
+| Install | `patchright-cli install --hooks` | `npx skills add AhaiMk01/patchright-cli` or `patchright-cli install --skills` |
+| What the agent gets | Live state (open sessions, the commands to drive them) at the start of every session | Full command reference, loaded when a browser task comes up |
+| Cost | A few lines of context in every session | Nothing until it is needed |
+| Agents | Claude Code, Codex, OpenCode | Claude Code, Cursor, Gemini CLI, Codex and [40+ others](https://github.com/vercel-labs/skills) |
+
+### Session hook (recommended)
 
 ```bash
-# Install skill for all detected agents (recommended)
+patchright-cli install --hooks              # install or repair
+patchright-cli install --hooks --uninstall  # remove
+```
+
+At the start of each session the agent runs `patchright-cli` with no arguments, which prints a short dashboard of what is running, so the agent can pick up an open browser session without asking. The hook goes only to apps whose config directory exists, and prints one line per app (`installed`, `updated`, `(no-op)` or `skipped`):
+
+- **Claude Code**: a `SessionStart` hook in `~/.claude/settings.json`
+- **Codex**: a `SessionStart` hook in `~/.codex/hooks.json`, plus `hooks = true` under `[features]` in `~/.codex/config.toml`
+- **OpenCode**: a managed plugin at `~/.config/opencode/plugins/patchright-cli.js` that adds the dashboard to the system prompt
+
+The hook calls plain `patchright-cli` when that name on your `PATH` is the same binary you ran the install with, and its absolute path otherwise. Re-run `install --hooks` after reinstalling or moving patchright-cli and it rewrites the path. Your other hooks and settings are left as they are, and `--uninstall` removes only patchright-cli's entries (the Codex `[features]` flag stays, since other hooks may need it).
+
+### Skill
+
+```bash
+# Install skill for all detected agents
 npx skills add AhaiMk01/patchright-cli
 ```
 
