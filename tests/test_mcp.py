@@ -95,7 +95,23 @@ def test_run_mcp_server_http_with_token(monkeypatch, capsys):
     assert capsys.readouterr().err == ""
 
 
-@pytest.mark.parametrize("protection", ["true", "false", "FALSE", "0", "auto"])
+_PROTECTION_FIELD = type(mcp_server.fastmcp.settings).model_fields["http_host_origin_protection"]
+
+
+@pytest.mark.parametrize(
+    "protection",
+    [
+        "true",
+        "false",
+        "FALSE",
+        "0",
+        # fastmcp 3.4.3 takes a plain bool; "auto" arrived later.
+        pytest.param(
+            "auto",
+            marks=pytest.mark.skipif(_PROTECTION_FIELD.annotation is bool, reason="this fastmcp has no 'auto'"),
+        ),
+    ],
+)
 def test_run_mcp_server_http_with_explicit_protection_choice(monkeypatch, capsys, protection):
     calls = _http_env(monkeypatch, protection=protection)
 
