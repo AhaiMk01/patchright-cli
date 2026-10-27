@@ -174,6 +174,16 @@ patchright-cli screenshot
 patchright-cli close
 ```
 
+Quote URLs that contain `&`; unquoted, bash, PowerShell and cmd.exe all split the command there. On Windows two cases need more than quotes: in cmd.exe without quotes, escape it as `^&` (inside quotes the `^` stays in the URL, so use one or the other), and when PowerShell runs a `.cmd`/`.bat` wrapper such as the repo's `patchright-cli.cmd`, PowerShell drops the quotes and cmd.exe splits at `&`, so pass the rest verbatim with `--%`:
+
+```
+patchright-cli goto "https://example.com/?a=1&b=2"           # any shell, patchright-cli.exe
+patchright-cli goto https://example.com/?a=1^&b=2            # cmd.exe, unquoted
+.\patchright-cli.cmd --% goto "https://example.com/?a=1&b=2" # PowerShell, .cmd wrapper
+```
+
+Don't use `--%` with the installed `patchright-cli.exe`: in PowerShell 7 the quotes after it reach the CLI and end up in the URL.
+
 ---
 
 ## Architecture
@@ -284,6 +294,22 @@ patchright-cli upload ./file.pdf       # Upload to first file input
 patchright-cli upload ./file.pdf e5    # Upload to specific input
 patchright-cli resize 1920 1080        # Resize viewport
 ```
+
+### Emulation
+```bash
+patchright-cli set-color-scheme dark   # dark | light | no-preference
+patchright-cli clear-color-scheme
+patchright-cli set-reduced-motion reduce  # reduce | no-preference
+patchright-cli clear-reduced-motion
+patchright-cli set-forced-colors active   # active | none
+patchright-cli clear-forced-colors
+patchright-cli set-contrast more       # more | no-preference
+patchright-cli clear-contrast
+patchright-cli set-media print         # screen | print
+patchright-cli clear-media
+```
+
+Each setting holds for the whole session, including tabs and popups opened later; `clear-*` drops just that one, back to the browser default. A popup gets the setting just after it opens, so a script that reads media queries the instant the popup is created may still see the default.
 
 ### Tabs
 ```bash

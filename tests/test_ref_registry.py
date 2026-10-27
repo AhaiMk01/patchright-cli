@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from patchright_cli.ref_registry import RefRegistry, render_hits
+from patchright_cli.ref_registry import UNNAMED_RE, RefRegistry, render_hits
 
 
 def test_parse_simple_snapshot():
@@ -520,3 +520,89 @@ def test_breadcrumb_keeps_only_the_three_nearest_ancestors():
     assert "list" in crumb
     assert "main" not in crumb
     assert "navigation" not in crumb
+
+
+# -- YAML-quoted keys, slash names and unnamed refs ---------------------------
+
+MIXED_YAML = """- button "Save"
+- button
+- 'button "It''s #42"'
+- link /about/:
+  - /url: /about/
+- button /a/b/ [disabled]"""
+
+
+def test_parse_gives_every_node_in_a_mixed_snapshot_a_ref():
+    registry = RefRegistry()
+    result = registry.parse(MIXED_YAML)
+    assert result.splitlines() == [
+        '- button "Save" [ref=e1]',
+        "- button [ref=e2]",
+        "- 'button \"It''s #42\"' [ref=e3]",
+        "- link /about/: [ref=e4]",
+        "  - /url: /about/",
+        "- button /a/b/ [disabled] [ref=e5]",
+    ]
+    assert [(e.role, e.name, e.nth) for e in registry.entries.values()] == [
+        ("button", "Save", 0),
+        ("button", "", 0),
+        ("button", "It's #42", 0),
+        ("link", "/about/", 0),
+        ("button", "/a/b/", 0),
+    ]
+
+
+def test_parse_single_quoted_key_with_colon():
+    # Playwright wraps keys containing ": " or " #" in YAML single quotes.
+    registry = RefRegistry()
+    registry.parse("- 'button \"Step 1: Sign in\"'\n  - 'link \"It''s #42\"':\n    - /url: /x")
+    assert registry.entries["e1"].name == "Step 1: Sign in"
+    assert (registry.entries["e2"].role, registry.entries["e2"].name) == ("link", "It's #42")
+
+
+def test_parse_unquoted_slash_names():
+    # Playwright writes a name that starts and ends with "/" without quotes.
+    registry = RefRegistry()
+    registry.parse(
+        "- link /about/:\n  - /url: /about/\n- button /a/b/ [disabled]\n- 'button /a: b/'\n- link /x/: /x/ text"
+    )
+    assert [e.name for e in registry.entries.values()] == ["/about/", "/a/b/", "/a: b/", "/x/"]
+
+
+def test_parse_slash_name_shows_in_breadcrumb():
+    registry = RefRegistry()
+    registry.parse('- \'navigation "Main: top"\':\n  - link /about/:\n    - button "Go"')
+    hits, _ = registry.search("Go")
+    assert hits[0].breadcrumb == 'navigation "Main: top" > link "/about/"'
+
+
+def test_parse_property_lines_get_no_ref():
+    registry = RefRegistry()
+    registry.parse('- link "Home":\n  - /url: /home')
+    assert list(registry.entries) == ["e1"]
+
+
+def test_resolve_unnamed_ref_filters_by_empty_name():
+    """Unfiltered, `button` nth 0 is the "Save" button, not the unnamed one."""
+    registry = RefRegistry()
+    registry.parse(MIXED_YAML)
+    page = MagicMock()
+    registry.resolve(page, "e2")
+    page.get_by_role.assert_called_once_with("button", name=UNNAMED_RE, exact=True)
+    page.get_by_role.return_value.nth.assert_called_once_with(0)
+
+
+def test_resolve_slash_name_passes_it_verbatim():
+    registry = RefRegistry()
+    registry.parse(MIXED_YAML)
+    page = MagicMock()
+    registry.resolve(page, "e4")
+    page.get_by_role.assert_called_once_with("link", name="/about/", exact=True)
+
+
+def test_unnamed_re_matches_empty_and_omitted_names():
+    # Playwright omits names longer than 900 characters from aria snapshots.
+    assert UNNAMED_RE.search("")
+    assert UNNAMED_RE.search("x" * 901)
+    assert not UNNAMED_RE.search("x" * 900)
+    assert not UNNAMED_RE.search("Submit")
