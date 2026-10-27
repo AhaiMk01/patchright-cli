@@ -1,5 +1,6 @@
 """Unit tests for the media emulation commands (set-color-scheme and friends)."""
 
+import asyncio
 from typing import get_args
 from unittest.mock import AsyncMock, MagicMock
 
@@ -172,3 +173,31 @@ async def test_error_on_a_live_page_still_fails():
     session = _session([page])
     with pytest.raises(RuntimeError, match="boom"):
         await _run("set-color-scheme", session, "dark")
+
+
+@pytest.mark.asyncio
+async def test_concurrent_setters_leave_pages_agreeing_with_state():
+    # Without serialisation, A applies dark to page 1, B sets light on both
+    # pages, then A resumes and applies dark to page 2.
+    page1, page2 = _fake_page(), _fake_page()
+    applied = {}
+    gate = asyncio.Event()
+
+    async def slow_first(**kw):
+        applied[1] = kw["color_scheme"]
+        if kw["color_scheme"] == "dark":
+            await gate.wait()
+
+    page1.emulate_media = AsyncMock(side_effect=slow_first)
+    page2.emulate_media = AsyncMock(side_effect=lambda **kw: applied.__setitem__(2, kw["color_scheme"]))
+    session = _session([page1, page2])
+
+    a = asyncio.create_task(_run("set-color-scheme", session, "dark"))
+    await asyncio.sleep(0)
+    b = asyncio.create_task(_run("set-color-scheme", session, "light"))
+    await asyncio.sleep(0)
+    gate.set()
+    await asyncio.gather(a, b)
+
+    assert session.emulation == {"color_scheme": "light"}
+    assert applied == {1: "light", 2: "light"}

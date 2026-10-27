@@ -147,6 +147,9 @@ class Session:
         # keyword arguments. emulate_media is per Page, so every Page this
         # Session sees gets them, including ones opened later.
         self.emulation: dict[str, str] = {}
+        # Held while emulation changes and while it is applied to pages, so two
+        # clients setting media at once can't leave pages disagreeing with it.
+        self.emulation_lock = asyncio.Lock()
         # The Profile a Launched Session runs on (None for Attached Sessions).
         self.profile: Profile | None = None
         self._cdp_sessions: dict[int, object] = {}
@@ -183,8 +186,9 @@ class Session:
 
     async def apply_emulation(self, page) -> None:
         """Give `page` this Session's emulated media features, if any are set."""
-        if self.emulation:
-            await page.emulate_media(**self.emulation)
+        async with self.emulation_lock:
+            if self.emulation and not page.is_closed():
+                await page.emulate_media(**self.emulation)
 
     async def _attach_page_listeners(self, page):
         # Use CDP for console messages (Patchright suppresses page.on('console'))
@@ -2299,14 +2303,15 @@ def _register_emulation(feature: str, kwarg: str, allowed: tuple[str, ...], defa
                 "success": False,
                 "output": f"Usage: set-{feature} <{'|'.join(allowed)}> (got {value!r})",
             }
-        # Store first: a page opened while the loop awaits reads it in _on_new_page.
-        session.emulation[kwarg] = value
-        await _emulate_on_all_pages(session, **{kwarg: value})
+        async with session.emulation_lock:
+            session.emulation[kwarg] = value
+            await _emulate_on_all_pages(session, **{kwarg: value})
         return {"success": True, "output": f"Emulating {feature}: {value}"}
 
     async def cmd_clear(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-        session.emulation.pop(kwarg, None)
-        await _emulate_on_all_pages(session, **{kwarg: default})
+        async with session.emulation_lock:
+            session.emulation.pop(kwarg, None)
+            await _emulate_on_all_pages(session, **{kwarg: default})
         return {"success": True, "output": f"Cleared {feature} emulation"}
 
     register(f"set-{feature}")(cmd_set)
