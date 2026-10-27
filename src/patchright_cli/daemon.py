@@ -3421,10 +3421,31 @@ def check_auth(msg: object, expected: str | None, port: int) -> str | None:
     return None
 
 
-async def _read_message(reader: asyncio.StreamReader) -> dict | None:
-    """Read a length-prefixed JSON message from the stream."""
+# A request is read before its token is checked, so any local process can
+# send one. Bound how long the whole request may take to arrive and how long
+# it may claim to be, so a client cannot hold a connection open forever or
+# make the daemon buffer a 4 GB body. Commands and responses are not bounded.
+REQUEST_READ_TIMEOUT = 30.0
+# The largest real request is an eval/run-code script read from --file or
+# stdin (a bundled library is a few MB); other args come from argv, which the
+# OS caps at about 2 MB. 64 MiB leaves an order of magnitude of headroom.
+MAX_REQUEST_BYTES = 64 * 1024 * 1024
+
+
+class RequestTooLarge(Exception):
+    """A client announced a request longer than MAX_REQUEST_BYTES."""
+
+
+async def _read_message(reader: asyncio.StreamReader, max_bytes: int = MAX_REQUEST_BYTES) -> dict | None:
+    """Read a length-prefixed JSON message from the stream.
+
+    Raises RequestTooLarge, without reading the body, when the announced
+    length exceeds `max_bytes`.
+    """
     header = await reader.readexactly(4)
     length = struct.unpack("!I", header)[0]
+    if length > max_bytes:
+        raise RequestTooLarge(f"Daemon error: request of {length} bytes exceeds the {max_bytes}-byte limit.")
     data = await reader.readexactly(length)
     return json.loads(data.decode("utf-8"))
 
@@ -3445,7 +3466,15 @@ async def _handle_client(
     addr = writer.get_extra_info("peername")
     logger.debug("Client connected: %s", addr)
     try:
-        msg = await _read_message(reader)
+        try:
+            msg = await asyncio.wait_for(_read_message(reader), REQUEST_READ_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning("Closed connection from %s: request not received within %ss", addr, REQUEST_READ_TIMEOUT)
+            return
+        except RequestTooLarge as e:
+            logger.warning("Rejected oversized request from %s: %s", addr, e)
+            await _write_message(writer, {"success": False, "output": str(e)})
+            return
         if msg is None:
             return
         port = writer.get_extra_info("sockname")[1]
