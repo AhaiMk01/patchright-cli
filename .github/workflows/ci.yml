@@ -76,8 +76,8 @@ jobs:
 
   # Measurement only: does Chrome start sandboxed in the image as a non-root
   # user with PATCHRIGHT_CLI_CHROME_SANDBOX=1? Root cannot use the sandbox, and
-  # Docker's default seccomp profile may block the namespaces it needs, so the
-  # job compares three runs and prints chrome://sandbox for each. It is kept
+  # Docker's default seccomp profile blocks the namespaces it needs (Chrome exits
+  # at launch). The job prints chrome://sandbox for both runs. It is kept
   # apart from `docker` and allowed to fail so it cannot break that job.
   chrome-sandbox:
     runs-on: ubuntu-latest
@@ -106,4 +106,3 @@ jobs:
           }
           measure default
           measure sandbox -e PATCHRIGHT_CLI_CHROME_SANDBOX=1
-          measure sandbox-unconfined -e PATCHRIGHT_CLI_CHROME_SANDBOX=1 --security-opt seccomp=unconfined
