@@ -430,7 +430,7 @@ the open sessions with their URL and tab count, and what to run next. It only as
 already running and never starts one. Add `--toon` or `--json` for the same state as data.
 
 ```
-~/.local/bin/patchright-cli v0.9.1 -- anti-detect Chrome automation CLI (playwright-cli compatible)
+~/.local/bin/patchright-cli v0.10.0 -- anti-detect Chrome automation CLI (playwright-cli compatible)
 daemon: running on port 9321 (1 session)
 sessions[1]{name,status,url,tabs}:
   default,open,"https://example.com/",2
