@@ -42,6 +42,26 @@ def test_start_time_of_an_exited_process_is_none():
     assert daemon_pid.process_start_time(0) is None
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="zombies are a POSIX state")
+def test_killed_but_unreaped_process_reads_as_gone():
+    # A killed daemon whose parent has not reaped it keeps its start time in
+    # /proc (or ps); force_stop must not wait on it as if it were alive.
+    import signal
+    import time
+
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        assert daemon_pid.process_start_time(proc.pid) is not None
+        os.kill(proc.pid, signal.SIGKILL)
+        for _ in range(50):  # until it is a zombie: dead, but not waited on
+            if daemon_pid.process_start_time(proc.pid) is None:
+                break
+            time.sleep(0.1)
+        assert daemon_pid.process_start_time(proc.pid) is None
+    finally:
+        proc.wait()
+
+
 def test_reused_pid_is_not_the_daemon(tmp_path):
     # Same PID, different start time: another process now owns that PID.
     path = daemon_pid.pid_path(tmp_path, 9999)

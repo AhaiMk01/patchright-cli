@@ -26,21 +26,28 @@ def pid_path(directory: Path, port: int) -> Path:
 
 
 def process_start_time(pid: int) -> str | None:
-    """An identity for the process `pid`: its start time, or None if it is gone or unreadable."""
+    """An identity for the process `pid`: its start time, or None if it is gone or unreadable.
+
+    A zombie (killed but not yet reaped by its parent, e.g. under a container
+    PID 1 that never reaps) keeps its start time but is dead, so it reads as None.
+    """
     if pid <= 0:
         return None
     if sys.platform == "win32":
         return _windows_start_time(pid)
     with contextlib.suppress(OSError, IndexError, ValueError):
-        # Field 22 of /proc/<pid>/stat, counted after the parenthesised name,
-        # which may itself contain spaces.
-        stat = Path(f"/proc/{pid}/stat").read_text()
-        return stat.rsplit(")", 1)[1].split()[19]
+        # Fields after the parenthesised name, which may itself contain spaces:
+        # [0] is field 3 (state), [19] is field 22 (start time).
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        return None if fields[0] in ("Z", "X") else fields[19]
     try:
-        out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+        out = subprocess.run(
+            ["ps", "-o", "stat=", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=5
+        )
     except (OSError, subprocess.SubprocessError):
         return None
-    return out.stdout.strip() or None
+    state, _, started = out.stdout.strip().partition(" ")
+    return None if not state or state.startswith("Z") else started.strip() or None
 
 
 def _windows_start_time(pid: int) -> str | None:
