@@ -404,6 +404,35 @@ patchright-cli console --clear         # Clear after printing
 ```bash
 patchright-cli --raw eval --file=s.js  # Raw output (no page/snapshot decoration)
 patchright-cli --raw snapshot > p.yml  # Pipe raw snapshot to file
+patchright-cli --json tab-list         # Whole reply as JSON ({success, output, data, ...})
+patchright-cli --toon tab-list         # Structured result as TOON
+```
+
+`--toon` prints a reply's structured `data` as [TOON](https://github.com/toon-format/spec), a compact
+format for agents: `list`, `tab-list`, `cookie-list`, `localstorage-list`, `sessionstorage-list`,
+`route-list`, `console`, `network`, `profile-list` and `find` give a table, `url` and `title` a single
+field. A cut-short list adds `total` and a `help:` line. Commands without structured data, and errors,
+print exactly as they do without the flag. `--json` and `--toon` together are a usage error.
+
+```
+tabs[2]{index,title,url,active}:
+  0,Example Domain,"https://example.com/",true
+  1,"","about:blank",false
+```
+
+Run with no arguments, `patchright-cli` prints a short home view instead of the manual (that is
+`--help`): where the binary is, whether the daemon is running on the port (`--port=N` picks another),
+the open sessions with their URL and tab count, and what to run next. It only asks a daemon that is
+already running and never starts one. Add `--toon` or `--json` for the same state as data.
+
+```
+~/.local/bin/patchright-cli v0.9.1 -- anti-detect Chrome automation CLI (playwright-cli compatible)
+daemon: running on port 9321 (1 session)
+sessions[1]{name,status,url,tabs}:
+  default,open,"https://example.com/",2
+help: patchright-cli snapshot  (element refs for the current page; -s=<name> for another session)
+help: patchright-cli list  (sessions and their tabs)
+help: patchright-cli --help  (all commands); patchright-cli <command> --help  (one command)
 ```
 
 ### Setup
@@ -447,7 +476,7 @@ patchright-cli install --hooks              # install or repair
 patchright-cli install --hooks --uninstall  # remove
 ```
 
-At the start of each session the agent runs `patchright-cli` with no arguments, which prints a short dashboard of what is running, so the agent can pick up an open browser session without asking. The hook goes only to apps whose config directory exists, and prints one line per app (`installed`, `updated`, `(no-op)` or `skipped`):
+At the start of each session the agent runs `patchright-cli` with no arguments, which prints the home view (see [Output](#output)): whether the daemon is up and which sessions are open, so the agent can pick up an open browser session without asking. The hook goes only to apps whose config directory exists, and prints one line per app (`installed`, `updated`, `(no-op)` or `skipped`):
 
 - **Claude Code**: a `SessionStart` hook in `~/.claude/settings.json`
 - **Codex**: a `SessionStart` hook in `~/.codex/hooks.json`, plus `hooks = true` under `[features]` in `~/.codex/config.toml`

@@ -163,7 +163,11 @@ def _our_entries(groups: list) -> list[tuple[dict, dict]]:
         if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
             continue
         for hook in group["hooks"]:
-            if isinstance(hook, dict) and hook.get("type", "command") == "command" and is_our_command(hook.get("command")):
+            if (
+                isinstance(hook, dict)
+                and hook.get("type", "command") == "command"
+                and is_our_command(hook.get("command"))
+            ):
                 found.append((group, hook))
     return found
 
