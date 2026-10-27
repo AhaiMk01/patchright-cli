@@ -182,7 +182,7 @@ patchright-cli goto https://example.com/?a=1^&b=2            # cmd.exe, unquoted
 .\patchright-cli.cmd --% goto "https://example.com/?a=1&b=2" # PowerShell, .cmd wrapper
 ```
 
-Don't use `--%` with the installed `patchright-cli.exe`: the quotes after it reach the CLI and end up in the URL.
+Don't use `--%` with the installed `patchright-cli.exe`: in PowerShell 7 the quotes after it reach the CLI and end up in the URL.
 
 ---
 
@@ -309,7 +309,7 @@ patchright-cli set-media print         # screen | print
 patchright-cli clear-media
 ```
 
-Each setting holds for the whole session, including tabs and popups opened later; `clear-*` drops just that one, back to the browser default.
+Each setting holds for the whole session, including tabs and popups opened later; `clear-*` drops just that one, back to the browser default. A popup gets the setting just after it opens, so a script that reads media queries the instant the popup is created may still see the default.
 
 ### Tabs
 ```bash

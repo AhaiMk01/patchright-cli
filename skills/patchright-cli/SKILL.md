@@ -71,7 +71,7 @@ patchright-cli goto https://example.com/search?q=cats^&page=2
 
 # PowerShell calling a .cmd/.bat wrapper (such as the repo's patchright-cli.cmd):
 # PowerShell drops the quotes and cmd.exe splits at &. Pass the rest verbatim
-# with --%. Don't use --% with patchright-cli.exe: the quotes end up in the URL.
+# with --%. Don't use --% with patchright-cli.exe: in PowerShell 7 the quotes end up in the URL.
 .\patchright-cli.cmd --% goto "https://example.com/search?q=cats&page=2"
 ```
 
@@ -336,7 +336,8 @@ show --annotate               # Ask a human to mark up the page and wait for it
 ### Emulation
 
 Each setting holds for the whole session: every open tab, and tabs and popups
-opened later. `clear-*` drops just that one, back to the browser default.
+opened later (a popup gets it just after it opens). `clear-*` drops just that
+one, back to the browser default.
 
 ```bash
 set-color-scheme dark         # dark | light | no-preference

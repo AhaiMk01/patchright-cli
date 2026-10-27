@@ -131,3 +131,44 @@ def test_mcp_tools_build_cli_argv(feature):
     assert mcp_server._build_args(f"patchright_clear_{tool}", {"session": "default"}) == [f"clear-{feature}"]
     value_type = mcp_server._parameter_type(f"patchright_set_{tool}", "value", "string")
     assert get_args(value_type) == allowed
+
+
+@pytest.mark.asyncio
+async def test_set_stores_the_value_before_awaiting_pages():
+    # A page opened while emulate_media awaits reads session.emulation in
+    # _on_new_page, so the new value must already be there.
+    page = _fake_page()
+    session = _session([page])
+    seen = []
+    page.emulate_media = AsyncMock(side_effect=lambda **kw: seen.append(dict(session.emulation)))
+    await _run("set-color-scheme", session, "dark")
+    assert seen == [{"color_scheme": "dark"}]
+
+    seen.clear()
+    await _run("clear-color-scheme", session)
+    assert seen == [{}]
+
+
+@pytest.mark.asyncio
+async def test_page_closing_mid_loop_does_not_stop_the_rest():
+    closing, live = _fake_page(), _fake_page()
+
+    async def close_during_call(**kw):
+        closing.is_closed.return_value = True
+        raise RuntimeError("Target page, context or browser has been closed")
+
+    closing.emulate_media = AsyncMock(side_effect=close_during_call)
+    session = _session([closing, live])
+    result = await _run("set-color-scheme", session, "dark")
+    assert result["success"] is True
+    live.emulate_media.assert_awaited_once_with(color_scheme="dark")
+    assert session.emulation == {"color_scheme": "dark"}
+
+
+@pytest.mark.asyncio
+async def test_error_on_a_live_page_still_fails():
+    page = _fake_page()
+    page.emulate_media = AsyncMock(side_effect=RuntimeError("boom"))
+    session = _session([page])
+    with pytest.raises(RuntimeError, match="boom"):
+        await _run("set-color-scheme", session, "dark")

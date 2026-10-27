@@ -176,8 +176,10 @@ class Session:
         if page not in self.pages:
             self.pages.append(page)
             self.current_tab = len(self.pages) - 1
-        await self._attach_page_listeners(page)
+        # Emulate before the listener setup awaits, so a popup's own scripts
+        # see the session's media features as early as possible.
         await self.apply_emulation(page)
+        await self._attach_page_listeners(page)
 
     async def apply_emulation(self, page) -> None:
         """Give `page` this Session's emulated media features, if any are set."""
@@ -2279,8 +2281,14 @@ _EMULATED_MEDIA = {
 
 async def _emulate_on_all_pages(session: Session, **features: str) -> None:
     for p in list(session.pages):
-        if not p.is_closed():
+        if p.is_closed():
+            continue
+        try:
             await p.emulate_media(**features)
+        except Exception:
+            # A page closing mid-loop must not stop the rest; a live page's error still counts.
+            if not p.is_closed():
+                raise
 
 
 def _register_emulation(feature: str, kwarg: str, allowed: tuple[str, ...], default: str) -> None:
@@ -2291,13 +2299,14 @@ def _register_emulation(feature: str, kwarg: str, allowed: tuple[str, ...], defa
                 "success": False,
                 "output": f"Usage: set-{feature} <{'|'.join(allowed)}> (got {value!r})",
             }
-        await _emulate_on_all_pages(session, **{kwarg: value})
+        # Store first: a page opened while the loop awaits reads it in _on_new_page.
         session.emulation[kwarg] = value
+        await _emulate_on_all_pages(session, **{kwarg: value})
         return {"success": True, "output": f"Emulating {feature}: {value}"}
 
     async def cmd_clear(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-        await _emulate_on_all_pages(session, **{kwarg: default})
         session.emulation.pop(kwarg, None)
+        await _emulate_on_all_pages(session, **{kwarg: default})
         return {"success": True, "output": f"Cleared {feature} emulation"}
 
     register(f"set-{feature}")(cmd_set)
