@@ -9,7 +9,7 @@
 [![GitHub issues](https://img.shields.io/github/issues/AhaiMk01/patchright-cli?label=Issues)](https://github.com/AhaiMk01/patchright-cli/issues)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-Anti-detect browser automation CLI. Same command interface as [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli) but using [Patchright](https://github.com/kaliiiiiiiiii/patchright-python) (undetected Playwright fork) to bypass bot detection.
+Anti-detect browser automation CLI. Commands follow [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli), but it uses [Patchright](https://github.com/kaliiiiiiiiii/patchright-python) (undetected Playwright fork) to bypass bot detection.
 
 [Install](#install) · [Quick Start](#quick-start) · [Commands](#-commands) · [Snapshots](#snapshots) · [Agent Integration](#agent-integration)
 
@@ -18,7 +18,7 @@ Anti-detect browser automation CLI. Same command interface as [Microsoft's playw
 | | Feature |
 |---|---|
 | :shield: | Bypasses Akamai, Cloudflare, and other anti-bot systems |
-| :rocket: | Same command interface as playwright-cli — zero learning curve |
+| :rocket: | playwright-cli's command names and arguments — little to relearn |
 | :robot: | Built for AI agents (Claude Code, Codex, etc.) with YAML snapshots |
 | :zap: | Daemon architecture — browser stays open between commands |
 | :package: | `pip install` / `uvx` — no Docker, no config files |
@@ -208,6 +208,10 @@ The daemon only listens on `127.0.0.1`, but any local process can reach that por
 - A daemon holds `~/.patchright-cli/daemon-<port>.lock` while it runs, so only one daemon per port ever writes that port's token; a second daemon started on the same port exits without touching it. The lock file stays after shutdown and is harmless (the OS releases the lock when the process exits).
 - Run the CLI as the same user, with the same home directory, as the daemon. In Docker the MCP server and daemon share a user and `HOME`, so this holds.
 - An older CLI talking to a newer daemon gets an error saying the daemon requires an auth token: upgrade, or stop the daemon (`patchright-cli kill-all` from the newer install, or end the process). A newer CLI talking to an older daemon finds no token file and sends none, which the older daemon accepts.
+
+### Stopping a stuck daemon
+
+The daemon runs without a window. `kill-all` asks it to close every session and exit. If it does not answer within 20 seconds, or with `--force`, the CLI ends the daemon process and the browsers it launched (`taskkill /T` on Windows, the daemon's process group elsewhere). It finds the process through `~/.patchright-cli/daemon-<port>.pid`, which the daemon writes at startup with its PID and start time, and kills only a process whose start time still matches, so a reused PID is never touched. A daemon from a version that writes no PID file has to be ended by hand: its command line contains `patchright_cli.daemon`.
 
 ### Daemon client protocol
 
@@ -404,6 +408,35 @@ patchright-cli console --clear         # Clear after printing
 ```bash
 patchright-cli --raw eval --file=s.js  # Raw output (no page/snapshot decoration)
 patchright-cli --raw snapshot > p.yml  # Pipe raw snapshot to file
+patchright-cli --json tab-list         # Whole reply as JSON ({success, output, data, ...})
+patchright-cli --toon tab-list         # Structured result as TOON
+```
+
+`--toon` prints a reply's structured `data` as [TOON](https://github.com/toon-format/spec), a compact
+format for agents: `list`, `tab-list`, `cookie-list`, `localstorage-list`, `sessionstorage-list`,
+`route-list`, `console`, `network`, `profile-list` and `find` give a table, `url` and `title` a single
+field. A cut-short list adds `total` and a `help:` line. Commands without structured data, and errors,
+print exactly as they do without the flag. `--json` and `--toon` together are a usage error.
+
+```
+tabs[2]{index,title,url,active}:
+  0,Example Domain,"https://example.com/",true
+  1,"","about:blank",false
+```
+
+Run with no arguments, `patchright-cli` prints a short home view instead of the manual (that is
+`--help`): where the binary is, whether the daemon is running on the port (`--port=N` picks another),
+the open sessions with their URL and tab count, and what to run next. It only asks a daemon that is
+already running and never starts one. Add `--toon` or `--json` for the same state as data.
+
+```
+~/.local/bin/patchright-cli v0.10.0 -- anti-detect Chrome automation CLI (playwright-cli style commands)
+daemon: running on port 9321 (1 session)
+sessions[1]{name,status,url,tabs}:
+  default,open,"https://example.com/",2
+help: patchright-cli snapshot  (element refs for the current page; -s=<name> for another session)
+help: patchright-cli list  (sessions and their tabs)
+help: patchright-cli --help  (all commands); patchright-cli <command> --help  (one command)
 ```
 
 ### Setup
@@ -418,7 +451,8 @@ patchright-cli -s=mysession click e6
 patchright-cli -s=mysession close
 patchright-cli list                    # List all sessions
 patchright-cli close-all
-patchright-cli kill-all
+patchright-cli kill-all                # Stop the daemon; force-stops it if it does not answer
+patchright-cli kill-all --force        # Kill the daemon and its browsers without asking
 patchright-cli delete-data             # Delete the profile named after the session
 patchright-cli profile-list           # Profiles, size, and which session uses each
 patchright-cli profile-delete <name>  # Delete an idle named profile
@@ -431,10 +465,36 @@ patchright-cli --port=9322 open        # Custom daemon port
 
 ## Agent Integration
 
-Works with Claude Code, Cursor, Gemini CLI, Codex, and [40+ other agents](https://github.com/vercel-labs/skills).
+The CLI follows the [AXI](https://github.com/kunchenguid/axi) standard for agent-facing tools: errors and hints on stdout, exit 2 for usage errors, `(no-op)` for repeated actions, and a no-argument home view with live state.
+
+There are two ways to teach your agent about patchright-cli. Both get it to the same place, so you only need one.
+
+| | Session hook | Skill |
+|---|---|---|
+| Install | `patchright-cli install --hooks` | `npx skills add AhaiMk01/patchright-cli` or `patchright-cli install --skills` |
+| What the agent gets | Live state (open sessions, the commands to drive them) at the start of every session | Full command reference, loaded when a browser task comes up |
+| Cost | A few lines of context in every session | Nothing until it is needed |
+| Agents | Claude Code, Codex, OpenCode | Claude Code, Cursor, Gemini CLI, Codex and [40+ others](https://github.com/vercel-labs/skills) |
+
+### Session hook (recommended)
 
 ```bash
-# Install skill for all detected agents (recommended)
+patchright-cli install --hooks              # install or repair
+patchright-cli install --hooks --uninstall  # remove
+```
+
+At the start of each session the agent runs `patchright-cli` with no arguments, which prints the home view (see [Output](#output)): whether the daemon is up and which sessions are open, so the agent can pick up an open browser session without asking. The hook goes only to apps whose config directory exists, and prints one line per app (`installed`, `updated`, `(no-op)` or `skipped`):
+
+- **Claude Code**: a `SessionStart` hook in `~/.claude/settings.json`
+- **Codex**: a `SessionStart` hook in `~/.codex/hooks.json`, plus `hooks = true` under `[features]` in `~/.codex/config.toml`
+- **OpenCode**: a managed plugin at `~/.config/opencode/plugins/patchright-cli.js` that adds the dashboard to the system prompt
+
+The hook calls plain `patchright-cli` when that name on your `PATH` is the same binary you ran the install with, and its absolute path otherwise. Re-run `install --hooks` after reinstalling or moving patchright-cli and it rewrites the path. Your other hooks and settings are left as they are, and `--uninstall` removes only patchright-cli's entries (the Codex `[features]` flag stays, since other hooks may need it).
+
+### Skill
+
+```bash
+# Install skill for all detected agents
 npx skills add AhaiMk01/patchright-cli
 ```
 
@@ -525,7 +585,7 @@ URLs passed to `patchright_open`, `patchright_goto` and `patchright_tab_new` mus
 <details>
 <summary><h2>Differences from playwright-cli</h2></summary>
 
-patchright-cli aims for full command parity with [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli). The following playwright-cli features are **intentionally not implemented** due to Patchright's architecture:
+patchright-cli follows the command names and arguments of [Microsoft's playwright-cli](https://github.com/microsoft/playwright-cli) where Patchright allows it, but it is **not a drop-in replacement**. Some playwright-cli features cannot work on Patchright and are not implemented:
 
 | Feature | Reason |
 |---------|--------|
@@ -533,7 +593,7 @@ patchright-cli aims for full command parity with [Microsoft's playwright-cli](ht
 | `--extension` | Browser extension connection not supported. Patchright uses CDP directly. |
 | `install` / `install-browser` | Use `python -m patchright install chromium` instead. |
 
-All other commands and options are fully supported.
+Each command accepts only the flags it implements. A playwright-cli flag patchright-cli does not support, such as `open --browser=firefox`, is rejected with `error: unknown flag` and exit code 2 rather than silently ignored, so a script ported from playwright-cli fails loudly where it would otherwise behave differently. `patchright-cli <command> --help` lists a command's flags.
 
 </details>
 
@@ -553,6 +613,8 @@ This project builds on the work of:
 - **[Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright)** by [@Kaliiiiiiiiii-Vinyzu](https://github.com/Kaliiiiiiiiii-Vinyzu) — the undetected Playwright fork that makes this possible. All anti-detect capabilities come from Patchright.
 - **[playwright-cli](https://github.com/microsoft/playwright-cli)** by Microsoft — the original CLI that patchright-cli's command interface is modeled after.
 - **[camoufox-cli](https://github.com/Bin-Huang/camoufox-cli)** by [@Bin-Huang](https://github.com/Bin-Huang) — inspiration for the CLI-first approach to anti-detect browser automation and the SKILL.md agent integration pattern.
+- **[AXI (Agent eXperience Interface)](https://github.com/kunchenguid/axi)** by [@kunchenguid](https://github.com/kunchenguid) — the standard for agent-facing CLIs that shaped the home view, strict per-command flags, `error:`/`help:` output, `(no-op)` replies, explicit empty states and the session-start hook.
+- **[TOON](https://github.com/toon-format/spec)** — the token-oriented output format behind `--toon`.
 
 ---
 

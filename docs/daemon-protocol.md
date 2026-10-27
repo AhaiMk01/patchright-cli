@@ -86,6 +86,44 @@ this table are part of the protocol:
 | `rejected the auth token` | The supplied token is invalid or stale. Read the token file fresh before retrying. |
 | `Daemon error: request of` | The request exceeded the 64 MiB limit. |
 
+### Idempotent no-ops
+
+A mutation whose target state already holds succeeds instead of failing:
+`success` is `true` and `output` ends with ` (no-op)`. This covers `close` and
+`detach` of a session that is not open (the output still contains
+`Session '<name>' is not open`), `close` of a named tab that is not open,
+`video-stop`, `tracing-stop` and `codegen-stop` with nothing running,
+`video-start` and `tracing-start` while already running, `video-hide-actions`
+when callouts are off, `unroute` of a pattern that is not routed (or with no
+routes at all), `cookie-delete`, `localstorage-delete` and
+`sessionstorage-delete` of an absent name or key, `highlight --hide` with
+nothing highlighted, and `profile-delete` of a profile that does not exist.
+`go-back` and `go-forward` at the edge of the history still fail.
+
+### Structured data
+
+Some replies carry an optional `data` field next to `output`, holding the same
+result as JSON. `output` stays the human-readable text. When a list reply shows
+fewer items than exist, `total` holds the full count.
+
+| Command | `data` |
+| --- | --- |
+| `url` | `{"url"}` |
+| `title` | `{"title"}` |
+| `list` | `[{"name", "status", "url"}]`, where `status` is `open` or `attached` |
+| `tab-list` | `[{"index", "title", "url", "active"}]` |
+| `cookie-list` | `[{"name", "domain", "expires"}]` |
+| `localstorage-list`, `sessionstorage-list` | `[{"key", "value"}]` |
+| `route-list` | `[{"pattern", "status"}]` |
+| `console` | `[{"level", "text"}]`, plus `total` when older messages are cut off |
+| `network` (alias `requests`) | `[{"id", "method", "status", "url"}]`, plus `total` when older requests are cut off |
+| `profile-list` | `[{"name", "size", "session"}]`, where `size` is bytes and `session` is the holding session or `null` |
+| `find` | `[{"ref", "role", "name"}]`, plus `total` when `--limit` cut the hits |
+
+An empty list is `[]`, and its `output` states the zero explicitly, for example
+`0 cookies in this session`. Commands not listed here send no `data`. More
+fields or commands can gain `data` later, so read only the keys you need.
+
 Best effort, not covered by the compatibility rules below: a command on a page,
 context or browser that has closed usually fails with Playwright's own message
 containing `has been closed`. That text comes from Playwright and can change

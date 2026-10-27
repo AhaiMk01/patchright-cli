@@ -177,16 +177,11 @@ class RefRegistry:
 
             indent = len(line) - len(line.lstrip())
             depth = indent // 2
-            if max_depth is not None and depth > max_depth:
-                result_lines.append(line)
-                continue
-
             role, name = node
 
-            if interactive_only and role not in INTERACTIVE_ROLES:
-                result_lines.append(line)
-                continue
-
+            # Number every node, shown or not: --interactive and --depth only hide
+            # tags. Each action re-snapshots the full tree, so a ref numbered over
+            # a filtered view would name a different element on the next command.
             self._counter += 1
             ref = f"e{self._counter}"
 
@@ -208,7 +203,10 @@ class RefRegistry:
                 line_index=len(result_lines),
                 search_text=search_text,
             )
-            result_lines.append(f"{line.rstrip()} [ref={ref}]")
+            hidden = (max_depth is not None and depth > max_depth) or (
+                interactive_only and role not in INTERACTIVE_ROLES
+            )
+            result_lines.append(line if hidden else f"{line.rstrip()} [ref={ref}]")
 
         self._lines = result_lines
         return "\n".join(result_lines)

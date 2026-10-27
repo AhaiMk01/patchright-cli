@@ -1,6 +1,6 @@
 ---
 name: patchright-cli
-description: Anti-detect browser automation using Patchright (undetected Playwright fork). Use when you need to interact with websites that block regular Playwright/Chrome DevTools, such as Akamai/Cloudflare-protected sites. Provides the same command interface as playwright-cli but bypasses bot detection. Use this skill whenever the user asks to automate a browser, scrape a website, fill forms, log into sites, take screenshots, or do anything involving Chrome automation — especially if the target site has bot protection like Cloudflare or Akamai.
+description: Anti-detect browser automation using Patchright (undetected Playwright fork). Use when you need to interact with websites that block regular Playwright/Chrome DevTools, such as Akamai/Cloudflare-protected sites. Uses playwright-cli style commands (not a drop-in replacement) but bypasses bot detection. Use this skill whenever the user asks to automate a browser, scrape a website, fill forms, log into sites, take screenshots, or do anything involving Chrome automation — especially if the target site has bot protection like Cloudflare or Akamai.
 ---
 
 # Anti-Detect Browser Automation with patchright-cli
@@ -101,6 +101,8 @@ These go before the command:
 --show-port=9322        # Dashboard port (default: 9322)
 --raw                   # Strip page/snapshot decorations from output
 --json                  # Wrap full response as JSON ({success, output, ...})
+--toon                  # TOON for results with structured data (list, tab-list, cookie-list,
+                        # find, console, network, url, title, ...); others print as usual
 ```
 
 These go *after* the command instead:
@@ -235,14 +237,6 @@ press <key>                   # Keypress (Enter, ArrowDown, etc.)
 keydown <key> / keyup <key>   # Hold/release key
 ```
 
-### Mouse
-
-```bash
-mousemove <x> <y>             # Move to coordinates
-mousedown / mouseup           # Button down/up
-mousewheel <dx> <dy>          # Scroll wheel
-```
-
 ### Tabs
 
 ```bash
@@ -352,36 +346,172 @@ set-media print               # screen | print
 clear-media
 ```
 
-### Storage
+### Network mocking
 
+`route "<pattern>"` mocks matching requests (`--status`, `--body`,
+`--content-type`, `--header`); `route-list` and `unroute` manage them, and
+`network-state-set offline|online` simulates connectivity.
+
+## Command reference
+
+Every command, its flags and what it does. `patchright-cli <command> --help`
+shows one command's flag defaults and examples; `patchright-cli` with no
+arguments shows whether the daemon is up and which sessions are open.
+
+<!-- BEGIN GENERATED: commands (scripts/gen_skill.py from COMMAND_SPECS; do not edit by hand) -->
 ```bash
-cookie-list / cookie-get / cookie-set / cookie-delete / cookie-clear
-cookie-export / cookie-import
-localstorage-list / localstorage-get / localstorage-set / localstorage-delete / localstorage-clear
-sessionstorage-list / sessionstorage-get / sessionstorage-set / sessionstorage-delete / sessionstorage-clear
-state-save <file> / state-load <file>
+# Core
+open [url] [--block-networks] [--headed]  # Open browser (starts daemon if needed)
+attach --cdp=<url> [--cdp-headers] [--cdp-timeout] [--block-networks]  # Attach to running Chrome via CDP
+goto <url>                              # Navigate to URL
+click <ref> [button] [--modifiers]      # Click element
+dblclick <ref> [button] [--modifiers]   # Double-click element
+fill <ref> <value> [--submit]           # Fill text into element
+type <text> [--submit]                  # Type text via keyboard
+hover <ref>                             # Hover over element
+select <ref> <value>                    # Select dropdown option
+check <ref>                             # Check checkbox/radio
+uncheck <ref>                           # Uncheck checkbox/radio
+snapshot [ref] [--selector] [--filename] [--depth] [--interactive] [--boxes]  # Take accessibility snapshot
+find <text> [--regex] [--all] [--limit]  # Search the snapshot for matching elements
+eval <expr> [ref] [--file]              # Evaluate JavaScript (expression, --file or stdin)
+text <ref|selector>                     # Get text content of element
+screenshot [ref] [--full-page] [--hires] [--filename]  # Save screenshot
+drag <from> <to>                        # Drag element to target
+drop <ref> [--path] [--data]            # Drop file/data onto element
+close                                   # Close browser session (or the --tab it is addressed to)
+detach                                  # Detach attached session (keep external browser running)
+
+# Navigation
+go-back                                 # Go back
+go-forward                              # Go forward
+reload                                  # Reload page
+url                                     # Print current URL
+title                                   # Print page title
+
+# Keyboard
+press <key>                             # Press key
+keydown <key>                           # Key down
+keyup <key>                             # Key up
+
+# Mouse
+mousemove <x> <y>                       # Move mouse
+mousedown [button]                      # Mouse button down
+mouseup [button]                        # Mouse button up
+mousewheel <dx> <dy>                    # Scroll mouse wheel
+
+# Scroll & Wait
+scroll <dx> <dy>                        # Scroll by pixel offset
+scroll-to <ref>                         # Scroll element into view
+wait [ms] [--url]                       # Wait for milliseconds, or for a URL
+wait-for <ref> [--state]                # Wait for element to reach a state
+
+# Tabs
+tab-list                                # List tabs
+tab-new [url]                           # Open new tab
+tab-close [index]                       # Close tab
+tab-select <index>                      # Switch to tab (default tab only)
+
+# Dialog
+dialog-accept [text]                    # Accept next dialog
+dialog-dismiss                          # Dismiss next dialog
+
+# Upload/Resize
+upload <file> [ref]                     # Upload file to input
+resize <w> <h>                          # Resize viewport
+
+# Emulation
+set-color-scheme <dark|light|no-preference>  # Emulate prefers-color-scheme
+clear-color-scheme                      # Stop emulating prefers-color-scheme
+set-reduced-motion <reduce|no-preference>  # Emulate prefers-reduced-motion
+clear-reduced-motion                    # Stop emulating prefers-reduced-motion
+set-forced-colors <active|none>         # Emulate forced-colors
+clear-forced-colors                     # Stop emulating forced-colors
+set-contrast <more|no-preference>       # Emulate prefers-contrast
+clear-contrast                          # Stop emulating prefers-contrast
+set-media <screen|print>                # Emulate CSS media type
+clear-media                             # Stop emulating the CSS media type
+
+# State
+state-save [file]                       # Save cookies+storage to JSON
+state-load <file>                       # Load saved state
+
+# Storage
+cookie-list [--domain] [--path]         # List cookies
+cookie-get <name>                       # Get cookie
+cookie-set <name> <value> [--domain] [--path] [--expires] [--httpOnly] [--secure] [--sameSite]  # Set cookie
+cookie-delete <name>                    # Delete cookie
+cookie-clear                            # Clear all cookies
+cookie-import <file>                    # Import cookies from JSON
+cookie-export [file]                    # Export cookies to JSON
+localstorage-list                       # List localStorage
+localstorage-get <key>                  # Get localStorage item
+localstorage-set <key> <value>          # Set localStorage item
+localstorage-delete <key>               # Delete localStorage item
+localstorage-clear                      # Clear localStorage
+sessionstorage-list                     # List sessionStorage
+sessionstorage-get <key>                # Get sessionStorage item
+sessionstorage-set <key> <value>        # Set sessionStorage item
+sessionstorage-delete <key>             # Delete sessionStorage item
+sessionstorage-clear                    # Clear sessionStorage
+
+# Permissions
+grant-permissions <perms> [--origin]    # Grant comma-separated permissions
+
+# Route
+route <pattern> [--status] [--body] [--content-type] [--header] [--remove-header]  # Mock requests matching a URL pattern
+route-list                              # List active routes
+unroute [pattern]                       # Remove route(s)
+network-state-set <online|offline>      # Set online/offline
+
+# Code
+run-code <code> [--file]                # Run raw JS in page context (code, --file or stdin)
+
+# Tracing
+tracing-start                           # Start Playwright tracing
+tracing-stop                            # Stop tracing and save
+
+# Video
+video-start                             # Start video recording
+video-stop [--filename]                 # Stop recording and save
+video-chapter <title>                   # Add chapter marker to video
+video-show-actions [--duration] [--position]  # Annotate actions in the recording
+video-hide-actions                      # Stop annotating actions
+
+# PDF
+pdf [--filename]                        # Save page as PDF
+
+# DevTools
+console [level] [--clear]               # Show console messages
+network [--static] [--clear]            # Show network requests
+requests [--static] [--clear]           # Alias for `network`
+request <id> [--body]                   # Show full detail for a network request
+generate-locator <ref>                  # Emit Playwright locator expression for a ref
+highlight <ref> [--style] [--hide]      # Show overlay on element
+
+# Session
+list                                    # List sessions
+close-all                               # Close all sessions
+kill-all [--force]                      # Kill all sessions and stop the daemon
+delete-data                             # Delete this session's profile
+
+# Profiles
+profile-list                            # List profiles, their size and which session uses them
+profile-delete <name>                   # Delete a named profile
+
+# Dashboard
+show [--annotate] [--wait] [--no-open]  # Open session dashboard
+
+# Codegen
+codegen [file]                          # Start recording interactions
+codegen-stop [file]                     # Stop recording and save script
+
+# Setup
+install --skills | --hooks [--uninstall]  # Install agent skill files, or session-start hooks
+mcp [--http] [--host=HOST] [--port=N]   # Start MCP server (stdio by default)
+daemon-info --json                      # Show daemon client protocol and token path without starting it
 ```
-
-### Network
-
-```bash
-route "<pattern>" [options]   # Mock requests (--status, --body, --content-type, --header)
-route-list / unroute          # Manage routes
-network-state-set offline     # Simulate offline
-network-state-set online      # Restore connectivity
-```
-
-### Sessions
-
-```bash
-list                          # List active sessions
-close-all                     # Close all sessions
-kill-all                      # Force-kill all + stop daemon
-delete-data                   # Delete session profile data
-profile-list                  # List profiles, size, and which session uses each
-profile-delete <name>         # Delete an idle named profile
-grant-permissions <perms>     # Grant browser permissions
-```
+<!-- END GENERATED -->
 
 ---
 

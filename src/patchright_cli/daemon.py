@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from patchright_cli import daemon_pid
 from patchright_cli.ref_registry import RefRegistry, render_hits
 from patchright_cli.snapshot import save_snapshot, take_snapshot
 
@@ -162,6 +163,9 @@ class Session:
         self._video_recording: bool = False
         self._video_chapters: list[tuple[int, str]] = []
         self._video_show_actions: dict | None = None
+        self._tracing: bool = False
+        # Active `route` interceptions: pattern -> (handler, fulfilled status).
+        self._routes: dict[str, tuple] = {}
 
     # -- internal helpers ---------------------------------------------------
 
@@ -1277,14 +1281,20 @@ async def _profile_list(state: DaemonState) -> dict:
         if session.profile is not None:
             profiles.setdefault(session.profile.key, session.profile)
     if not profiles:
-        return {"success": True, "output": "### Profiles\n  (none yet -- `open --profile=<name>` creates one)"}
+        return {
+            "success": True,
+            "output": "### Profiles\n  0 profiles (none yet -- `open --profile=<name>` creates one)",
+            "data": [],
+        }
     sizes = await asyncio.gather(*(asyncio.to_thread(_dir_size, pr.directory) for pr in profiles.values()))
     lines = ["### Profiles"]
+    data = []
     for profile, size in zip(profiles.values(), sizes, strict=False):
         holder = state.profile_holder(profile)
         in_use = f" -- in use by session '{holder}'" if holder else ""
         lines.append(f"  - {profile.label} ({size / 1_000_000:.1f} MB){in_use}")
-    return {"success": True, "output": "\n".join(lines)}
+        data.append({"name": profile.label, "size": size, "session": holder})
+    return {"success": True, "output": "\n".join(lines), "data": data}
 
 
 async def _profile_delete(state: DaemonState, args: list) -> dict:
@@ -1303,7 +1313,7 @@ async def _profile_delete(state: DaemonState, args: list) -> dict:
     if holder is not None:
         return {"success": False, "output": _profile_in_use(profile, holder) + f" `-s={holder} close` it first."}
     if not profile.directory.is_dir():
-        return {"success": False, "output": f"No profile named '{profile.name}'."}
+        return {"success": True, "output": f"No profile named '{profile.name}' (no-op)"}
     if chrome_holds_profile(profile.directory):
         return {"success": False, "output": f"Profile '{profile.name}' is open in another Chrome. Close it first."}
     await asyncio.to_thread(shutil.rmtree, profile.directory)
@@ -1384,7 +1394,10 @@ async def cmd_goto(session: Session, page, args: list, options: dict, cwd: str |
 async def cmd_go_back(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     url = await session.go_back(_web_only(options))
     if url is None:
-        return {"success": False, "output": "No previous page in history"}
+        return {
+            "success": False,
+            "output": "No previous page in history: this tab is at its oldest entry. Use `goto <url>` to navigate.",
+        }
     return await _page_info(session, cwd)
 
 
@@ -1394,7 +1407,10 @@ async def cmd_go_forward(
 ) -> dict:
     url = await session.go_forward(_web_only(options))
     if url is None:
-        return {"success": False, "output": "No next page in history"}
+        return {
+            "success": False,
+            "output": "No next page in history: this tab is at its newest entry. Use `goto <url>` to navigate.",
+        }
     return await _page_info(session, cwd)
 
 
@@ -1406,13 +1422,13 @@ async def cmd_reload(session: Session, page, args: list, options: dict, cwd: str
 
 @register("url")
 async def cmd_url(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    return {"success": True, "output": page.url}
+    return {"success": True, "output": page.url, "data": {"url": page.url}}
 
 
 @register("title")
 async def cmd_title(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     title = await page.title()
-    return {"success": True, "output": title}
+    return {"success": True, "output": title, "data": {"title": title}}
 
 
 # -- Core interactions -------------------------------------------------------
@@ -1697,7 +1713,7 @@ async def cmd_find(session: Session, page, args: list, options: dict, cwd: str |
     # Refs are numbered across the whole tree, so they agree with `snapshot`.
     _, session.ref_registry = await take_snapshot(page)
     if not session.ref_registry.entries:
-        return {"success": True, "output": "# Empty page - no accessible elements found"}
+        return {"success": True, "output": "# Empty page - 0 accessible elements found", "data": []}
 
     try:
         hits, total = session.ref_registry.search(
@@ -1706,7 +1722,21 @@ async def cmd_find(session: Session, page, args: list, options: dict, cwd: str |
     except re.error as exc:
         return {"success": False, "output": f"Invalid regex {query!r}: {exc}"}
 
-    return {"success": True, "output": render_hits(hits, total, query)}
+    if not hits:
+        output = (
+            f'0 matches for "{query}".\n'
+            "Try --all to search non-interactive nodes (text, paragraphs), or --regex for a pattern."
+        )
+        return {"success": True, "output": output, "data": []}
+
+    data = []
+    for hit in hits:
+        entry = session.ref_registry.entries.get(hit.ref)
+        data.append({"ref": hit.ref, "role": entry.role if entry else "", "name": entry.name if entry else ""})
+    result = {"success": True, "output": render_hits(hits, total, query), "data": data}
+    if total > len(hits):
+        result["total"] = total
+    return result
 
 
 @register("generate-locator")
@@ -1744,7 +1774,12 @@ async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: 
     style = options.get("style") or "outline: 2px solid #ff3366; outline-offset: 2px;"
 
     if hide and not args:
-        await page.evaluate("() => document.querySelectorAll('[data-patchright-highlight]').forEach(el => el.remove())")
+        removed = await page.evaluate(
+            "() => { const els = document.querySelectorAll('[data-patchright-highlight]');"
+            " els.forEach(el => el.remove()); return els.length; }"
+        )
+        if not removed:
+            return {"success": True, "output": "No highlights on the page (no-op)"}
         return {"success": True, "output": "All highlights cleared."}
 
     if not args:
@@ -1752,14 +1787,16 @@ async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: 
     elem = await _resolve_ref(session, page, args[0])
 
     if hide:
-        await elem.evaluate(
+        had = await elem.evaluate(
             "el => { const id = el.getAttribute('data-patchright-hl-id');"
-            " if (id) {"
-            '   const o = document.querySelector(`[data-patchright-highlight="${id}"]`);'
-            "   if (o) o.remove();"
-            "   el.removeAttribute('data-patchright-hl-id');"
-            " } }"
+            " if (!id) return false;"
+            ' const o = document.querySelector(`[data-patchright-highlight="${id}"]`);'
+            " if (o) o.remove();"
+            " el.removeAttribute('data-patchright-hl-id');"
+            " return !!o; }"
         )
+        if not had:
+            return {"success": True, "output": f"{args[0]} is not highlighted (no-op)"}
         return {"success": True, "output": f"Hid highlight on {args[0]}."}
 
     js = """
@@ -1901,8 +1938,10 @@ async def cmd_mousewheel(
 async def cmd_tab_list(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     owners = {id(tab.page): name for name, tab in session.tabs.items() if tab.page is not None}
     lines = ["### Tabs"]
+    data = []
     for i, p in enumerate(session.pages):
-        marker = " *" if p is session.page else ""
+        active = p is session.page
+        marker = " *" if active else ""
         owner = owners.get(id(p))
         label = f" ({owner})" if owner else ""
         try:
@@ -1910,7 +1949,10 @@ async def cmd_tab_list(session: Session, page, args: list, options: dict, cwd: s
         except Exception:
             t = ""
         lines.append(f"  [{i}]{marker}{label} {p.url} — {t}")
-    return {"success": True, "output": "\n".join(lines)}
+        data.append({"index": i, "title": t, "url": p.url, "active": active})
+    if not data:
+        lines.append("  0 tabs in this session (`tab-new [url]` opens one)")
+    return {"success": True, "output": "\n".join(lines), "data": data}
 
 
 @register("tab-new")
@@ -1987,7 +2029,12 @@ async def cmd_cookie_list(
     path_filter = options.get("path")
     if path_filter:
         cookies = [c for c in cookies if path_filter in c.get("path", "")]
-    return {"success": True, "output": json.dumps(cookies, indent=2, default=str)}
+    data = [{"name": c.get("name"), "domain": c.get("domain"), "expires": c.get("expires")} for c in cookies]
+    if not cookies:
+        filters = "".join(f" --{k}={v}" for k, v in (("domain", domain), ("path", path_filter)) if v)
+        output = "0 cookies in this session" + (f" matching{filters}" if filters else "")
+        return {"success": True, "output": output, "data": data}
+    return {"success": True, "output": json.dumps(cookies, indent=2, default=str), "data": data}
 
 
 @register("cookie-get")
@@ -2032,6 +2079,8 @@ async def cmd_cookie_delete(
 ) -> dict:
     cookie_name = args[0]
     cookies = await session.context.cookies()
+    if not any(c.get("name") == cookie_name for c in cookies):
+        return {"success": True, "output": f"No cookie named '{cookie_name}' (no-op)"}
     await session.context.clear_cookies()
     remaining = [c for c in cookies if c.get("name") != cookie_name]
     if remaining:
@@ -2081,12 +2130,25 @@ async def cmd_cookie_export(
 # -- LocalStorage ------------------------------------------------------------
 
 
+def _storage_list(store: str, raw: str) -> dict:
+    """Reply for `localstorage-list` / `sessionstorage-list` from the page's JSON dump of the store."""
+    try:
+        items = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        items = {}
+    if not isinstance(items, dict):
+        items = {}
+    data = [{"key": k, "value": v} for k, v in items.items()]
+    if not data:
+        return {"success": True, "output": f"0 {store} keys on this page", "data": data}
+    return {"success": True, "output": raw, "data": data}
+
+
 @register("localstorage-list")
 async def cmd_localstorage_list(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    result = await page.evaluate("() => JSON.stringify(localStorage)")
-    return {"success": True, "output": result}
+    return _storage_list("localStorage", await page.evaluate("() => JSON.stringify(localStorage)"))
 
 
 @register("localstorage-get")
@@ -2112,7 +2174,12 @@ async def cmd_localstorage_delete(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
     key = args[0]
-    await page.evaluate(f"() => localStorage.removeItem({json.dumps(key)})")
+    existed = await page.evaluate(
+        f"() => {{ const had = localStorage.getItem({json.dumps(key)}) !== null;"
+        f" localStorage.removeItem({json.dumps(key)}); return had; }}"
+    )
+    if not existed:
+        return {"success": True, "output": f"localStorage has no key '{key}' (no-op)"}
     return {"success": True, "output": f"localStorage['{key}'] deleted."}
 
 
@@ -2133,30 +2200,47 @@ async def cmd_console(session: Session, page, args: list, options: dict, cwd: st
     filter_aliases = {"warn": "warning"}
     if level_filter:
         level_filter = filter_aliases.get(level_filter, level_filter)
-    lines = []
-    for m in session.console_messages[-50:]:
-        if level_filter and m["type"] != level_filter:
-            continue
-        lines.append(f"[{m['type']}] {m['text']}")
+    matching = [m for m in session.console_messages if not level_filter or m["type"] == level_filter]
+    shown = [m for m in session.console_messages[-50:] if not level_filter or m["type"] == level_filter]
+    lines = [f"[{m['type']}] {m['text']}" for m in shown]
     if options.get("clear"):
         session.console_messages.clear()
-    return {"success": True, "output": "\n".join(lines) or "(no console messages)"}
+    result = {"success": True, "data": [{"level": m["type"], "text": m["text"]} for m in shown]}
+    if len(matching) > len(shown):
+        result["total"] = len(matching)
+    if not lines:
+        lines = ["0 console messages in this session" + (f" at level '{level_filter}'" if level_filter else "")]
+    result["output"] = "\n".join(lines)
+    return result
 
 
 @register("network")
 async def cmd_network(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     include_static = bool(options.get("static"))
     static_types = {"image", "font", "stylesheet", "script", "media"}
+
+    def wanted(r: dict) -> bool:
+        return include_static or r["resource"] not in static_types
+
+    matching = sum(1 for r in session.network_log if wanted(r))
     lines = []
+    data = []
     for r in session.network_log[-50:]:
-        if not include_static and r["resource"] in static_types:
+        if not wanted(r):
             continue
         status = r.get("status")
         status_part = f" {status}" if status is not None else ""
         lines.append(f"#{r['id']} {r['method']}{status_part} {r['url']} [{r['resource']}]")
+        data.append({"id": r["id"], "method": r["method"], "status": status, "url": r["url"]})
     if options.get("clear"):
         session.network_log.clear()
-    return {"success": True, "output": "\n".join(lines) or "(no network requests)"}
+    if not lines:
+        hint = "" if include_static else " (static resources hidden; add --static to include them)"
+        lines = [f"0 network requests in this session{hint}"]
+    result = {"success": True, "output": "\n".join(lines), "data": data}
+    if matching > len(data):
+        result["total"] = matching
+    return result
 
 
 @register("request")
@@ -2395,8 +2479,7 @@ async def cmd_state_load(
 async def cmd_sessionstorage_list(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    result = await page.evaluate("() => JSON.stringify(sessionStorage)")
-    return {"success": True, "output": result}
+    return _storage_list("sessionStorage", await page.evaluate("() => JSON.stringify(sessionStorage)"))
 
 
 @register("sessionstorage-get")
@@ -2422,7 +2505,12 @@ async def cmd_sessionstorage_delete(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
     key = args[0]
-    await page.evaluate(f"() => sessionStorage.removeItem({json.dumps(key)})")
+    existed = await page.evaluate(
+        f"() => {{ const had = sessionStorage.getItem({json.dumps(key)}) !== null;"
+        f" sessionStorage.removeItem({json.dumps(key)}); return had; }}"
+    )
+    if not existed:
+        return {"success": True, "output": f"sessionStorage has no key '{key}' (no-op)"}
     return {"success": True, "output": f"sessionStorage['{key}'] deleted."}
 
 
@@ -2459,10 +2547,11 @@ async def cmd_route(session: Session, page, args: list, options: dict, cwd: str 
         else:
             await route.fulfill(status=status, body=body, content_type=content_type)
 
-    if not hasattr(session, "_routes"):
-        session._routes = {}
+    previous = session._routes.pop(pattern, None)
+    if previous is not None:
+        await page.unroute(pattern, previous[0])
     await page.route(pattern, _route_handler)
-    session._routes[pattern] = _route_handler
+    session._routes[pattern] = (_route_handler, status)
     return {"success": True, "output": f"Route added: {pattern} → status={status}"}
 
 
@@ -2470,29 +2559,32 @@ async def cmd_route(session: Session, page, args: list, options: dict, cwd: str 
 async def cmd_route_list(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    routes = getattr(session, "_routes", {})
+    routes = session._routes
+    data = [{"pattern": pat, "status": status} for pat, (_handler, status) in routes.items()]
     if not routes:
-        return {"success": True, "output": "(no active routes)"}
+        return {"success": True, "output": "0 active routes in this session", "data": data}
     lines = ["### Active Routes"]
     for pat in routes:
         lines.append(f"  - {pat}")
-    return {"success": True, "output": "\n".join(lines)}
+    return {"success": True, "output": "\n".join(lines), "data": data}
 
 
 @register("unroute")
 async def cmd_unroute(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     pattern = args[0] if args else None
-    routes = getattr(session, "_routes", {})
+    routes = session._routes
     if pattern:
-        handler = routes.pop(pattern, None)
-        if handler:
-            await page.unroute(pattern, handler)
+        entry = routes.pop(pattern, None)
+        if entry is None:
+            return {"success": True, "output": f"No route for {pattern} (no-op)"}
+        await page.unroute(pattern, entry[0])
         return {"success": True, "output": f"Route removed: {pattern}"}
-    else:
-        for pat, handler in routes.items():
-            await page.unroute(pat, handler)
-        routes.clear()
-        return {"success": True, "output": "All routes removed."}
+    if not routes:
+        return {"success": True, "output": "No active routes (no-op)"}
+    for pat, (handler, _status) in routes.items():
+        await page.unroute(pat, handler)
+    routes.clear()
+    return {"success": True, "output": "All routes removed."}
 
 
 # -- Run code ----------------------------------------------------------------
@@ -2515,7 +2607,10 @@ async def cmd_run_code(session: Session, page, args: list, options: dict, cwd: s
 async def cmd_tracing_start(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
+    if session._tracing:
+        return {"success": True, "output": "Tracing already started (no-op)"}
     await session.context.tracing.start(screenshots=True, snapshots=True, sources=True)
+    session._tracing = True
     return {"success": True, "output": "Tracing started."}
 
 
@@ -2523,11 +2618,14 @@ async def cmd_tracing_start(
 async def cmd_tracing_stop(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
+    if not session._tracing:
+        return {"success": True, "output": "No tracing in progress (no-op)"}
     base = Path(cwd) if cwd else Path.cwd()
     snap_dir = base / ".patchright-cli"
     snap_dir.mkdir(parents=True, exist_ok=True)
     ts = int(time.time() * 1000)
     filepath = snap_dir / f"trace-{ts}.zip"
+    session._tracing = False
     await session.context.tracing.stop(path=str(filepath))
     return {"success": True, "output": f"Tracing saved to {filepath}"}
 
@@ -2540,7 +2638,7 @@ async def cmd_video_start(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
     if session._video_recording:
-        return {"success": False, "output": "Video recording is already in progress."}
+        return {"success": True, "output": "Video recording already in progress (no-op)"}
     cdp = await page.context.new_cdp_session(page)
     session._video_cdp = cdp
     session._video_page = page
@@ -2563,7 +2661,7 @@ async def cmd_video_stop(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
     if not session._video_recording or not session._video_cdp:
-        return {"success": False, "output": "No video recording in progress."}
+        return {"success": True, "output": "No video recording in progress (no-op)"}
     try:
         await session._video_cdp.send("Page.stopScreencast")
     except Exception:
@@ -2772,6 +2870,8 @@ async def cmd_video_hide_actions(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
     """Stop annotating actions and clear any callout still on the page."""
+    if session._video_show_actions is None:
+        return {"success": True, "output": "Action callouts already off (no-op)"}
     session._video_show_actions = None
     try:
         await page.evaluate("() => document.querySelectorAll('[data-patchright-callout]').forEach(el => el.remove())")
@@ -3039,7 +3139,7 @@ async def cmd_codegen_stop(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
     if session._codegen is None:
-        return {"success": False, "output": "No recording in progress. Run 'codegen' first."}
+        return {"success": True, "output": "No codegen recording in progress (no-op)"}
     lines = ["#!/usr/bin/env bash", "set -e", ""] + session._codegen
     script = "\n".join(lines) + "\n"
     session._codegen = None
@@ -3203,11 +3303,16 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
 
         if cmd == "list":
             lines = ["### Sessions"]
+            data = []
             for sname, s in state.sessions.items():
                 marker = " *" if sname == session_name else ""
                 tab_count = len(s.pages)
                 lines.append(f"  - {sname}{marker}: {tab_count} tab(s)")
-            return {"success": True, "output": "\n".join(lines)}
+                url = s.page.url if s.page is not None else ""
+                data.append({"name": sname, "status": "attached" if s.is_attached else "open", "url": url})
+            if not data:
+                lines.append("  0 sessions open (`open [url]` starts one)")
+            return {"success": True, "output": "\n".join(lines), "data": data}
 
         if cmd == "close-all":
             names = list(state.sessions.keys())
@@ -3225,6 +3330,9 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 state.shutdown_event.set()
             return {"success": True, "output": f"Killed {len(names)} session(s) and stopping daemon."}
 
+        if cmd in ("close", "detach") and session_name not in state.sessions:
+            return {"success": True, "output": f"Session '{session_name}' is not open (no-op)"}
+
         # All other commands require an existing session
         session = state.sessions.get(session_name)
         if session is None:
@@ -3241,7 +3349,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             # the last tab does, so concurrent agents clean up without having to
             # coordinate -- each closes its own and the last one out ends it.
             if tab_name not in session.tabs:
-                return {"success": False, "output": f"Tab '{tab_name}' is not open in session '{session_name}'."}
+                return {"success": True, "output": f"Tab '{tab_name}' is not open in session '{session_name}' (no-op)"}
             if session.uses_host_context:
                 # Named Tabs' Pages are ours to Close; the Session itself, and the
                 # Page the Default Tab follows, belong to the Host.
@@ -3259,12 +3367,12 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             if remaining:
                 return {"success": True, "output": f"Tab '{tab_name}' closed; {len(session.tabs)} tab(s) still open."}
             closed = await state.close_session(session_name)
-            return {"success": True, "output": f"Session '{session_name}' closed." if closed else "Session not found."}
+            if not closed:
+                return {"success": True, "output": f"Session '{session_name}' is not open (no-op)"}
+            return {"success": True, "output": f"Session '{session_name}' closed."}
 
         if cmd == "detach":
-            target = state.sessions.get(session_name)
-            if target is None:
-                return {"success": False, "output": f"Session '{session_name}' not found."}
+            target = state.sessions[session_name]
             if not target.is_attached:
                 return {
                     "success": False,
@@ -3624,6 +3732,8 @@ async def _serve(port: int, headless: bool):
         sock.bind(("127.0.0.1", port))
         port = sock.getsockname()[1]
         state.auth_token = write_daemon_token(port)
+        # `kill-all` falls back to killing this PID when the daemon stops answering.
+        daemon_pid.write_pid_file(TOKEN_DIR, port)
     except BaseException:
         sock.close()
         raise
@@ -3631,6 +3741,7 @@ async def _serve(port: int, headless: bool):
         server = await asyncio.start_server(client_handler, sock=sock)
     except BaseException:
         remove_daemon_token(port, state.auth_token)
+        daemon_pid.remove_pid_file(TOKEN_DIR, port)
         raise
     addr = server.sockets[0].getsockname()
     logger.info("Daemon listening on %s:%s", addr[0], addr[1])
@@ -3665,6 +3776,7 @@ async def _serve(port: int, headless: bool):
         server.close()
         await server.wait_closed()
         remove_daemon_token(port, state.auth_token)
+        daemon_pid.remove_pid_file(TOKEN_DIR, port)
         logger.info("Daemon stopped.")
 
 
@@ -3700,7 +3812,10 @@ def ensure_daemon_running(port: int = DEFAULT_PORT, headless: bool = False) -> b
     cmd.extend(["--port", str(port)])
 
     if sys.platform == "win32":
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        # CREATE_NO_WINDOW, not DETACHED_PROCESS: a venv's python.exe is a launcher that starts the
+        # real interpreter as a child, and a console child of a console-less parent opens a new,
+        # visible console window. A hidden console is inherited instead.
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
