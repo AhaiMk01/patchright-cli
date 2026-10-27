@@ -59,7 +59,7 @@ CLI (cli.py) --TCP:9321--> Daemon (daemon.py) --Patchright--> Chrome
 - Headed by default (headless is more detectable)
 - Default daemon port: 9321, profiles stored at `~/.patchright-cli/profiles/<profile-name>`; a session's profile defaults to its session name (`--profile=<name>` overrides, a value with `/` or `\` is a directory). One session per profile at a time
 - CLI-daemon protocol: length-prefixed (4-byte big-endian `!I`) JSON over TCP; every message carries a `token` field read from `~/.patchright-cli/daemon-<port>.token` (written 0600 by the daemon before it listens), and the daemon rejects messages without the right one
-- CLI parses argv manually in `main()` — click is only used for `click.echo()`, not subcommands. New commands must be added to both `COMMANDS_HELP` dict and the `handle_command()` if/elif chain in daemon.py
+- CLI parses argv manually in `main()` — click is only used for `click.echo()`, not subcommands. New commands need a `COMMANDS_HELP` entry and a `@register("<name>")` handler in daemon.py; only session and lifecycle commands (open, attach, close, kill-all, ...) live in `handle_command()` itself
 - Version must be updated in `pyproject.toml`, `src/patchright_cli/__init__.py` and `.claude-plugin/marketplace.json` (then run `uv lock` to sync the lock file; `tests/test_packaging.py` checks they match)
 - `python -m patchright_cli` works via `__main__.py`
 - Uses hatchling as build backend, ruff for linting (line-length=120, target py310)
