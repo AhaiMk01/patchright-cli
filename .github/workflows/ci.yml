@@ -78,7 +78,7 @@ jobs:
           grep -q "refusing to start \`mcp --http\`" unprotected.log
       - name: compose.yml works without a token
         run: docker compose config -q
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: ">=0.7,<0.8"
           python-version: "3.12"
