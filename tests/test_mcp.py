@@ -1,5 +1,7 @@
 """Browserless tests for the optional MCP wrapper."""
 
+import sys
+
 import pytest
 
 from patchright_cli import cli, mcp_server
@@ -54,13 +56,82 @@ def test_run_mcp_server_defaults_to_stdio(monkeypatch):
     assert calls == [{"transport": "stdio"}]
 
 
-def test_run_mcp_server_http(monkeypatch):
+def _http_env(monkeypatch, *, token=None, protection=None):
+    """Point run_mcp_server at a token and a fastmcp Settings built from a fresh environment."""
+    import fastmcp
+
+    monkeypatch.setattr(mcp_server, "TOKEN", token)
+    monkeypatch.delenv("FASTMCP_HTTP_HOST_ORIGIN_PROTECTION", raising=False)
+    if protection is not None:
+        monkeypatch.setenv("FASTMCP_HTTP_HOST_ORIGIN_PROTECTION", protection)
+    monkeypatch.setattr(fastmcp, "settings", type(fastmcp.settings)(_env_file=None))
     calls = []
     monkeypatch.setattr(mcp_server.server, "run", lambda **kwargs: calls.append(kwargs))
+    return calls
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "0.0.0.0"])
+def test_run_mcp_server_http_refuses_without_token_or_protection_choice(monkeypatch, capsys, host):
+    calls = _http_env(monkeypatch)
+
+    with pytest.raises(SystemExit) as exc:
+        mcp_server.run_mcp_server(http=True, host=host, port=9090)
+
+    assert exc.value.code != 0
+    assert calls == []
+    err = capsys.readouterr().err
+    assert "PATCHRIGHT_CLI_MCP_TOKEN" in err
+    assert "FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true" in err
+    assert "FASTMCP_HTTP_ALLOWED_HOSTS" in err
+    assert "FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=false" in err
+
+
+def test_run_mcp_server_http_with_token(monkeypatch, capsys):
+    calls = _http_env(monkeypatch, token="s3cret")
 
     mcp_server.run_mcp_server(http=True, host="0.0.0.0", port=9090)
 
     assert calls == [{"transport": "http", "host": "0.0.0.0", "port": 9090}]
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("protection", ["true", "false", "FALSE", "0", "auto"])
+def test_run_mcp_server_http_with_explicit_protection_choice(monkeypatch, capsys, protection):
+    calls = _http_env(monkeypatch, protection=protection)
+
+    mcp_server.run_mcp_server(http=True, host="0.0.0.0", port=9090)
+
+    assert calls == [{"transport": "http", "host": "0.0.0.0", "port": 9090}]
+    assert "unauthenticated" in capsys.readouterr().err
+
+
+def test_run_mcp_server_stdio_ignores_http_protection(monkeypatch):
+    calls = _http_env(monkeypatch)
+
+    mcp_server.run_mcp_server()
+
+    assert calls == [{"transport": "stdio"}]
+
+
+def test_empty_host_origin_protection_counts_as_unset(tmp_path):
+    """An empty value would break fastmcp's import; it must instead reach the refusal."""
+    import os
+    import subprocess
+
+    env = {**os.environ, "FASTMCP_HTTP_HOST_ORIGIN_PROTECTION": "", "PATCHRIGHT_CLI_MCP_TOKEN": " "}
+    result = subprocess.run(
+        [sys.executable, "-m", "patchright_cli", "mcp", "--http", "--port=1"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+    )
+
+    assert result.returncode != 0
+    assert "refusing to start `mcp --http`" in result.stderr
+    assert "ValidationError" not in result.stderr
 
 
 def test_cli_mcp_http_options(monkeypatch):

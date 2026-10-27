@@ -66,6 +66,13 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -H "Host: evil.example:9091" -d "$init" http://localhost:9091/mcp)" = 421
           test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -H "Origin: http://evil.example" -d "$init" http://localhost:9091/mcp)" = 403
           test "$(curl -s -o /dev/null -w '%{http_code}' "${headers[@]}" -H "Host: patchright-mcp:9090" -d "$init" http://localhost:9091/mcp)" = 200
+      - name: MCP over HTTP refuses to start with neither a token nor a Host/Origin choice
+        run: |
+          status=0
+          timeout 120 docker run --name mcp-unprotected -e PATCHRIGHT_CLI_MODE=mcp-http patchright-cli:ci > unprotected.log 2>&1 || status=$?
+          cat unprotected.log
+          test "$status" -ne 0
+          grep -q "refusing to start \`mcp --http\`" unprotected.log
       - name: compose.yml works without a token
         run: docker compose config -q
       - if: failure()
@@ -73,3 +80,4 @@ jobs:
           docker logs cli || true
           docker logs mcp || true
           docker logs mcp-open || true
+          docker logs mcp-unprotected || true

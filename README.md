@@ -139,7 +139,7 @@ An example `compose.yml` is included in the repository:
 PATCHRIGHT_CLI_MCP_TOKEN=replace-with-a-long-random-token docker compose up -d
 ```
 
-The token is optional. Leave it out if your MCP client can't send an `Authorization` header. Both examples publish the port on `127.0.0.1` only, but that alone doesn't stop a web page in your browser from reaching the server through DNS rebinding. Without a token, consider turning on FastMCP's Host and Origin checks with `-e FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` (off by default). Requests must then be addressed to `localhost`, `127.0.0.1` or `::1`. To reach the server by another hostname or IP, such as a LAN address or a Compose service name, list it as a JSON array, for example `-e FASTMCP_HTTP_ALLOWED_HOSTS='["patchright-mcp", "192.168.1.20"]'`. If you publish the port beyond loopback, set a token: the endpoint gives full control of the browser and its saved logins.
+Both examples publish the port on `127.0.0.1` only, but that alone doesn't stop a web page in your browser from reaching the server through DNS rebinding, so `mcp-http` refuses to start unless you pick one of three defences (see [MCP Server](#mcp-server) for details): set `PATCHRIGHT_CLI_MCP_TOKEN`; set `-e FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` so requests must be addressed to `localhost`, `127.0.0.1` or `::1`, listing any other hostname or IP (a LAN address, a Compose service name) as a JSON array, for example `-e FASTMCP_HTTP_ALLOWED_HOSTS='["patchright-mcp", "192.168.1.20"]'`; or set `-e FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=false` on purpose. A plain `docker run -e PATCHRIGHT_CLI_MODE=mcp-http` with neither variable exits with an error. The example `compose.yml` sets `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION: "false"` so reverse-proxy and MCP hub setups keep working, which makes the token optional there: leave it out if your MCP client can't send an `Authorization` header. A reverse proxy with auth or an IP allowlist can stand in for the token. If you publish the port beyond loopback, protect it one of these ways: the endpoint gives full control of the browser and its saved logins.
 
 ---
 
@@ -411,15 +411,21 @@ pip install 'patchright-cli[mcp]'
 # stdio (default)
 patchright-cli mcp
 
-# Streamable HTTP
-patchright-cli mcp --http --host=127.0.0.1 --port=8000
+# Streamable HTTP (needs a token or an explicit Host/Origin choice, see below)
+PATCHRIGHT_CLI_MCP_TOKEN=replace-with-a-long-random-token patchright-cli mcp --http --host=127.0.0.1 --port=8000
 ```
 
 ![How a remote MCP call reaches Chrome](docs/mcp-architecture.svg)
 
 The HTTP endpoint is `/mcp`. Set `PATCHRIGHT_CLI_MCP_TOKEN` to require `Authorization: Bearer <token>` on every request, and always set it before binding to `0.0.0.0`.
 
-FastMCP's Host and Origin checks are off by default, so binding to `127.0.0.1` alone does not stop a web page from reaching a server without a token through DNS rebinding. Set `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` to accept only requests addressed to `localhost`, `127.0.0.1` or `::1` (421 otherwise) and reject foreign `Origin` headers (403). To allow another hostname or IP, list it as a JSON array, for example `FASTMCP_HTTP_ALLOWED_HOSTS='["mcp.lan"]'`.
+FastMCP's Host and Origin checks are off by default, so binding to `127.0.0.1` alone does not stop a web page from reaching a server without a token through DNS rebinding. `patchright-cli mcp --http` therefore refuses to start, whatever the bind host, unless `PATCHRIGHT_CLI_MCP_TOKEN` is set or `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION` is set to a value FastMCP accepts (an empty value counts as unset). Pick one:
+
+- Set `PATCHRIGHT_CLI_MCP_TOKEN`.
+- Set `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=true` to accept only requests addressed to `localhost`, `127.0.0.1` or `::1` (421 otherwise) and reject foreign `Origin` headers (403). To allow another hostname or IP, list it as a JSON array, for example `FASTMCP_HTTP_ALLOWED_HOSTS='["mcp.lan"]'`.
+- Set `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION=false` on purpose, for example behind a reverse proxy with auth or an IP allowlist.
+
+A reverse proxy with auth or an IP allowlist can stand in for the token. The stdio transport needs none of this.
 
 One token covers one trust domain. Any client holding it can open, read or close any session by name, and `patchright_kill_all` closes them all. Clients that must not reach each other's browsers need separate servers, each with its own token. Two servers on one host share the daemon unless their `PATCHRIGHT_CLI_MCP_DAEMON_PORT` values differ, and they always share saved profiles in `~/.patchright-cli/profiles`. For full separation, run each server in its own container or as a different OS user.
 
@@ -435,7 +441,7 @@ URLs passed to `patchright_open`, `patchright_goto` and `patchright_tab_new` mus
 | `PATCHRIGHT_CLI_MCP_HEADLESS` | unset (headed) | `1` makes `patchright_open` default to headless, for hosts without a display |
 | `PATCHRIGHT_CLI_MCP_DAEMON_PORT` | `9321` | Daemon port the tools talk to |
 | `PATCHRIGHT_CLI_MCP_BLOCK_NETWORKS` | `link-local` | Address ranges the browser may not reach: `link-local`, `private` or `none` |
-| `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION` | unset (off) | `true` rejects requests whose Host is not loopback or allowed, and foreign Origins |
+| `FASTMCP_HTTP_HOST_ORIGIN_PROTECTION` | unset (off) | `true` rejects requests whose Host is not loopback or allowed, and foreign Origins; without a token, HTTP mode needs it set to `true` or `false` |
 | `FASTMCP_HTTP_ALLOWED_HOSTS` | unset | JSON array of extra hostnames the Host check accepts |
 
 ### Skill docs
