@@ -298,6 +298,222 @@ class TestE2E:
         assert still_there["success"] is True
 
 
+_DROP_PAGE = (
+    "data:text/html,<div id=zone role=region aria-label=dropzone style='width:200px;height:100px'>drop</div>"
+    "<div id=nodrop role=region aria-label=nodrop style='width:200px;height:50px'>no</div>"
+    "<div id=out>none</div><script>"
+    "zone.addEventListener('dragover',e=>e.preventDefault());"
+    "zone.addEventListener('drop',async e=>{e.preventDefault();const dt=e.dataTransfer,s=[];"
+    "for(const f of dt.files)s.push('file:'+f.name+':'+f.type+':'+(await f.text()));"
+    "for(const t of dt.types)if(t!=='Files')s.push(t+'='+dt.getData(t));out.textContent=s.join('|')});"
+    "</script>"
+)
+
+
+@pytest.fixture(scope="module")
+def http_origin(tmp_path_factory):
+    """A real http:// origin (localStorage and storage state need one; data: URLs are opaque)."""
+    import http.server
+    import threading
+    from functools import partial
+
+    root = tmp_path_factory.mktemp("site")
+    (root / "page.html").write_text("<title>storage</title><p>storage page</p>", encoding="utf-8")
+    server = http.server.ThreadingHTTPServer(
+        ("127.0.0.1", 0), partial(http.server.SimpleHTTPRequestHandler, directory=str(root))
+    )
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+
+
+PASSKEY_PAGE = r"""<!doctype html><html><body>
+<button onclick="run()">Register then sign in</button><pre id="out">idle</pre>
+<script>
+const b64u = b => btoa(String.fromCharCode(...new Uint8Array(b)))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function run() {
+  const out = document.getElementById('out');
+  try {
+    const c = await navigator.credentials.create({publicKey: {challenge: new Uint8Array(32),
+      rp: {name: 'Test', id: 'localhost'},
+      user: {id: new TextEncoder().encode('alice'), name: 'alice', displayName: 'Alice'},
+      pubKeyCredParams: [{type: 'public-key', alg: -7}], authenticatorSelection: {residentKey: 'required'}}});
+    const a = await navigator.credentials.get({publicKey: {challenge: new Uint8Array(32), rpId: 'localhost'}});
+    out.textContent = 'created=' + b64u(c.rawId) + ' signed=' + b64u(a.rawId);
+  } catch (e) { out.textContent = 'ERR ' + e.name + ': ' + e.message; }
+}
+</script></body></html>"""
+
+
+@pytest.fixture(scope="module")
+def passkey_site(tmp_path_factory):
+    """WebAuthn needs a secure context with a real rp id, so serve the page from http://localhost."""
+    root = tmp_path_factory.mktemp("passkey-site")
+    (root / "passkey.html").write_text(PASSKEY_PAGE, encoding="utf-8")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(SimpleHTTPRequestHandler, directory=str(root)))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://localhost:{server.server_port}/passkey.html"
+    server.shutdown()
+
+
+@pytest.mark.e2e
+class TestNativeStorageAndDrop:
+    def test_drop_files_and_data(self, daemon, tmp_path):
+        tab = {"tab": "drop"}
+        assert _cmd(daemon, "open", args=[_DROP_PAGE], options=tab)["success"] is True
+        snap = _cmd(daemon, "snapshot", options=tab)
+        zone = re.search(r'region "dropzone".*?\[ref=(e\d+)\]', Path(snap["snapshot_path"]).read_text("utf-8"))
+        assert zone
+        note = tmp_path / "note.txt"
+        note.write_text("hello file", encoding="utf-8")
+
+        resp = _cmd(
+            daemon,
+            "drop",
+            args=[zone.group(1)],
+            options={**tab, "path": str(note), "data": "text/uri-list=https://x.test/"},
+        )
+        assert resp["success"] is True, resp
+        out = _cmd(daemon, "eval", args=["out.textContent"], options=tab)
+        assert json.loads(out["output"]) == "file:note.txt:text/plain:hello file|text/uri-list=https://x.test/"
+        _cmd(daemon, "close", options=tab)
+
+    def test_web_storage_commands(self, daemon, http_origin):
+        tab = {"tab": "storage"}
+        assert _cmd(daemon, "open", args=[f"{http_origin}/page.html"], options=tab)["success"] is True
+        for prefix, store in (("localstorage", "localStorage"), ("sessionstorage", "sessionStorage")):
+            _cmd(daemon, f"{prefix}-clear", options=tab)
+            empty = _cmd(daemon, f"{prefix}-list", options=tab)
+            assert empty["output"] == f"0 {store} keys on this page"
+            assert _cmd(daemon, f"{prefix}-set", args=["k1", "v1"], options=tab)["output"] == f"{store}['k1'] set."
+            _cmd(daemon, f"{prefix}-set", args=["e", ""], options=tab)
+            listed = _cmd(daemon, f"{prefix}-list", options=tab)
+            raw = _cmd(daemon, "eval", args=[f"JSON.stringify({store})"], options=tab)
+            assert listed["output"] == json.loads(raw["output"])
+            assert _cmd(daemon, f"{prefix}-get", args=["k1"], options=tab)["output"] == '"v1"'
+            assert _cmd(daemon, f"{prefix}-get", args=["nope"], options=tab)["output"] == "null"
+            assert _cmd(daemon, f"{prefix}-delete", args=["e"], options=tab)["output"] == f"{store}['e'] deleted."
+            assert (
+                _cmd(daemon, f"{prefix}-delete", args=["e"], options=tab)["output"] == f"{store} has no key 'e' (no-op)"
+            )
+            assert _cmd(daemon, f"{prefix}-clear", options=tab)["output"] == f"{store} cleared."
+        _cmd(daemon, "close", options=tab)
+
+    def test_state_save_then_load_round_trips(self, daemon, http_origin, tmp_path):
+        tab = {"tab": "state"}
+        assert _cmd(daemon, "open", args=[f"{http_origin}/page.html"], options=tab)["success"] is True
+        _cmd(daemon, "localstorage-set", args=["tok", "abc"], options=tab)
+        state_file = tmp_path / "state.json"
+        assert _cmd(daemon, "state-save", args=[str(state_file)], options=tab)["success"] is True
+        saved = json.loads(state_file.read_text(encoding="utf-8"))
+        # Another origin in the file: state-load applies it too, without visiting it first.
+        other = http_origin.replace("127.0.0.1", "localhost")
+        saved["origins"].append({"origin": other, "localStorage": [{"name": "other", "value": "o"}]})
+        state_file.write_text(json.dumps(saved), encoding="utf-8")
+
+        _cmd(daemon, "localstorage-clear", options=tab)
+        resp = _cmd(daemon, "state-load", args=[str(state_file)], options=tab)
+        assert resp == {"success": True, "output": f"State loaded from {state_file}"}
+        assert _cmd(daemon, "localstorage-get", args=["tok"], options=tab)["output"] == '"abc"'
+        _cmd(daemon, "goto", args=[f"{other}/page.html"], options=tab)
+        assert _cmd(daemon, "localstorage-get", args=["other"], options=tab)["output"] == '"o"'
+        _cmd(daemon, "close", options=tab)
+
+
+@pytest.mark.e2e
+class TestPickLocator:
+    """A click in the page ends `pick-locator` with that element's locator."""
+
+    def _pick_while(self, port: int, act, options=None) -> dict:
+        import threading
+
+        result = {}
+        thread = threading.Thread(
+            target=lambda: result.update(_cmd(port, "pick-locator", options=options or {"wait": "20"}))
+        )
+        thread.start()
+        time.sleep(1.5)
+        act()
+        thread.join(25)
+        assert not thread.is_alive()
+        return result
+
+    def test_click_returns_locator_and_ref(self, daemon):
+        _read_snapshot(daemon)  # gives the pick a snapshot to match a ref in
+        box = _cmd(
+            daemon,
+            "eval",
+            args=[
+                "(() => { const r = document.getElementById('btn').getBoundingClientRect();"
+                " return `at ${Math.round(r.x + r.width / 2)},${Math.round(r.y + r.height / 2)}`; })()"
+            ],
+        )
+        x, y = re.search(r"at (\d+),(\d+)", box["output"]).groups()
+
+        def click():
+            _cmd(daemon, "mousemove", args=[x, y])
+            _cmd(daemon, "mousedown")
+            _cmd(daemon, "mouseup")
+
+        resp = self._pick_while(daemon, click)
+        assert resp["success"] is True, resp
+        assert resp["data"]["locator"] == 'internal:role=button[name="Click me"i]'
+        assert resp["data"]["ref"] == _find_ref(_read_snapshot(daemon), 'button "Click me"')
+
+    def test_cancel_ends_the_pick(self, daemon):
+        resp = self._pick_while(daemon, lambda: _cmd(daemon, "pick-locator", options={"cancel": True}))
+        assert resp["success"] is False
+        assert "cancelled" in resp["output"]
+
+    def test_wait_expiry_cancels_pick_mode(self, daemon):
+        resp = _cmd(daemon, "pick-locator", options={"wait": "1"})
+        assert resp["success"] is False
+        assert "No element was picked within 1s" in resp["output"]
+        again = _cmd(daemon, "pick-locator", options={"cancel": True})
+        assert "no-op" in again["output"]
+
+
+class TestPasskeysE2E:
+    def test_page_ceremony_uses_the_virtual_authenticator(self, daemon, passkey_site, tmp_path):
+        opts = {"session": f"e2e-passkeys-{daemon}"}
+        try:
+            assert _cmd(daemon, "open", args=[passkey_site], options=opts)["success"] is True
+            # Installed after the page loaded: the override still reaches the open page.
+            first = _cmd(daemon, "passkey-list", options=opts)
+            assert first["output"].startswith("Virtual passkey authenticator installed")
+            assert first["data"] == []
+
+            snap = _cmd(daemon, "snapshot", options=opts)
+            ref = _find_ref(Path(snap["snapshot_path"]).read_text(encoding="utf-8"), "button")
+            assert _cmd(daemon, "click", args=[ref], options=opts)["success"] is True
+            out = ""
+            for _ in range(20):
+                out = _cmd(daemon, "eval", args=["document.getElementById('out').textContent"], options=opts)["output"]
+                if "idle" not in out:
+                    break
+                time.sleep(0.25)
+            created = re.search(r"created=([\w-]+) signed=([\w-]+)", out)
+            assert created, out
+            assert created.group(1) == created.group(2)
+
+            listed = _cmd(daemon, "passkey-list", options=opts)
+            assert listed["data"] == [
+                {"id": created.group(1), "rpId": "localhost", "userHandle": "YWxpY2U", "signCount": 1}
+            ]
+
+            # Export, clear, import: the credential comes back with its keys.
+            exported = tmp_path / "passkeys.json"
+            assert _cmd(daemon, "passkey-export", args=[str(exported)], options=opts)["success"] is True
+            assert json.loads(exported.read_text(encoding="utf-8"))[0]["privateKey"]
+            assert _cmd(daemon, "passkey-clear", options=opts)["output"] == "Deleted 1 passkey(s)."
+            assert _cmd(daemon, "passkey-list", options=opts)["data"] == []
+            assert _cmd(daemon, "passkey-import", args=[str(exported)], options=opts)["success"] is True
+            assert [c["id"] for c in _cmd(daemon, "passkey-list", options=opts)["data"]] == [created.group(1)]
+        finally:
+            _cmd(daemon, "close", options=opts)
+
+
 @pytest.mark.e2e
 class TestWebMCPE2E:
     """`open --webmcp` on a page that registers tools through `document.modelContext`."""
