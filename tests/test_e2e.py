@@ -13,7 +13,8 @@ import pytest
 from patchright_cli.daemon import ensure_daemon_running, read_daemon_token
 
 FIXTURE_URL = "file://" + os.path.join(os.path.dirname(__file__), "fixture.html")
-TEST_PORT = 19321
+# Overridable so parallel runs on one machine do not share a daemon.
+TEST_PORT = int(os.environ.get("PATCHRIGHT_CLI_E2E_PORT", "19321"))
 
 
 def _send_tcp(port: int, cmd: str, args=None, options=None) -> dict:
@@ -236,3 +237,56 @@ class TestE2E:
 
         still_there = _cmd(daemon, "url")
         assert still_there["success"] is True
+
+
+@pytest.mark.e2e
+class TestPickLocator:
+    """A click in the page ends `pick-locator` with that element's locator."""
+
+    def _pick_while(self, port: int, act, options=None) -> dict:
+        import threading
+
+        result = {}
+        thread = threading.Thread(
+            target=lambda: result.update(_cmd(port, "pick-locator", options=options or {"wait": "20"}))
+        )
+        thread.start()
+        time.sleep(1.5)
+        act()
+        thread.join(25)
+        assert not thread.is_alive()
+        return result
+
+    def test_click_returns_locator_and_ref(self, daemon):
+        _read_snapshot(daemon)  # gives the pick a snapshot to match a ref in
+        box = _cmd(
+            daemon,
+            "eval",
+            args=[
+                "(() => { const r = document.getElementById('btn').getBoundingClientRect();"
+                " return `at ${Math.round(r.x + r.width / 2)},${Math.round(r.y + r.height / 2)}`; })()"
+            ],
+        )
+        x, y = re.search(r"at (\d+),(\d+)", box["output"]).groups()
+
+        def click():
+            _cmd(daemon, "mousemove", args=[x, y])
+            _cmd(daemon, "mousedown")
+            _cmd(daemon, "mouseup")
+
+        resp = self._pick_while(daemon, click)
+        assert resp["success"] is True, resp
+        assert resp["data"]["locator"] == 'internal:role=button[name="Click me"i]'
+        assert resp["data"]["ref"] == _find_ref(_read_snapshot(daemon), 'button "Click me"')
+
+    def test_cancel_ends_the_pick(self, daemon):
+        resp = self._pick_while(daemon, lambda: _cmd(daemon, "pick-locator", options={"cancel": True}))
+        assert resp["success"] is False
+        assert "cancelled" in resp["output"]
+
+    def test_wait_expiry_cancels_pick_mode(self, daemon):
+        resp = _cmd(daemon, "pick-locator", options={"wait": "1"})
+        assert resp["success"] is False
+        assert "No element was picked within 1s" in resp["output"]
+        again = _cmd(daemon, "pick-locator", options={"cancel": True})
+        assert "no-op" in again["output"]

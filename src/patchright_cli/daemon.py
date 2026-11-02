@@ -1837,6 +1837,133 @@ async def cmd_generate_locator(
     return {"success": True, "output": expr}
 
 
+# `pick-locator` waits on a person clicking in the headed window. A minute is
+# long enough to find an element and short enough that a forgotten pick does
+# not hold the page in pick mode for long. The CLI stretches its socket
+# timeout to match.
+DEFAULT_PICK_WAIT = 60.0
+# Matching the picked element to a snapshot ref costs one round trip per
+# candidate, so only a few candidates of the picked role are tried.
+PICK_REF_CANDIDATES = 20
+# Pages with a pick in progress. `pick-locator --cancel` reports whether there
+# was one; Patchright's cancel is a silent no-op either way.
+_active_picks: weakref.WeakSet = weakref.WeakSet()
+_PICK_ROLE = re.compile(r"^internal:role=([a-z]+)(?:\[|$)")
+
+
+def _picked_role(selector: str) -> str | None:
+    """The ARIA role of a picked selector's target, when its last step names one."""
+    steps = [s.strip() for s in selector.split(" >> ") if not s.strip().startswith("nth=")]
+    if not steps:
+        return None
+    match = _PICK_ROLE.match(steps[-1])
+    return match.group(1) if match else None
+
+
+async def _ref_for_picked(session: Session, page, picked) -> str | None:
+    """The ref in the current snapshot that resolves to the picked element, if one is cheap to find.
+
+    Only role-based picks are matched: their role narrows the snapshot's refs
+    to a handful, and each is checked for being the very same element. Any
+    other pick, a pick with too many candidates, or no snapshot gives None.
+    """
+    registry = session.ref_registry
+    if registry is None:
+        return None
+    role = _picked_role(getattr(picked, "_impl_obj", picked)._selector)
+    if role is None:
+        return None
+    candidates = [e for e in registry.entries.values() if e.role == role]
+    if not candidates or len(candidates) > PICK_REF_CANDIDATES:
+        return None
+    try:
+        target = await picked.element_handle(timeout=2000)
+    except Exception:
+        return None
+    try:
+        for entry in candidates:
+            try:
+                same = await registry.resolve(page, entry.ref).evaluate(
+                    "(el, target) => el === target", target, timeout=1000
+                )
+            except Exception:
+                continue
+            if same:
+                return entry.ref
+        return None
+    finally:
+        with contextlib.suppress(Exception):
+            await target.dispose()
+
+
+async def _cancel_pick(page, task: asyncio.Future) -> None:
+    """Leave pick mode in the page and let the pending pick finish."""
+    with contextlib.suppress(Exception):
+        await page.cancel_pick_locator()
+    with contextlib.suppress(BaseException):
+        await asyncio.wait_for(task, 5)
+
+
+@register("pick-locator")
+async def cmd_pick_locator(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    """Wait for a person to click an element in the page, and print its locator."""
+    if options.get("cancel"):
+        if page not in _active_picks:
+            return {"success": True, "output": "No pick-locator in progress on this tab (no-op)"}
+        await page.cancel_pick_locator()
+        return {"success": True, "output": "Cancelled the pick-locator in progress."}
+
+    raw_wait = options.get("wait", DEFAULT_PICK_WAIT)
+    # A valueless `--wait` arrives as True, which float() reads as 1 second.
+    if isinstance(raw_wait, bool):
+        return {"success": False, "output": "Give --wait a value in seconds, e.g. --wait=120."}
+    try:
+        wait_seconds = float(raw_wait)
+    except (TypeError, ValueError):
+        return {"success": False, "output": f"Invalid --wait value: {raw_wait!r}. Expected seconds."}
+    if not wait_seconds > 0 or wait_seconds == float("inf"):
+        return {"success": False, "output": f"Invalid --wait value: {raw_wait!r}. Expected seconds above 0."}
+    if page in _active_picks:
+        return {
+            "success": False,
+            "output": "A pick-locator is already waiting on this tab. Finish it, or run `pick-locator --cancel`.",
+        }
+
+    _active_picks.add(page)
+    task = asyncio.ensure_future(page.pick_locator())
+    try:
+        done, _ = await asyncio.wait({task}, timeout=wait_seconds)
+        if not done:
+            await _cancel_pick(page, task)
+            return {
+                "success": False,
+                "output": (
+                    f"No element was picked within {wait_seconds:g}s; pick mode was cancelled.\n"
+                    "Raise the window with `pick-locator --wait=<seconds>`."
+                ),
+            }
+        try:
+            picked = task.result()
+        except Exception as exc:
+            if "cancelled" in str(exc).lower():
+                return {"success": False, "output": "The pick was cancelled before an element was clicked."}
+            raise
+    except asyncio.CancelledError:
+        await _cancel_pick(page, task)
+        raise
+    finally:
+        _active_picks.discard(page)
+
+    selector = getattr(picked, "_impl_obj", picked)._selector
+    ref = await _ref_for_picked(session, page, picked)
+    lines = [selector]
+    if ref:
+        lines += ["### Ref", f"- {ref} (in the last snapshot; use it with click, fill, ...)"]
+    return {"success": True, "output": "\n".join(lines), "data": {"locator": selector, "ref": ref}}
+
+
 @register("highlight")
 async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     """Draw or remove a persistent overlay over an element.
