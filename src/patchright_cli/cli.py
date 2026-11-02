@@ -1034,12 +1034,12 @@ COMMAND_SPECS: dict[str, dict] = {
         "usage": "highlight <ref>",
         "summary": "Show overlay on element",
         "flags": {
-            "style": "CSS for the overlay (default: 2px pink outline)",
+            "style": "Extra inline CSS for the overlay, e.g. outline: 2px dashed red (default: Playwright's highlight box)",
             "hide": "Remove the overlay instead; without a ref, clear every overlay (default: off)",
         },
         # `highlight --hide` with no ref clears every overlay on the page.
         "optional_args_with": "hide",
-        "examples": ["highlight e5", "highlight e5 --hide", "highlight --hide"],
+        "examples": ['highlight e5 --style="outline: 2px dashed red"', "highlight e5 --hide", "highlight --hide"],
     },
     # Session
     "list": {"usage": "list", "summary": "List sessions", "examples": ["list"]},

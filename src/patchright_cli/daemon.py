@@ -169,6 +169,9 @@ class Session:
         self._tracing: bool = False
         # Active `route` interceptions: pattern -> (handler, fulfilled status).
         self._routes: dict[str, tuple] = {}
+        # Refs shown by `highlight`, per page (by id): the native overlay can't
+        # be queried, so this is what `highlight --hide` reports against.
+        self.highlights: dict[int, set[str]] = {}
 
     # -- internal helpers ---------------------------------------------------
 
@@ -1839,61 +1842,41 @@ async def cmd_generate_locator(
 
 @register("highlight")
 async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    """Draw or remove a persistent overlay over an element.
+    """Show or hide Playwright's native highlight overlay on an element.
 
-    `highlight <ref>` shows it; `highlight <ref> --hide` hides it; `highlight --hide`
-    clears all highlights on the page.
+    `highlight <ref>` shows it (`--style` adds inline CSS to the overlay);
+    `highlight <ref> --hide` hides it; `highlight --hide` clears every
+    highlight on the page.
     """
     hide = bool(options.get("hide"))
-    style = options.get("style") or "outline: 2px solid #ff3366; outline-offset: 2px;"
+    style = options.get("style")
+    if style is not None and not isinstance(style, str):
+        return {"success": False, "output": 'Give --style some CSS, e.g. --style="outline: 2px dashed red".'}
+    shown = session.highlights.setdefault(id(page), set())
 
     if hide and not args:
-        removed = await page.evaluate(
-            "() => { const els = document.querySelectorAll('[data-patchright-highlight]');"
-            " els.forEach(el => el.remove()); return els.length; }"
-        )
-        if not removed:
+        had = bool(shown)
+        shown.clear()
+        await page.hide_highlight()
+        if not had:
             return {"success": True, "output": "No highlights on the page (no-op)"}
         return {"success": True, "output": "All highlights cleared."}
 
     if not args:
         return {"success": False, "output": "Usage: highlight <ref> [--style=...] [--hide]"}
-    elem = await _resolve_ref(session, page, args[0])
+    ref = args[0]
+    elem = await _resolve_ref(session, page, ref)
 
     if hide:
-        had = await elem.evaluate(
-            "el => { const id = el.getAttribute('data-patchright-hl-id');"
-            " if (!id) return false;"
-            ' const o = document.querySelector(`[data-patchright-highlight="${id}"]`);'
-            " if (o) o.remove();"
-            " el.removeAttribute('data-patchright-hl-id');"
-            " return !!o; }"
-        )
-        if not had:
-            return {"success": True, "output": f"{args[0]} is not highlighted (no-op)"}
-        return {"success": True, "output": f"Hid highlight on {args[0]}."}
+        if ref not in shown:
+            return {"success": True, "output": f"{ref} is not highlighted (no-op)"}
+        await elem.hide_highlight()
+        shown.discard(ref)
+        return {"success": True, "output": f"Hid highlight on {ref}."}
 
-    js = """
-    (el, { style }) => {
-      const rect = el.getBoundingClientRect();
-      const id = el.getAttribute('data-patchright-hl-id') || ('h' + Math.random().toString(36).slice(2));
-      el.setAttribute('data-patchright-hl-id', id);
-      let overlay = document.querySelector(`[data-patchright-highlight="${id}"]`);
-      if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.setAttribute('data-patchright-highlight', id);
-        overlay.style.cssText = 'position: fixed; pointer-events: none; z-index: 2147483647;';
-        document.documentElement.appendChild(overlay);
-      }
-      overlay.style.left = rect.left + 'px';
-      overlay.style.top = rect.top + 'px';
-      overlay.style.width = rect.width + 'px';
-      overlay.style.height = rect.height + 'px';
-      overlay.style.cssText += '; ' + style;
-    }
-    """
-    await elem.evaluate(js, {"style": style})
-    return {"success": True, "output": f"Highlighted {args[0]}."}
+    await elem.highlight(style=style or None)
+    shown.add(ref)
+    return {"success": True, "output": f"Highlighted {ref}."}
 
 
 # -- Eval / Screenshot -------------------------------------------------------

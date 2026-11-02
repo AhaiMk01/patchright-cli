@@ -31,6 +31,7 @@ def mock_session():
     session.page.url = "https://example.com"
     session.page.title = AsyncMock(return_value="Example")
     session._codegen = None
+    session.highlights = {}
     session._video_recording = False
     session._video_show_actions = None
     session.tabs = {"default": MagicMock()}
@@ -485,33 +486,69 @@ async def test_generate_locator_escapes_quote(mock_state, mock_session):
     assert "It\\'s me" in r["output"]
 
 
+def _highlight_locator(mock_session):
+    registry = MagicMock()
+    locator = MagicMock()
+    locator.highlight = AsyncMock()
+    locator.hide_highlight = AsyncMock()
+    registry.resolve.return_value = locator
+    mock_session.ref_registry = registry
+    return locator
+
+
 @pytest.mark.asyncio
 async def test_highlight_clear_all(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.evaluate = AsyncMock()
+    mock_session.page.hide_highlight = AsyncMock()
+    mock_session.highlights = {id(mock_session.page): {"e1", "e2"}}
     response = await handle_command(mock_state, {"command": "highlight", "args": [], "options": {"hide": True}})
     assert response["success"] is True
     assert "cleared" in response["output"].lower()
-    mock_session.page.evaluate.assert_awaited_once()
+    mock_session.page.hide_highlight.assert_awaited_once_with()
+    assert mock_session.highlights[id(mock_session.page)] == set()
 
 
 @pytest.mark.asyncio
-async def test_highlight_show(mock_state, mock_session):
+async def test_highlight_show_passes_style_to_native_highlight(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
-    locator = MagicMock()
-    locator.evaluate = AsyncMock()
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
+    locator = _highlight_locator(mock_session)
 
     response = await handle_command(
         mock_state, {"command": "highlight", "args": ["e1"], "options": {"style": "outline: 4px solid red"}}
     )
+    assert response == {"success": True, "output": "Highlighted e1."}
+    locator.highlight.assert_awaited_once_with(style="outline: 4px solid red")
+    assert mock_session.highlights[id(mock_session.page)] == {"e1"}
+
+
+@pytest.mark.asyncio
+async def test_highlight_show_without_style_uses_native_default(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _highlight_locator(mock_session)
+    response = await handle_command(mock_state, {"command": "highlight", "args": ["e1"], "options": {}})
     assert response["success"] is True
-    locator.evaluate.assert_awaited_once()
-    js, payload = locator.evaluate.call_args.args
-    assert "data-patchright-highlight" in js
-    assert payload["style"] == "outline: 4px solid red"
+    locator.highlight.assert_awaited_once_with(style=None)
+
+
+@pytest.mark.asyncio
+async def test_highlight_rejects_bare_style_flag(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _highlight_locator(mock_session)
+    response = await handle_command(mock_state, {"command": "highlight", "args": ["e1"], "options": {"style": True}})
+    assert response["success"] is False
+    assert "--style" in response["output"]
+    locator.highlight.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_highlight_hide_ref_uses_native_hide(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _highlight_locator(mock_session)
+    await handle_command(mock_state, {"command": "highlight", "args": ["e1"], "options": {}})
+    response = await handle_command(mock_state, {"command": "highlight", "args": ["e1"], "options": {"hide": True}})
+    assert response == {"success": True, "output": "Hid highlight on e1."}
+    locator.hide_highlight.assert_awaited_once_with()
+    assert mock_session.highlights[id(mock_session.page)] == set()
 
 
 @pytest.mark.asyncio

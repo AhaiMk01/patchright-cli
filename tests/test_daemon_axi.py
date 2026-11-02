@@ -37,6 +37,7 @@ def mock_session():
     session.page.route = AsyncMock()
     session.page.unroute = AsyncMock()
     session._codegen = None
+    session.highlights = {}
     session._video_recording = False
     session._video_cdp = None
     session._video_show_actions = None
@@ -185,7 +186,7 @@ async def test_storage_delete_present_key(mock_state, mock_session):
 @pytest.mark.asyncio
 async def test_highlight_hide_with_nothing_highlighted_is_a_noop(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.evaluate.return_value = 0
+    mock_session.page.hide_highlight = AsyncMock()
     _assert_noop(await _run(mock_state, "highlight", hide=True))
 
 
@@ -193,10 +194,11 @@ async def test_highlight_hide_with_nothing_highlighted_is_a_noop(mock_state, moc
 async def test_highlight_hide_on_unhighlighted_ref_is_a_noop(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
     locator = MagicMock()
-    locator.evaluate = AsyncMock(return_value=False)
+    locator.hide_highlight = AsyncMock()
     mock_session.ref_registry = MagicMock()
     mock_session.ref_registry.resolve.return_value = locator
     _assert_noop(await _run(mock_state, "highlight", ["e3"], hide=True))
+    locator.hide_highlight.assert_not_awaited()
 
 
 @pytest.mark.asyncio
