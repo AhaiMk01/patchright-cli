@@ -396,8 +396,8 @@ patchright-cli unroute                 # Remove all routes
 ```bash
 patchright-cli tracing-start
 patchright-cli tracing-stop            # Saves .zip trace file
-patchright-cli video-start             # Start video recording (CDP screencast)
-patchright-cli video-start --fps=25    # Real-time video at 25 fps (default: each frame once at 5 fps)
+patchright-cli video-start             # Start real-time video recording at 25 fps (CDP screencast)
+patchright-cli video-start --fps=60    # Another frame rate, 1-60
 patchright-cli video-stop              # Stop and save video (requires ffmpeg for .webm)
 patchright-cli video-stop --filename=recording.webm
 patchright-cli show --annotate          # Ask a human to mark up the page, wait for it

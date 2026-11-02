@@ -348,7 +348,7 @@ async def test_video_start_rejects_bad_fps(mock_state, mock_session, bad):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("options", "fps", "output"), [({}, None, "started."), ({"fps": "30"}, 30, "at 30 fps.")])
+@pytest.mark.parametrize(("options", "fps", "output"), [({}, 25, "at 25 fps."), ({"fps": "30"}, 30, "at 30 fps.")])
 async def test_video_start_records_the_fps(mock_state, mock_session, options, fps, output):
     mock_state.sessions = {"default": mock_session}
     cdp = MagicMock()
@@ -365,52 +365,84 @@ async def test_video_start_records_the_fps(mock_state, mock_session, options, fp
     )
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("fps", "expected"),
-    [
-        (None, ["-framerate", "5", "-i"]),
-        (25, ["-f", "concat", "-safe", "0", "-i"]),
-    ],
-)
-async def test_video_stop_encodes_by_fps(mock_state, mock_session, tmp_path, fps, expected):
+def _recording(mock_state, mock_session, fps, times=(1.0, 2.0)):
     mock_state.sessions = {"default": mock_session}
     cdp = MagicMock()
     cdp.send = AsyncMock()
     mock_session._video_recording = True
     mock_session._video_cdp = cdp
     mock_session._video_frames = [b"a", b"b"]
-    mock_session._video_times = [1.0, 2.0]
+    mock_session._video_times = list(times)
     mock_session._video_fps = fps
     mock_session._video_chapters = []
+
+
+async def _stop_with_ffmpeg(mock_state, tmp_path, returncodes, which="ffmpeg"):
+    """Run video-stop with a fake ffmpeg whose runs exit with `returncodes` in turn."""
     calls = []
+    codes = iter(returncodes)
 
     class Proc:
-        returncode = 0
-
         async def wait(self):
-            return 0
+            return self.returncode
 
     async def spawn(*command, **kwargs):
         calls.append(list(command))
-        return Proc()
+        proc = Proc()
+        proc.returncode = next(codes)
+        return proc
 
     with (
-        patch("shutil.which", return_value="ffmpeg"),
+        patch("shutil.which", return_value=which),
         patch("asyncio.create_subprocess_exec", spawn),
         patch("patchright_cli.daemon.time.time", return_value=4.0),
     ):
         response = await handle_command(
             mock_state, {"command": "video-stop", "args": [], "options": {}, "cwd": str(tmp_path)}
         )
+    return response, calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("fps", "rate"), [(None, "fps=25"), (25, "fps=25"), (10, "fps=10")])
+async def test_video_stop_resamples_to_real_time(mock_state, mock_session, tmp_path, fps, rate):
+    _recording(mock_state, mock_session, fps)
+    response, calls = await _stop_with_ffmpeg(mock_state, tmp_path, [0])
     assert response["success"] is True
+    assert "Warning" not in response["output"]
+    assert response["output"].endswith(f"(2 frames, {rate[4:]} fps)")
     (command,) = calls
-    assert command[2 : 2 + len(expected)] == expected
-    if fps:
-        assert command[command.index("-vf") + 1] == "fps=25"
-        assert command[command.index("-t") + 1] == "3.000"
-    else:
-        assert "-vf" not in command
+    assert command[2:7] == ["-f", "concat", "-safe", "0", "-i"]
+    assert command[command.index("-vf") + 1] == rate
+    assert command[command.index("-t") + 1] == "3.000"
+
+
+@pytest.mark.asyncio
+async def test_video_stop_falls_back_to_every_frame_when_resampling_fails(mock_state, mock_session, tmp_path):
+    _recording(mock_state, mock_session, 25)
+    response, calls = await _stop_with_ffmpeg(mock_state, tmp_path, [1, 0])
+    assert response["success"] is True
+    assert "Video saved to" in response["output"]
+    assert "Warning: real-time resampling failed" in response["output"]
+    assert [c[2:5] for c in calls] == [["-f", "concat", "-safe"], ["-framerate", "5", "-i"]]
+
+
+@pytest.mark.asyncio
+async def test_video_stop_without_frame_times_warns(mock_state, mock_session, tmp_path):
+    _recording(mock_state, mock_session, 25, times=())
+    response, calls = await _stop_with_ffmpeg(mock_state, tmp_path, [0])
+    assert "Warning: frame times are missing" in response["output"]
+    assert calls[0][2:5] == ["-framerate", "5", "-i"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("which", "codes"), [(None, []), ("ffmpeg", [1, 1])])
+async def test_video_stop_keeps_the_frames_when_ffmpeg_cannot_encode(mock_state, mock_session, tmp_path, which, codes):
+    _recording(mock_state, mock_session, 25)
+    response, _ = await _stop_with_ffmpeg(mock_state, tmp_path, codes, which=which)
+    assert response["success"] is True
+    assert "Saved 2 frames to" in response["output"]
+    assert len(list((tmp_path / ".patchright-cli").glob("video-*-frames/*.jpg"))) == 2
 
 
 def test_video_start_fps_flag_is_known():
@@ -442,10 +474,14 @@ def test_mcp_html_and_video_start_map_their_flags():
         "patchright_html", _mcp_defaults("patchright_html", include_shadow=True, selector="main", max_chars=0)
     )
     assert args == ["html", "--selector=main", "--include-shadow", "--max-chars=0"]
-    assert mcp_server._build_args("patchright_video_start", _mcp_defaults("patchright_video_start")) == ["video-start"]
-    assert mcp_server._build_args("patchright_video_start", _mcp_defaults("patchright_video_start", fps=25)) == [
+    assert mcp_server._build_args("patchright_video_start", _mcp_defaults("patchright_video_start")) == [
         "video-start",
         "--fps=25",
     ]
-    with pytest.raises(ValueError, match="fps must be"):
-        mcp_server._build_args("patchright_video_start", _mcp_defaults("patchright_video_start", fps=90))
+    assert mcp_server._build_args("patchright_video_start", _mcp_defaults("patchright_video_start", fps=10)) == [
+        "video-start",
+        "--fps=10",
+    ]
+    for bad in (0, 90):
+        with pytest.raises(ValueError, match="fps must be from 1 to 60"):
+            mcp_server._build_args("patchright_video_start", _mcp_defaults("patchright_video_start", fps=bad))
