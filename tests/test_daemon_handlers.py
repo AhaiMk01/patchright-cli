@@ -143,6 +143,65 @@ async def test_actions_reject_bad_scroll_values(mock_state, mock_session, comman
         getattr(locator, method).assert_not_awaited()
 
 
+VIEWPORT_ERROR = (
+    "Locator.click: Timeout 1500ms exceeded.\nCall log:\n  - attempting click action\n"
+    "      - element is outside of the viewport\n    - retrying click action"
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command", "args", "method"),
+    [
+        ("click", ["e1"], "click"),
+        ("hover", ["e1"], "hover"),
+        ("check", ["e1"], "check"),
+        ("drag", ["e1", "e2"], "drag_to"),
+    ],
+)
+async def test_scroll_none_viewport_timeout_gets_a_hint(mock_state, mock_session, command, args, method):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session)
+    getattr(locator, method).side_effect = Exception(VIEWPORT_ERROR)
+    response = await _run_action(mock_state, command, args, {"scroll": "none"})
+    assert response["success"] is False
+    assert (
+        response["output"]
+        == f"Error: {VIEWPORT_ERROR}\nhelp: the element is off-screen; drop --scroll=none or scroll first"
+    )
+
+
+@pytest.mark.asyncio
+async def test_scroll_none_link_trial_click_gets_the_hint(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session, href="https://example.com/next")
+    locator.click.side_effect = Exception(VIEWPORT_ERROR)
+    response = await _run_action(mock_state, "click", ["e1"], {"scroll": "none"})
+    assert response["output"].endswith("help: the element is off-screen; drop --scroll=none or scroll first")
+    mock_session.page.goto.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scroll", [None, "auto"])
+async def test_viewport_error_without_scroll_none_has_no_hint(mock_state, mock_session, scroll):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session)
+    locator.click.side_effect = Exception(VIEWPORT_ERROR)
+    response = await _run_action(mock_state, "click", ["e1"], {"scroll": scroll} if scroll else {})
+    assert response["success"] is False
+    assert "help:" not in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_other_scroll_none_failures_have_no_hint(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session)
+    locator.hover.side_effect = Exception("Locator.hover: Timeout 1500ms exceeded.\n  - element is not visible")
+    response = await _run_action(mock_state, "hover", ["e1"], {"scroll": "none"})
+    assert response["success"] is False
+    assert "help:" not in response["output"]
+
+
 @pytest.mark.asyncio
 async def test_click_link_with_scroll_none_checks_reachability_first(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}

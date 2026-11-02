@@ -1529,6 +1529,24 @@ def _scroll_option(options: dict) -> str | None:
     return value
 
 
+SCROLL_NONE_HINT = "help: the element is off-screen; drop --scroll=none or scroll first"
+
+
+async def _scroll_action(scroll: str | None, action) -> dict | None:
+    """Await an element action; on a --scroll=none viewport failure, return an error with a hint.
+
+    Playwright retries "element is outside of the viewport" until the action
+    timeout, so the bare error reads like a hang; the hint names the cause.
+    """
+    try:
+        await action
+    except Exception as exc:
+        if scroll == "none" and "outside of the viewport" in str(exc):
+            return {"success": False, "output": f"Error: {exc}\n{SCROLL_NONE_HINT}"}
+        raise
+    return None
+
+
 @register("click")
 async def cmd_click(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     scroll = _scroll_option(options)
@@ -1543,11 +1561,16 @@ async def cmd_click(session: Session, page, args: list, options: dict, cwd: str 
     if link_href:
         if scroll == "none":
             # The link is followed without a click, so check reachability with a trial click first.
-            await elem.click(trial=True, scroll="none")
+            if failed := await _scroll_action(scroll, elem.click(trial=True, scroll="none")):
+                return failed
         await session.goto(page, link_href, _web_only(options))
         session.push_history(page.url)
     else:
-        await elem.click(button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None, scroll=scroll)
+        clicked = elem.click(
+            button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None, scroll=scroll
+        )
+        if failed := await _scroll_action(scroll, clicked):
+            return failed
     return await _page_info(session, cwd)
 
 
@@ -1582,7 +1605,8 @@ async def cmd_type(session: Session, page, args: list, options: dict, cwd: str |
 async def cmd_hover(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
-    await elem.hover(scroll=scroll)
+    if failed := await _scroll_action(scroll, elem.hover(scroll=scroll)):
+        return failed
     return await _page_info(session, cwd)
 
 
@@ -1597,7 +1621,8 @@ async def cmd_select(session: Session, page, args: list, options: dict, cwd: str
 async def cmd_check(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
-    await elem.check(scroll=scroll)
+    if failed := await _scroll_action(scroll, elem.check(scroll=scroll)):
+        return failed
     return await _page_info(session, cwd)
 
 
@@ -1613,7 +1638,8 @@ async def cmd_drag(session: Session, page, args: list, options: dict, cwd: str |
     scroll = _scroll_option(options)
     src = await _resolve_ref(session, page, args[0])
     dst = await _resolve_ref(session, page, args[1])
-    await src.drag_to(dst, scroll=scroll)
+    if failed := await _scroll_action(scroll, src.drag_to(dst, scroll=scroll)):
+        return failed
     return await _page_info(session, cwd)
 
 

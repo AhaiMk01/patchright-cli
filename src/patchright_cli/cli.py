@@ -628,7 +628,7 @@ COMMAND_SPECS: dict[str, dict] = {
         "summary": "Click element",
         "flags": {
             "modifiers": "Comma-separated modifier keys held during the click, e.g. Alt,Shift (default: none)",
-            "scroll": "auto scrolls the element into view; none fails if it is outside the viewport (default: auto)",
+            "scroll": "auto: scroll the element into view; none: fail if the element is off-screen (default: auto)",
         },
         "examples": ["click e5", "click e5 right --modifiers=Control", "click e5 --scroll=none"],
     },
@@ -654,7 +654,7 @@ COMMAND_SPECS: dict[str, dict] = {
         "usage": "hover <ref>",
         "summary": "Hover over element",
         "flags": {
-            "scroll": "auto scrolls the element into view; none fails if it is outside the viewport (default: auto)"
+            "scroll": "auto: scroll the element into view; none: fail if the element is off-screen (default: auto)"
         },
         "examples": ["hover e4", "hover e4 --scroll=none"],
     },
@@ -663,7 +663,7 @@ COMMAND_SPECS: dict[str, dict] = {
         "usage": "check <ref>",
         "summary": "Check checkbox/radio",
         "flags": {
-            "scroll": "auto scrolls the element into view; none fails if it is outside the viewport (default: auto)"
+            "scroll": "auto: scroll the element into view; none: fail if the element is off-screen (default: auto)"
         },
         "examples": ["check e12", "check e12 --scroll=none"],
     },
@@ -714,7 +714,7 @@ COMMAND_SPECS: dict[str, dict] = {
         "usage": "drag <from> <to>",
         "summary": "Drag element to target",
         "flags": {
-            "scroll": "auto scrolls the element into view; none fails if it is outside the viewport (default: auto)"
+            "scroll": "auto: scroll the element into view; none: fail if the element is off-screen (default: auto)"
         },
         "examples": ["drag e3 e7", "drag e3 e7 --scroll=none"],
     },
