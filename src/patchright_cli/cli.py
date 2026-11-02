@@ -762,6 +762,11 @@ COMMAND_SPECS: dict[str, dict] = {
         "args_from_flag_value": "regex",
         # `find --role=<role>` needs no <text>.
         "optional_args_with": "role",
+        "missing_args": (
+            "`find` requires <text> or --role=<role>",
+            "help: --name, --description and --exact only apply with --role, "
+            'e.g. find --role=button --description="Deletes"',
+        ),
         "examples": [
             'find "Sign in"',
             'find "^Item \\d+" --regex --limit=50',
@@ -1441,6 +1446,9 @@ def _validate_positionals(command: str, args: list, flags: dict) -> None:
     else:
         need = _min_args(spec)
     if len(args) < need:
+        if "missing_args" in spec:
+            message, *hints = spec["missing_args"]
+            raise UsageError(message, *hints, f"help: run `patchright-cli {command} --help` for flags and examples")
         required = " ".join(t for t in spec["usage"].split()[1:] if t.startswith("<"))
         raise UsageError(
             f"`{command}` requires {required}",

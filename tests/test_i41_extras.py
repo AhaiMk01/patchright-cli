@@ -187,9 +187,11 @@ def test_find_role_needs_no_text_on_the_command_line(monkeypatch, capsys):
     code, _, _, sent = run_cli(["find", "--role=button", "--description=Deletes"], monkeypatch, capsys)
     assert (code, sent["command"], sent["args"]) == (0, "find", [])
     assert sent["options"]["description"] == "Deletes"
-    code, out, _, _ = run_cli(["find", "--description=Deletes"], monkeypatch, capsys)
-    assert code == 2
-    assert out.startswith("error: `find` requires <text>")
+    for argv in (["find", "--description=Deletes"], ["find", "--name=x", "--exact"], ["find"]):
+        code, out, _, sent = run_cli(argv, monkeypatch, capsys)
+        assert (code, sent) == (2, {})
+        assert out.startswith("error: `find` requires <text> or --role=<role>\n")
+        assert "--name, --description and --exact only apply with --role" in out
 
 
 # -- html ------------------------------------------------------------------------
@@ -440,14 +442,10 @@ def test_mcp_html_and_video_start_map_their_flags():
         "patchright_html", _mcp_defaults("patchright_html", include_shadow=True, selector="main", max_chars=0)
     )
     assert args == ["html", "--selector=main", "--include-shadow", "--max-chars=0"]
-    assert mcp_server._build_args("patchright_video_start", _mcp_defaults("patchright_video_start")) == [
-        "video-start"
-    ]
+    assert mcp_server._build_args("patchright_video_start", _mcp_defaults("patchright_video_start")) == ["video-start"]
     assert mcp_server._build_args("patchright_video_start", _mcp_defaults("patchright_video_start", fps=25)) == [
         "video-start",
         "--fps=25",
     ]
     with pytest.raises(ValueError, match="fps must be"):
         mcp_server._build_args("patchright_video_start", _mcp_defaults("patchright_video_start", fps=90))
-
-
