@@ -366,7 +366,7 @@ arguments shows whether the daemon is up and which sessions are open.
 <!-- BEGIN GENERATED: commands (scripts/gen_skill.py from COMMAND_SPECS; do not edit by hand) -->
 ```bash
 # Core
-open [url] [--block-networks] [--headed]  # Open browser (starts daemon if needed)
+open [url] [--block-networks] [--headed] [--webmcp]  # Open browser (starts daemon if needed)
 attach --cdp=<url> [--cdp-headers] [--cdp-timeout] [--block-networks]  # Attach to running Chrome via CDP
 goto <url>                              # Navigate to URL
 click <ref> [button] [--modifiers]      # Click element
@@ -493,6 +493,10 @@ requests [--static] [--clear]           # Alias for `network`
 request <id> [--body]                   # Show full detail for a network request
 generate-locator <ref>                  # Emit Playwright locator expression for a ref
 highlight <ref> [--style] [--hide]      # Show overlay on element
+
+# WebMCP
+webmcp-list                             # List the WebMCP tools the page registers
+webmcp-call <name> [json] [--params]    # Call a WebMCP tool the page registers
 
 # Session
 list                                    # List sessions

@@ -609,8 +609,10 @@ COMMAND_SPECS: dict[str, dict] = {
         "flags": {
             "block-networks": "Refuse navigation to link-local|private addresses (default: allow all)",
             "headed": "Force a headed window even with --headless (default: off)",
+            "webmcp": "Launch Chrome with WebMCP on, for webmcp-list/webmcp-call; exposes "
+            "document.modelContext, which stock Chrome lacks (default: off)",
         },
-        "examples": ["open https://example.com", "--headless open https://example.com", "-s=work open --profile=work"],
+        "examples": ["open https://example.com", "-s=work open --profile=work", "open --webmcp https://example.com"],
     },
     "attach": {
         "usage": "attach --cdp=<url>",
@@ -1041,6 +1043,21 @@ COMMAND_SPECS: dict[str, dict] = {
         "optional_args_with": "hide",
         "examples": ["highlight e5", "highlight e5 --hide", "highlight --hide"],
     },
+    # WebMCP
+    "webmcp-list": {
+        "usage": "webmcp-list",
+        "summary": "List the WebMCP tools the page registers",
+        "examples": ["webmcp-list", "--toon webmcp-list"],
+    },
+    "webmcp-call": {
+        "usage": "webmcp-call <name> [json]",
+        "summary": "Call a WebMCP tool the page registers",
+        "flags": {"params": "Tool input as a JSON object, instead of the [json] argument (default: {})"},
+        "examples": [
+            'webmcp-call search \'{"query":"cats"}\'',
+            'webmcp-call search --params=\'{"query":"cats"}\'',
+        ],
+    },
     # Session
     "list": {"usage": "list", "summary": "List sessions", "examples": ["list"]},
     "close-all": {"usage": "close-all", "summary": "Close all sessions", "examples": ["close-all"]},
@@ -1347,6 +1364,7 @@ COMMAND_CATEGORIES = [
     ("Video", ["video-start", "video-stop", "video-chapter", "video-show-actions", "video-hide-actions"]),
     ("PDF", ["pdf"]),
     ("DevTools", ["console", "network", "requests", "request", "generate-locator", "highlight"]),
+    ("WebMCP", ["webmcp-list", "webmcp-call"]),
     ("Session", ["list", "close-all", "kill-all", "delete-data"]),
     ("Profiles", ["profile-list", "profile-delete"]),
     ("Dashboard", ["show"]),
@@ -1567,6 +1585,7 @@ _TOON_NOUNS = {
     "requests": "requests",
     "profile-list": "profiles",
     "find": "matches",
+    "webmcp-list": "tools",
 }
 
 # What to do when a list reply was cut short (`total` > shown).

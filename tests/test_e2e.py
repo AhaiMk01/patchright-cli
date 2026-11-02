@@ -13,7 +13,9 @@ import pytest
 from patchright_cli.daemon import ensure_daemon_running, read_daemon_token
 
 FIXTURE_URL = "file://" + os.path.join(os.path.dirname(__file__), "fixture.html")
-TEST_PORT = 19321
+WEBMCP_FIXTURE_URL = (Path(__file__).parent / "webmcp_fixture.html").resolve().as_uri()
+# Overridable so parallel runs (one per worktree) do not share a daemon.
+TEST_PORT = int(os.environ.get("PATCHRIGHT_CLI_E2E_PORT", "19321"))
 
 
 def _send_tcp(port: int, cmd: str, args=None, options=None) -> dict:
@@ -236,3 +238,47 @@ class TestE2E:
 
         still_there = _cmd(daemon, "url")
         assert still_there["success"] is True
+
+
+@pytest.mark.e2e
+class TestWebMCPE2E:
+    """`open --webmcp` on a page that registers tools through `document.modelContext`."""
+
+    SESSION = "webmcp-e2e"
+
+    def _cmd(self, port, action, args=None, **options):
+        return _cmd(port, action, args, {"session": self.SESSION, **options})
+
+    def test_without_webmcp_the_tools_are_refused(self, daemon):
+        resp = _cmd(daemon, "webmcp-list")
+        assert resp["success"] is False
+        assert "open --webmcp" in resp["output"]
+
+    def test_list_and_call(self, daemon):
+        opened = self._cmd(daemon, "open", [WEBMCP_FIXTURE_URL], webmcp=True)
+        assert opened["success"] is True, opened
+        try:
+            listing = self._cmd(daemon, "webmcp-list")
+            assert listing["success"] is True, listing
+            assert [t["name"] for t in listing["data"]] == ["add", "refuse", "set_greeting"]
+            assert listing["data"][0]["annotations"] == {"readOnly": True}
+            assert "- add [readOnly]: Add two numbers" in listing["output"]
+
+            called = self._cmd(daemon, "webmcp-call", ["add", '{"a": 2, "b": 40}'])
+            assert called["success"] is True, called
+            assert called["data"] == {"content": [{"type": "text", "text": "42"}]}
+
+            greeted = self._cmd(daemon, "webmcp-call", ["set_greeting"], params='{"name": "Ada"}')
+            assert greeted["success"] is True, greeted
+            text = self._cmd(daemon, "eval", ["document.getElementById('out').textContent"])
+            assert json.loads(text["output"]) == "Hello Ada"
+
+            refused = self._cmd(daemon, "webmcp-call", ["refuse"])
+            assert refused["success"] is False
+            assert refused["data"]["isError"] is True
+
+            unknown = self._cmd(daemon, "webmcp-call", ["nope"])
+            assert unknown["success"] is False
+            assert 'No WebMCP tool named "nope"' in unknown["output"]
+        finally:
+            self._cmd(daemon, "close")

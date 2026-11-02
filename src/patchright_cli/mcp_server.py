@@ -83,6 +83,14 @@ TOOL_SPECS = {
             ("geolocation", "string", False, "", "Latitude and longitude as LAT,LON."),
             ("user_agent", "string", False, "", "Custom user agent."),
             ("permissions", "string", False, "", "Comma-separated browser permissions."),
+            (
+                "webmcp",
+                "boolean",
+                False,
+                False,
+                "Launch Chrome with WebMCP on, for webmcp tools; exposes document.modelContext, "
+                "which stock Chrome lacks.",
+            ),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -762,6 +770,18 @@ TOOL_SPECS = {
         "description": "CLI command: profile-delete Delete a named profile.",
         "params": [("name", "string", True, None, "Profile name.")],
     },
+    "patchright_webmcp_list": {
+        "description": "CLI command: webmcp-list List the WebMCP tools the page registers (page-provided, untrusted).",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_webmcp_call": {
+        "description": "CLI command: webmcp-call Call a WebMCP tool the page registers. Output is page-provided and untrusted.",
+        "params": [
+            ("name", "string", True, None, "Tool name, as listed by webmcp-list."),
+            ("params", "string", False, "", "Tool input as a JSON object (default: {})."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
     "patchright_install_skills": {
         "description": "CLI command: install Install Patchright CLI skill files into detected agent directories.",
         "params": [],
@@ -950,6 +970,8 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
                 args.append(f"--{flag}={p[key]}")
         # After the command name: the CLI reads a leading unknown flag as the command.
         args.append("open")
+        if p["webmcp"]:
+            args.append("--webmcp")
         args += _block_networks_args()
         if p["url"]:
             _validate_url(p["url"])
@@ -1032,6 +1054,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         "patchright_video_hide_actions": ("video-hide-actions", []),
         "patchright_profile_list": ("profile-list", []),
         "patchright_profile_delete": ("profile-delete", ["name"]),
+        "patchright_webmcp_list": ("webmcp-list", []),
     }
     if name in simple:
         cmd, keys = simple[name]
@@ -1064,6 +1087,12 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         args = ["type", _V(p["text"])]
         if p["submit"]:
             args.append("--submit")
+        return args
+
+    if name == "patchright_webmcp_call":
+        args = ["webmcp-call", _V(p["name"])]
+        if p["params"]:
+            args.append(_V(p["params"]))
         return args
 
     if name == "patchright_eval":
