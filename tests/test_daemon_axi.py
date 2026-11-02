@@ -381,21 +381,21 @@ async def test_route_list_data(mock_state, mock_session):
 
 @pytest.mark.asyncio
 async def test_console_data_and_total_when_truncated(mock_state, mock_session):
-    mock_session.console_messages = [{"type": "log", "text": f"m{i}"} for i in range(60)]
+    mock_session.console_messages = [{"type": "log", "text": f"m{i}", "timestamp": 1000.0 + i} for i in range(60)]
     mock_state.sessions = {"default": mock_session}
     response = await _run(mock_state, "console")
     assert len(response["data"]) == 50
-    assert response["data"][0] == {"level": "log", "text": "m10"}
+    assert response["data"][0] == {"level": "log", "text": "m10", "timestamp": 1010.0}
     assert response["total"] == 60
 
 
 @pytest.mark.asyncio
 async def test_console_without_truncation_has_no_total(mock_state, mock_session):
-    mock_session.console_messages = [{"type": "warning", "text": "careful"}]
+    mock_session.console_messages = [{"type": "warning", "text": "careful", "timestamp": 1762000000123.5}]
     mock_state.sessions = {"default": mock_session}
     response = await _run(mock_state, "console", ["warn"])
     assert response["output"] == "[warning] careful"
-    assert response["data"] == [{"level": "warning", "text": "careful"}]
+    assert response["data"] == [{"level": "warning", "text": "careful", "timestamp": 1762000000123.5}]
     assert "total" not in response
 
 

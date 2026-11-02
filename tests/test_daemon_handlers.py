@@ -1464,6 +1464,22 @@ async def test_console_listener_records_messages_after_capture_starts(mock_state
 
 
 @pytest.mark.asyncio
+async def test_console_reports_the_cdp_event_timestamp(mock_state):
+    page, cdp = _console_page()
+    session = Session("default", page.context, [page])
+    mock_state.sessions = {"default": session}
+    await handle_command(mock_state, {"command": "console", "args": []})
+
+    listener = cdp.on.call_args.args[1]
+    listener({"type": "log", "args": [{"value": "hi"}], "timestamp": 1762000000123.456})
+    with patch("patchright_cli.daemon.time.time", return_value=1762000000.5):
+        listener({"type": "log", "args": [{"value": "no stamp"}]})
+
+    response = await handle_command(mock_state, {"command": "console", "args": []})
+    assert [m["timestamp"] for m in response["data"]] == [1762000000123.456, 1762000000500.0]
+
+
+@pytest.mark.asyncio
 async def test_console_capture_retries_a_dead_cdp_session_once(mock_state):
     page, cdp = _console_page()
     page.context.new_cdp_session = AsyncMock(side_effect=[RuntimeError("Execution context was destroyed"), cdp])

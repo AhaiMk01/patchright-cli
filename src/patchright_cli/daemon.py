@@ -292,6 +292,9 @@ class Session:
                 "text": " ".join(str(a.get("value", a.get("description", ""))) for a in event.get("args", [])),
                 "url": url,
                 "ts": time.time(),
+                # CDP's Runtime.Timestamp: when the page logged it, in ms since the
+                # epoch -- what ConsoleMessage.timestamp reports.
+                "timestamp": event.get("timestamp", time.time() * 1000),
             }
         )
 
@@ -2286,7 +2289,10 @@ async def cmd_console(session: Session, page, args: list, options: dict, cwd: st
     lines = [f"[{m['type']}] {m['text']}" for m in shown]
     if options.get("clear"):
         session.console_messages.clear()
-    result = {"success": True, "data": [{"level": m["type"], "text": m["text"]} for m in shown]}
+    result = {
+        "success": True,
+        "data": [{"level": m["type"], "text": m["text"], "timestamp": m["timestamp"]} for m in shown],
+    }
     if len(matching) > len(shown):
         result["total"] = len(matching)
     if not lines:
