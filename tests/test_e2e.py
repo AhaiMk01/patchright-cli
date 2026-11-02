@@ -236,3 +236,96 @@ class TestE2E:
 
         still_there = _cmd(daemon, "url")
         assert still_there["success"] is True
+
+
+_DROP_PAGE = (
+    "data:text/html,<div id=zone role=region aria-label=dropzone style='width:200px;height:100px'>drop</div>"
+    "<div id=nodrop role=region aria-label=nodrop style='width:200px;height:50px'>no</div>"
+    "<div id=out>none</div><script>"
+    "zone.addEventListener('dragover',e=>e.preventDefault());"
+    "zone.addEventListener('drop',async e=>{e.preventDefault();const dt=e.dataTransfer,s=[];"
+    "for(const f of dt.files)s.push('file:'+f.name+':'+f.type+':'+(await f.text()));"
+    "for(const t of dt.types)if(t!=='Files')s.push(t+'='+dt.getData(t));out.textContent=s.join('|')});"
+    "</script>"
+)
+
+
+@pytest.fixture(scope="module")
+def http_origin(tmp_path_factory):
+    """A real http:// origin (localStorage and storage state need one; data: URLs are opaque)."""
+    import http.server
+    import threading
+    from functools import partial
+
+    root = tmp_path_factory.mktemp("site")
+    (root / "page.html").write_text("<title>storage</title><p>storage page</p>", encoding="utf-8")
+    server = http.server.ThreadingHTTPServer(
+        ("127.0.0.1", 0), partial(http.server.SimpleHTTPRequestHandler, directory=str(root))
+    )
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+
+
+@pytest.mark.e2e
+class TestNativeStorageAndDrop:
+    def test_drop_files_and_data(self, daemon, tmp_path):
+        tab = {"tab": "drop"}
+        assert _cmd(daemon, "open", args=[_DROP_PAGE], options=tab)["success"] is True
+        snap = _cmd(daemon, "snapshot", options=tab)
+        zone = re.search(r'region "dropzone".*?\[ref=(e\d+)\]', Path(snap["snapshot_path"]).read_text("utf-8"))
+        assert zone
+        note = tmp_path / "note.txt"
+        note.write_text("hello file", encoding="utf-8")
+
+        resp = _cmd(
+            daemon,
+            "drop",
+            args=[zone.group(1)],
+            options={**tab, "path": str(note), "data": "text/uri-list=https://x.test/"},
+        )
+        assert resp["success"] is True, resp
+        out = _cmd(daemon, "eval", args=["out.textContent"], options=tab)
+        assert json.loads(out["output"]) == "file:note.txt:text/plain:hello file|text/uri-list=https://x.test/"
+        _cmd(daemon, "close", options=tab)
+
+    def test_web_storage_commands(self, daemon, http_origin):
+        tab = {"tab": "storage"}
+        assert _cmd(daemon, "open", args=[f"{http_origin}/page.html"], options=tab)["success"] is True
+        for prefix, store in (("localstorage", "localStorage"), ("sessionstorage", "sessionStorage")):
+            _cmd(daemon, f"{prefix}-clear", options=tab)
+            empty = _cmd(daemon, f"{prefix}-list", options=tab)
+            assert empty["output"] == f"0 {store} keys on this page"
+            assert _cmd(daemon, f"{prefix}-set", args=["k1", "v1"], options=tab)["output"] == f"{store}['k1'] set."
+            _cmd(daemon, f"{prefix}-set", args=["e", ""], options=tab)
+            listed = _cmd(daemon, f"{prefix}-list", options=tab)
+            raw = _cmd(daemon, "eval", args=[f"JSON.stringify({store})"], options=tab)
+            assert listed["output"] == json.loads(raw["output"])
+            assert _cmd(daemon, f"{prefix}-get", args=["k1"], options=tab)["output"] == '"v1"'
+            assert _cmd(daemon, f"{prefix}-get", args=["nope"], options=tab)["output"] == "null"
+            assert _cmd(daemon, f"{prefix}-delete", args=["e"], options=tab)["output"] == f"{store}['e'] deleted."
+            assert (
+                _cmd(daemon, f"{prefix}-delete", args=["e"], options=tab)["output"] == f"{store} has no key 'e' (no-op)"
+            )
+            assert _cmd(daemon, f"{prefix}-clear", options=tab)["output"] == f"{store} cleared."
+        _cmd(daemon, "close", options=tab)
+
+    def test_state_save_then_load_round_trips(self, daemon, http_origin, tmp_path):
+        tab = {"tab": "state"}
+        assert _cmd(daemon, "open", args=[f"{http_origin}/page.html"], options=tab)["success"] is True
+        _cmd(daemon, "localstorage-set", args=["tok", "abc"], options=tab)
+        state_file = tmp_path / "state.json"
+        assert _cmd(daemon, "state-save", args=[str(state_file)], options=tab)["success"] is True
+        saved = json.loads(state_file.read_text(encoding="utf-8"))
+        # Another origin in the file: state-load applies it too, without visiting it first.
+        other = http_origin.replace("127.0.0.1", "localhost")
+        saved["origins"].append({"origin": other, "localStorage": [{"name": "other", "value": "o"}]})
+        state_file.write_text(json.dumps(saved), encoding="utf-8")
+
+        _cmd(daemon, "localstorage-clear", options=tab)
+        resp = _cmd(daemon, "state-load", args=[str(state_file)], options=tab)
+        assert resp == {"success": True, "output": f"State loaded from {state_file}"}
+        assert _cmd(daemon, "localstorage-get", args=["tok"], options=tab)["output"] == '"abc"'
+        _cmd(daemon, "goto", args=[f"{other}/page.html"], options=tab)
+        assert _cmd(daemon, "localstorage-get", args=["other"], options=tab)["output"] == '"o"'
+        _cmd(daemon, "close", options=tab)
