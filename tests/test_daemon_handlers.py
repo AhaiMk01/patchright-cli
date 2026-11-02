@@ -478,6 +478,42 @@ async def test_request_renders_entry(mock_state, mock_session):
     assert "Content-Type" in response["output"]
     assert '"a":1' in response["output"]
     assert "X-Trace" in response["output"]
+    assert "HTTP version" not in response["output"]
+
+
+def _request_entry(resp):
+    return {
+        "id": 0,
+        "method": "GET",
+        "url": "https://example.com/",
+        "resource": "document",
+        "ts": 1.0,
+        "status": 200,
+        "status_text": "OK",
+        "_request": object(),
+        "_response": resp,
+    }
+
+
+@pytest.mark.asyncio
+async def test_request_shows_http_version(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    resp = MagicMock(http_version=AsyncMock(return_value="HTTP/2.0"))
+    mock_session.network_log = [_request_entry(resp)]
+    response = await handle_command(mock_state, {"command": "request", "args": ["0"]})
+    assert response["success"] is True
+    lines = response["output"].splitlines()
+    assert lines[lines.index("- Status: 200 OK") + 1] == "- HTTP version: HTTP/2.0"
+
+
+@pytest.mark.asyncio
+async def test_request_omits_http_version_it_cannot_read(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    resp = MagicMock(http_version=AsyncMock(side_effect=Exception("Target closed")))
+    mock_session.network_log = [_request_entry(resp)]
+    response = await handle_command(mock_state, {"command": "request", "args": ["0"]})
+    assert response["success"] is True
+    assert "HTTP version" not in response["output"]
 
 
 @pytest.mark.asyncio

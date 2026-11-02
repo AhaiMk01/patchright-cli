@@ -2354,6 +2354,13 @@ async def cmd_request(session: Session, page, args: list, options: dict, cwd: st
     if status is not None:
         status_text = entry.get("status_text") or ""
         lines.append(f"- Status: {status} {status_text}".rstrip())
+    resp = entry.get("_response")
+    if resp is not None:
+        # Asked on demand: it is a protocol round trip, too costly for every response.
+        try:
+            lines.append(f"- HTTP version: {await resp.http_version()}")
+        except Exception:
+            pass
 
     req_headers = entry.get("request_headers") or {}
     if req_headers:
@@ -2373,7 +2380,6 @@ async def cmd_request(session: Session, page, args: list, options: dict, cwd: st
             lines.append(f"- {k}: {v}")
 
     if options.get("body"):
-        resp = entry.get("_response")
         if resp is not None:
             try:
                 body = await resp.text()
