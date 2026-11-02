@@ -1598,10 +1598,9 @@ async def cmd_click(session: Session, page, args: list, options: dict, cwd: str 
         "el => { while (el) { if (el.tagName === 'A') return el.href; el = el.parentElement; } return null; }"
     )
     if link_href:
-        if scroll == "none":
-            # The link is followed without a click, so check reachability with a trial click first.
-            if failed := await _scroll_action(scroll, elem.click(trial=True, scroll="none")):
-                return failed
+        # The link is followed without a click, so with --scroll=none check reachability with a trial click first.
+        if scroll == "none" and (failed := await _scroll_action(scroll, elem.click(trial=True, scroll="none"))):
+            return failed
         await session.goto(page, link_href, _web_only(options))
         session.push_history(page.url)
     else:
@@ -2577,14 +2576,13 @@ async def cmd_request(session: Session, page, args: list, options: dict, cwd: st
         for k, v in resp_headers.items():
             lines.append(f"- {k}: {v}")
 
-    if options.get("body"):
-        if resp is not None:
-            try:
-                body = await resp.text()
-                lines.append("### Response Body")
-                lines.append(body if len(body) < 8000 else body[:8000] + "\n... (truncated)")
-            except Exception as e:
-                lines.append(f"### Response Body\n(could not read: {e})")
+    if options.get("body") and resp is not None:
+        try:
+            body = await resp.text()
+            lines.append("### Response Body")
+            lines.append(body if len(body) < 8000 else body[:8000] + "\n... (truncated)")
+        except Exception as e:
+            lines.append(f"### Response Body\n(could not read: {e})")
 
     return {"success": True, "output": "\n".join(lines)}
 
