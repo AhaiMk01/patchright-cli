@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Delayed</title><script src="common.js"></script></head>
+<body>
+  <h1>Delayed</h1>
+  <button id="vanish" type="button">Vanishing</button>
+  <div id="slot"></div>
+  <script>
+    setTimeout(() => {
+      const b = document.createElement('button');
+      b.id = 'late'; b.type = 'button'; b.textContent = 'Late button';
+      b.onclick = () => log('late');
+      document.getElementById('slot').appendChild(b);
+    }, 1500);
+    setTimeout(() => { document.getElementById('vanish').style.display = 'none'; }, 5000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Shadow</title><script src="common.js"></script></head>
+<body>
+  <h1>Shadow</h1>
+  <div id="host"></div>
+  <script>
+    const root = document.getElementById('host').attachShadow({ mode: 'open' });
+    root.innerHTML = '<label>Shadow field <input id="shadow-input" type="text"></label>' +
+      '<button id="shadow-btn" type="button">Shadow button</button><div id="inner-host"></div>';
+    root.getElementById('shadow-btn').addEventListener('click', () => log('shadow-btn'));
+    const inner = root.getElementById('inner-host').attachShadow({ mode: 'open' });
+    inner.innerHTML = '<button id="deep-btn" type="button">Deep button</button>';
+    inner.getElementById('deep-btn').addEventListener('click', () => log('deep-btn'));
+  </script>
+</body>
+</html>
