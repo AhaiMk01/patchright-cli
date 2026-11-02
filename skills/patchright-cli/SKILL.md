@@ -378,20 +378,20 @@ arguments shows whether the daemon is up and which sessions are open.
 open [url] [--block-networks] [--headed] [--webmcp]  # Open browser (starts daemon if needed)
 attach --cdp=<url> [--cdp-headers] [--cdp-timeout] [--block-networks]  # Attach to running Chrome via CDP
 goto <url>                              # Navigate to URL
-click <ref> [button] [--modifiers]      # Click element
+click <ref> [button] [--modifiers] [--scroll]  # Click element
 dblclick <ref> [button] [--modifiers]   # Double-click element
 fill <ref> <value> [--submit]           # Fill text into element
 type <text> [--submit]                  # Type text via keyboard
-hover <ref>                             # Hover over element
+hover <ref> [--scroll]                  # Hover over element
 select <ref> <value>                    # Select dropdown option
-check <ref>                             # Check checkbox/radio
+check <ref> [--scroll]                  # Check checkbox/radio
 uncheck <ref>                           # Uncheck checkbox/radio
 snapshot [ref] [--selector] [--filename] [--depth] [--interactive] [--boxes]  # Take accessibility snapshot
 find <text> [--regex] [--all] [--limit]  # Search the snapshot for matching elements
 eval <expr> [ref] [--file]              # Evaluate JavaScript (expression, --file or stdin)
 text <ref|selector>                     # Get text content of element
 screenshot [ref] [--full-page] [--hires] [--filename]  # Save screenshot
-drag <from> <to>                        # Drag element to target
+drag <from> <to> [--scroll]             # Drag element to target
 drop <ref> [--path] [--data]            # Drop file/data onto element
 close                                   # Close browser session (or the --tab it is addressed to)
 detach                                  # Detach attached session (keep external browser running)

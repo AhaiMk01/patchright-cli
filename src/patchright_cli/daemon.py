@@ -174,6 +174,9 @@ class Session:
         self._tracing: bool = False
         # Active `route` interceptions: pattern -> (handler, fulfilled status).
         self._routes: dict[str, tuple] = {}
+        # Refs shown by `highlight`, per page (by id): the native overlay can't
+        # be queried, so this is what `highlight --hide` reports against.
+        self.highlights: dict[int, set[str]] = {}
 
     # -- internal helpers ---------------------------------------------------
 
@@ -294,6 +297,9 @@ class Session:
                 "text": " ".join(str(a.get("value", a.get("description", ""))) for a in event.get("args", [])),
                 "url": url,
                 "ts": time.time(),
+                # CDP's Runtime.Timestamp: when the page logged it, in ms since the
+                # epoch -- what ConsoleMessage.timestamp reports.
+                "timestamp": event.get("timestamp", time.time() * 1000),
             }
         )
 
@@ -1546,9 +1552,25 @@ async def cmd_title(session: Session, page, args: list, options: dict, cwd: str 
 
 # -- Core interactions -------------------------------------------------------
 
+SCROLL_VALUES = ("auto", "none")
+
+
+def _scroll_option(options: dict) -> str | None:
+    """The `--scroll` value for an action: auto (the default) or none.
+
+    `none` makes the action fail instead of scrolling the element into view.
+    """
+    value = options.get("scroll")
+    if value is None:
+        return None
+    if value not in SCROLL_VALUES:
+        raise ValueError(f"Invalid --scroll value: {value!r}. Expected one of: {', '.join(SCROLL_VALUES)}.")
+    return value
+
 
 @register("click")
 async def cmd_click(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
     button = args[1] if len(args) > 1 else "left"
     modifiers = options.get("modifiers", "").split(",") if options.get("modifiers") else []
@@ -1558,10 +1580,13 @@ async def cmd_click(session: Session, page, args: list, options: dict, cwd: str 
         "el => { while (el) { if (el.tagName === 'A') return el.href; el = el.parentElement; } return null; }"
     )
     if link_href:
+        if scroll == "none":
+            # The link is followed without a click, so check reachability with a trial click first.
+            await elem.click(trial=True, scroll="none")
         await session.goto(page, link_href, _web_only(options))
         session.push_history(page.url)
     else:
-        await elem.click(button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None)
+        await elem.click(button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None, scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -1594,8 +1619,9 @@ async def cmd_type(session: Session, page, args: list, options: dict, cwd: str |
 
 @register("hover")
 async def cmd_hover(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
-    await elem.hover()
+    await elem.hover(scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -1608,8 +1634,9 @@ async def cmd_select(session: Session, page, args: list, options: dict, cwd: str
 
 @register("check")
 async def cmd_check(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
-    await elem.check()
+    await elem.check(scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -1622,9 +1649,10 @@ async def cmd_uncheck(session: Session, page, args: list, options: dict, cwd: st
 
 @register("drag")
 async def cmd_drag(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     src = await _resolve_ref(session, page, args[0])
     dst = await _resolve_ref(session, page, args[1])
-    await src.drag_to(dst)
+    await src.drag_to(dst, scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -1987,61 +2015,41 @@ async def cmd_pick_locator(
 
 @register("highlight")
 async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    """Draw or remove a persistent overlay over an element.
+    """Show or hide Playwright's native highlight overlay on an element.
 
-    `highlight <ref>` shows it; `highlight <ref> --hide` hides it; `highlight --hide`
-    clears all highlights on the page.
+    `highlight <ref>` shows it (`--style` adds inline CSS to the overlay);
+    `highlight <ref> --hide` hides it; `highlight --hide` clears every
+    highlight on the page.
     """
     hide = bool(options.get("hide"))
-    style = options.get("style") or "outline: 2px solid #ff3366; outline-offset: 2px;"
+    style = options.get("style")
+    if style is not None and not isinstance(style, str):
+        return {"success": False, "output": 'Give --style some CSS, e.g. --style="outline: 2px dashed red".'}
+    shown = session.highlights.setdefault(id(page), set())
 
     if hide and not args:
-        removed = await page.evaluate(
-            "() => { const els = document.querySelectorAll('[data-patchright-highlight]');"
-            " els.forEach(el => el.remove()); return els.length; }"
-        )
-        if not removed:
+        had = bool(shown)
+        shown.clear()
+        await page.hide_highlight()
+        if not had:
             return {"success": True, "output": "No highlights on the page (no-op)"}
         return {"success": True, "output": "All highlights cleared."}
 
     if not args:
         return {"success": False, "output": "Usage: highlight <ref> [--style=...] [--hide]"}
-    elem = await _resolve_ref(session, page, args[0])
+    ref = args[0]
+    elem = await _resolve_ref(session, page, ref)
 
     if hide:
-        had = await elem.evaluate(
-            "el => { const id = el.getAttribute('data-patchright-hl-id');"
-            " if (!id) return false;"
-            ' const o = document.querySelector(`[data-patchright-highlight="${id}"]`);'
-            " if (o) o.remove();"
-            " el.removeAttribute('data-patchright-hl-id');"
-            " return !!o; }"
-        )
-        if not had:
-            return {"success": True, "output": f"{args[0]} is not highlighted (no-op)"}
-        return {"success": True, "output": f"Hid highlight on {args[0]}."}
+        if ref not in shown:
+            return {"success": True, "output": f"{ref} is not highlighted (no-op)"}
+        await elem.hide_highlight()
+        shown.discard(ref)
+        return {"success": True, "output": f"Hid highlight on {ref}."}
 
-    js = """
-    (el, { style }) => {
-      const rect = el.getBoundingClientRect();
-      const id = el.getAttribute('data-patchright-hl-id') || ('h' + Math.random().toString(36).slice(2));
-      el.setAttribute('data-patchright-hl-id', id);
-      let overlay = document.querySelector(`[data-patchright-highlight="${id}"]`);
-      if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.setAttribute('data-patchright-highlight', id);
-        overlay.style.cssText = 'position: fixed; pointer-events: none; z-index: 2147483647;';
-        document.documentElement.appendChild(overlay);
-      }
-      overlay.style.left = rect.left + 'px';
-      overlay.style.top = rect.top + 'px';
-      overlay.style.width = rect.width + 'px';
-      overlay.style.height = rect.height + 'px';
-      overlay.style.cssText += '; ' + style;
-    }
-    """
-    await elem.evaluate(js, {"style": style})
-    return {"success": True, "output": f"Highlighted {args[0]}."}
+    await elem.highlight(style=style or None)
+    shown.add(ref)
+    return {"success": True, "output": f"Highlighted {ref}."}
 
 
 # -- Eval / Screenshot -------------------------------------------------------
@@ -2447,7 +2455,10 @@ async def cmd_console(session: Session, page, args: list, options: dict, cwd: st
     lines = [f"[{m['type']}] {m['text']}" for m in shown]
     if options.get("clear"):
         session.console_messages.clear()
-    result = {"success": True, "data": [{"level": m["type"], "text": m["text"]} for m in shown]}
+    result = {
+        "success": True,
+        "data": [{"level": m["type"], "text": m["text"], "timestamp": m["timestamp"]} for m in shown],
+    }
     if len(matching) > len(shown):
         result["total"] = len(matching)
     if not lines:
@@ -2515,6 +2526,13 @@ async def cmd_request(session: Session, page, args: list, options: dict, cwd: st
     if status is not None:
         status_text = entry.get("status_text") or ""
         lines.append(f"- Status: {status} {status_text}".rstrip())
+    resp = entry.get("_response")
+    if resp is not None:
+        # Asked on demand: it is a protocol round trip, too costly for every response.
+        try:
+            lines.append(f"- HTTP version: {await resp.http_version()}")
+        except Exception:
+            pass
 
     req_headers = entry.get("request_headers") or {}
     if req_headers:
@@ -2534,7 +2552,6 @@ async def cmd_request(session: Session, page, args: list, options: dict, cwd: st
             lines.append(f"- {k}: {v}")
 
     if options.get("body"):
-        resp = entry.get("_response")
         if resp is not None:
             try:
                 body = await resp.text()

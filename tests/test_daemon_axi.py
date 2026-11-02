@@ -37,6 +37,7 @@ def mock_session():
     session.page.route = AsyncMock()
     session.page.unroute = AsyncMock()
     session._codegen = None
+    session.highlights = {}
     session._video_recording = False
     session._video_cdp = None
     session._video_show_actions = None
@@ -217,7 +218,7 @@ async def test_storage_get_set_clear_use_native_web_storage(mock_state, mock_ses
 @pytest.mark.asyncio
 async def test_highlight_hide_with_nothing_highlighted_is_a_noop(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.evaluate.return_value = 0
+    mock_session.page.hide_highlight = AsyncMock()
     _assert_noop(await _run(mock_state, "highlight", hide=True))
 
 
@@ -225,10 +226,11 @@ async def test_highlight_hide_with_nothing_highlighted_is_a_noop(mock_state, moc
 async def test_highlight_hide_on_unhighlighted_ref_is_a_noop(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
     locator = MagicMock()
-    locator.evaluate = AsyncMock(return_value=False)
+    locator.hide_highlight = AsyncMock()
     mock_session.ref_registry = MagicMock()
     mock_session.ref_registry.resolve.return_value = locator
     _assert_noop(await _run(mock_state, "highlight", ["e3"], hide=True))
+    locator.hide_highlight.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -415,21 +417,21 @@ async def test_route_list_data(mock_state, mock_session):
 
 @pytest.mark.asyncio
 async def test_console_data_and_total_when_truncated(mock_state, mock_session):
-    mock_session.console_messages = [{"type": "log", "text": f"m{i}"} for i in range(60)]
+    mock_session.console_messages = [{"type": "log", "text": f"m{i}", "timestamp": 1000.0 + i} for i in range(60)]
     mock_state.sessions = {"default": mock_session}
     response = await _run(mock_state, "console")
     assert len(response["data"]) == 50
-    assert response["data"][0] == {"level": "log", "text": "m10"}
+    assert response["data"][0] == {"level": "log", "text": "m10", "timestamp": 1010.0}
     assert response["total"] == 60
 
 
 @pytest.mark.asyncio
 async def test_console_without_truncation_has_no_total(mock_state, mock_session):
-    mock_session.console_messages = [{"type": "warning", "text": "careful"}]
+    mock_session.console_messages = [{"type": "warning", "text": "careful", "timestamp": 1762000000123.5}]
     mock_state.sessions = {"default": mock_session}
     response = await _run(mock_state, "console", ["warn"])
     assert response["output"] == "[warning] careful"
-    assert response["data"] == [{"level": "warning", "text": "careful"}]
+    assert response["data"] == [{"level": "warning", "text": "careful", "timestamp": 1762000000123.5}]
     assert "total" not in response
 
 

@@ -31,6 +31,7 @@ def mock_session():
     session.page.url = "https://example.com"
     session.page.title = AsyncMock(return_value="Example")
     session._codegen = None
+    session.highlights = {}
     session._video_recording = False
     session._video_show_actions = None
     session.tabs = {"default": MagicMock()}
@@ -89,7 +90,77 @@ async def test_click_resolves_ref_and_clicks(mock_state, mock_session):
 
     assert response["success"] is True
     registry.resolve.assert_called_once_with(mock_session.page, "e1")
-    locator.click.assert_awaited_once_with(button="left", modifiers=None)
+    locator.click.assert_awaited_once_with(button="left", modifiers=None, scroll=None)
+
+
+def _action_locator(mock_session, href=None):
+    registry = MagicMock()
+    locator = MagicMock()
+    for method in ("click", "hover", "check", "drag_to"):
+        setattr(locator, method, AsyncMock())
+    locator.evaluate = AsyncMock(return_value=href)
+    registry.resolve.return_value = locator
+    mock_session.ref_registry = registry
+    return locator
+
+
+async def _run_action(mock_state, command, args, options):
+    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = ("snapshot-text", MagicMock())
+        with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
+            return await handle_command(mock_state, {"command": command, "args": args, "options": options})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["auto", "none"])
+@pytest.mark.parametrize(
+    ("command", "args", "method"),
+    [
+        ("click", ["e1"], "click"),
+        ("hover", ["e1"], "hover"),
+        ("check", ["e1"], "check"),
+        ("drag", ["e1", "e2"], "drag_to"),
+    ],
+)
+async def test_actions_pass_scroll_through(mock_state, mock_session, command, args, method, value):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session)
+    response = await _run_action(mock_state, command, args, {"scroll": value})
+    assert response["success"] is True, response
+    assert getattr(locator, method).await_args.kwargs["scroll"] == value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["click", "hover", "check", "drag"])
+@pytest.mark.parametrize("value", ["sideways", True])
+async def test_actions_reject_bad_scroll_values(mock_state, mock_session, command, value):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session)
+    response = await _run_action(mock_state, command, ["e1", "e2"], {"scroll": value})
+    assert response["success"] is False
+    assert "--scroll" in response["output"] and "auto, none" in response["output"]
+    for method in ("click", "hover", "check", "drag_to"):
+        getattr(locator, method).assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_click_link_with_scroll_none_checks_reachability_first(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session, href="https://example.com/next")
+    response = await _run_action(mock_state, "click", ["e1"], {"scroll": "none"})
+    assert response["success"] is True, response
+    locator.click.assert_awaited_once_with(trial=True, scroll="none")
+    mock_session.page.goto.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_click_link_unreachable_without_scrolling_does_not_navigate(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session, href="https://example.com/next")
+    locator.click.side_effect = Exception("Timeout 30000ms exceeded.")
+    response = await _run_action(mock_state, "click", ["e1"], {"scroll": "none"})
+    assert response["success"] is False
+    mock_session.page.goto.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -472,6 +543,42 @@ async def test_request_renders_entry(mock_state, mock_session):
     assert "Content-Type" in response["output"]
     assert '"a":1' in response["output"]
     assert "X-Trace" in response["output"]
+    assert "HTTP version" not in response["output"]
+
+
+def _request_entry(resp):
+    return {
+        "id": 0,
+        "method": "GET",
+        "url": "https://example.com/",
+        "resource": "document",
+        "ts": 1.0,
+        "status": 200,
+        "status_text": "OK",
+        "_request": object(),
+        "_response": resp,
+    }
+
+
+@pytest.mark.asyncio
+async def test_request_shows_http_version(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    resp = MagicMock(http_version=AsyncMock(return_value="HTTP/2.0"))
+    mock_session.network_log = [_request_entry(resp)]
+    response = await handle_command(mock_state, {"command": "request", "args": ["0"]})
+    assert response["success"] is True
+    lines = response["output"].splitlines()
+    assert lines[lines.index("- Status: 200 OK") + 1] == "- HTTP version: HTTP/2.0"
+
+
+@pytest.mark.asyncio
+async def test_request_omits_http_version_it_cannot_read(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    resp = MagicMock(http_version=AsyncMock(side_effect=Exception("Target closed")))
+    mock_session.network_log = [_request_entry(resp)]
+    response = await handle_command(mock_state, {"command": "request", "args": ["0"]})
+    assert response["success"] is True
+    assert "HTTP version" not in response["output"]
 
 
 @pytest.mark.asyncio
@@ -550,33 +657,69 @@ async def test_generate_locator_escapes_quote(mock_state, mock_session):
     assert "It\\'s me" in r["output"]
 
 
+def _highlight_locator(mock_session):
+    registry = MagicMock()
+    locator = MagicMock()
+    locator.highlight = AsyncMock()
+    locator.hide_highlight = AsyncMock()
+    registry.resolve.return_value = locator
+    mock_session.ref_registry = registry
+    return locator
+
+
 @pytest.mark.asyncio
 async def test_highlight_clear_all(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.evaluate = AsyncMock()
+    mock_session.page.hide_highlight = AsyncMock()
+    mock_session.highlights = {id(mock_session.page): {"e1", "e2"}}
     response = await handle_command(mock_state, {"command": "highlight", "args": [], "options": {"hide": True}})
     assert response["success"] is True
     assert "cleared" in response["output"].lower()
-    mock_session.page.evaluate.assert_awaited_once()
+    mock_session.page.hide_highlight.assert_awaited_once_with()
+    assert mock_session.highlights[id(mock_session.page)] == set()
 
 
 @pytest.mark.asyncio
-async def test_highlight_show(mock_state, mock_session):
+async def test_highlight_show_passes_style_to_native_highlight(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
-    locator = MagicMock()
-    locator.evaluate = AsyncMock()
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
+    locator = _highlight_locator(mock_session)
 
     response = await handle_command(
         mock_state, {"command": "highlight", "args": ["e1"], "options": {"style": "outline: 4px solid red"}}
     )
+    assert response == {"success": True, "output": "Highlighted e1."}
+    locator.highlight.assert_awaited_once_with(style="outline: 4px solid red")
+    assert mock_session.highlights[id(mock_session.page)] == {"e1"}
+
+
+@pytest.mark.asyncio
+async def test_highlight_show_without_style_uses_native_default(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _highlight_locator(mock_session)
+    response = await handle_command(mock_state, {"command": "highlight", "args": ["e1"], "options": {}})
     assert response["success"] is True
-    locator.evaluate.assert_awaited_once()
-    js, payload = locator.evaluate.call_args.args
-    assert "data-patchright-highlight" in js
-    assert payload["style"] == "outline: 4px solid red"
+    locator.highlight.assert_awaited_once_with(style=None)
+
+
+@pytest.mark.asyncio
+async def test_highlight_rejects_bare_style_flag(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _highlight_locator(mock_session)
+    response = await handle_command(mock_state, {"command": "highlight", "args": ["e1"], "options": {"style": True}})
+    assert response["success"] is False
+    assert "--style" in response["output"]
+    locator.highlight.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_highlight_hide_ref_uses_native_hide(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _highlight_locator(mock_session)
+    await handle_command(mock_state, {"command": "highlight", "args": ["e1"], "options": {}})
+    response = await handle_command(mock_state, {"command": "highlight", "args": ["e1"], "options": {"hide": True}})
+    assert response == {"success": True, "output": "Hid highlight on e1."}
+    locator.hide_highlight.assert_awaited_once_with()
+    assert mock_session.highlights[id(mock_session.page)] == set()
 
 
 @pytest.mark.asyncio
@@ -1383,6 +1526,22 @@ async def test_console_listener_records_messages_after_capture_starts(mock_state
     assert session.console_messages[0]["url"] == "https://example.com"
     response = await handle_command(mock_state, {"command": "console", "args": []})
     assert response["output"] == "[warning] careful\n[log] hi 3"
+
+
+@pytest.mark.asyncio
+async def test_console_reports_the_cdp_event_timestamp(mock_state):
+    page, cdp = _console_page()
+    session = Session("default", page.context, [page])
+    mock_state.sessions = {"default": session}
+    await handle_command(mock_state, {"command": "console", "args": []})
+
+    listener = cdp.on.call_args.args[1]
+    listener({"type": "log", "args": [{"value": "hi"}], "timestamp": 1762000000123.456})
+    with patch("patchright_cli.daemon.time.time", return_value=1762000000.5):
+        listener({"type": "log", "args": [{"value": "no stamp"}]})
+
+    response = await handle_command(mock_state, {"command": "console", "args": []})
+    assert [m["timestamp"] for m in response["data"]] == [1762000000123.456, 1762000000500.0]
 
 
 @pytest.mark.asyncio
