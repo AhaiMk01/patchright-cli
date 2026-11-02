@@ -556,3 +556,59 @@ class TestWebMCPE2E:
             assert 'No WebMCP tool named "nope"' in unknown["output"]
         finally:
             self._cmd(daemon, "close")
+
+
+@pytest.mark.e2e
+class TestDebuggerE2E:
+    """BrowserContext.debugger: a paused command is held, other commands keep working."""
+
+    SESSION = "debugger-e2e"
+
+    def _cmd(self, port, action, args=None, **options):
+        return _cmd(port, action, args, {"session": self.SESSION, **options})
+
+    def test_pause_hold_step_resume(self, daemon):
+        opened = self._cmd(daemon, "open", [FIXTURE_URL], profile=f"debugger-e2e-{daemon}")
+        assert opened["success"] is True, opened
+        try:
+            armed = self._cmd(daemon, "debugger-pause")
+            assert armed["data"]["state"] == "armed", armed
+
+            # aria_snapshot is not a pausable driver call: it runs through and says so.
+            snap = self._cmd(daemon, "snapshot")
+            assert snap["success"] is True, snap
+            assert "paused" not in snap
+            assert "Debugger: `snapshot` ran without pausing" in snap["output"]
+
+            held = self._cmd(daemon, "eval", ["document.title = 'stepped'"])
+            assert held.get("paused") is True, held
+            assert held["data"]["title"] == "Evaluate"
+            assert held["data"]["command"] == "eval document.title = 'stepped'"
+
+            # Not paused itself: the driver lets every call through while one is paused.
+            title = self._cmd(daemon, "title")
+            assert title["success"] is True, title
+            assert "stepped" not in title["output"]
+
+            resumed = self._cmd(daemon, "debugger-resume")
+            assert resumed["success"] is True, resumed
+            assert resumed["output"].startswith("`eval document.title = 'stepped'` finished:")
+            assert self._cmd(daemon, "title")["output"].strip().endswith("stepped")
+            assert self._cmd(daemon, "debugger-status")["data"]["state"] == "off"
+
+            # An armed pause nothing has hit can be cancelled.
+            self._cmd(daemon, "debugger-pause")
+            cancelled = self._cmd(daemon, "debugger-resume")
+            assert cancelled["output"] == "Pause request cancelled. Debugger off."
+        finally:
+            self._cmd(daemon, "close")
+
+    def test_close_while_paused(self, daemon):
+        opened = self._cmd(daemon, "open", [FIXTURE_URL], profile=f"debugger-e2e-{daemon}")
+        assert opened["success"] is True, opened
+        self._cmd(daemon, "debugger-pause")
+        held = self._cmd(daemon, "eval", ["1"])
+        assert held.get("paused") is True, held
+        closed = self._cmd(daemon, "close")
+        assert closed["success"] is True, closed
+        assert "closed" in closed["output"]

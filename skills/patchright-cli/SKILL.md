@@ -317,6 +317,27 @@ and future pages, including popups. Earlier messages are unavailable: call it
 before reproducing an issue, then again to read messages. Capture makes CDP
 detectable until the session closes; `console --clear` only clears the buffer.
 
+### Debugger (step through a command's browser calls)
+
+```bash
+debugger-pause                # Arm: the next page action, navigation or eval pauses
+click e3                      # Replies at once: "Paused before: Evaluate (held: `click e3`)"
+snapshot                      # Other commands still run while paused, actions included
+debugger-step                 # Run that call, pause before the next ("Click ...")
+debugger-resume               # Let the held command finish, turn the debugger off
+debugger-status               # off | armed | paused + call title and held command
+```
+
+This is Playwright's action debugger, not a JavaScript debugger: it holds
+patchright-cli's own calls in the driver, sends nothing to Chrome, and page
+scripts keep running, so pages cannot detect it. Only page actions, navigation,
+`eval` and element getters pause; `snapshot`, `title`, cookies, `state-save`,
+`tab-new` and `highlight` run straight through (the reply says so) and leave it
+armed. While one call is held, other commands, actions included, run at once,
+so their side effects can land before the held one's. After `debugger-step` the
+debugger stays armed until `debugger-resume`, which also cancels an armed pause
+nothing has hit. `close` while paused resumes and closes.
+
 ### Recording and capture
 
 ```bash
@@ -511,6 +532,12 @@ request <id> [--body]                   # Show full detail for a network request
 generate-locator <ref>                  # Emit Playwright locator expression for a ref
 pick-locator [--wait] [--cancel]        # Wait for a person to click an element; print its locator
 highlight <ref> [--style] [--hide]      # Show overlay on element
+
+# Debugger
+debugger-pause                          # Pause before the next page action, navigation or eval; that command replies at once, held
+debugger-step                           # Run the paused call and pause before the next one; prints the held command's result
+debugger-resume                         # Let the held command finish and print its result (or cancel an unhit pause)
+debugger-status                         # Show the debugger state: off, armed, or the paused call and held command
 
 # WebMCP
 webmcp-list                             # List the WebMCP tools the page registers
