@@ -443,3 +443,28 @@ def test_cli_never_loads_a_client_writable_config(tmp_path, monkeypatch):
     config = Path(next(a for a in argv if a.startswith("--config=")).split("=", 1)[1])
     assert json.loads(config.read_text(encoding="utf-8")) == {}
     assert tmp_path not in config.parents
+
+
+@pytest.mark.parametrize(
+    ("tool", "values", "argv"),
+    [
+        ("patchright_click", {"ref": "e1"}, ["click", "e1", "left"]),
+        ("patchright_hover", {"ref": "e1"}, ["hover", "e1"]),
+        ("patchright_check", {"ref": "e1"}, ["check", "e1"]),
+        ("patchright_drag", {"from_ref": "e1", "to_ref": "e2"}, ["drag", "e1", "e2"]),
+    ],
+)
+def test_action_tools_map_scroll_to_the_cli_flag(tool, values, argv):
+    assert mcp_server._build_args(tool, _defaults(tool, **values)) == argv
+    assert mcp_server._build_args(tool, _defaults(tool, **values, scroll="none")) == [*argv, "--scroll=none"]
+    with pytest.raises(ValueError, match="scroll must be auto or none"):
+        mcp_server._build_args(tool, _defaults(tool, **values, scroll="sideways"))
+
+
+def test_highlight_tool_maps_style_and_hide():
+    args = mcp_server._build_args(
+        "patchright_highlight", _defaults("patchright_highlight", ref="e1", style="outline: 1px")
+    )
+    assert args == ["highlight", "e1", "--style=outline: 1px"]
+    args = mcp_server._build_args("patchright_highlight", _defaults("patchright_highlight", ref="e1", hide=True))
+    assert args == ["highlight", "e1", "--hide"]

@@ -115,6 +115,13 @@ TOOL_SPECS = {
             ("ref", "string", True, None, "Snapshot element reference."),
             ("button", "string", False, "left", "Mouse button: left, right or middle."),
             ("modifiers", "string", False, "", "Comma-separated modifiers such as Alt,Shift."),
+            (
+                "scroll",
+                "string",
+                False,
+                "auto",
+                "auto: scroll the element into view; none: fail if the element is off-screen.",
+            ),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -148,6 +155,13 @@ TOOL_SPECS = {
         "description": "CLI command: hover Hover an element.",
         "params": [
             ("ref", "string", True, None, "Snapshot element reference."),
+            (
+                "scroll",
+                "string",
+                False,
+                "auto",
+                "auto: scroll the element into view; none: fail if the element is off-screen.",
+            ),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -155,6 +169,13 @@ TOOL_SPECS = {
         "description": "CLI command: check Check a checkbox or radio element.",
         "params": [
             ("ref", "string", True, None, "Snapshot element reference."),
+            (
+                "scroll",
+                "string",
+                False,
+                "auto",
+                "auto: scroll the element into view; none: fail if the element is off-screen.",
+            ),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -235,6 +256,13 @@ TOOL_SPECS = {
         "params": [
             ("from_ref", "string", True, None, "Source reference."),
             ("to_ref", "string", True, None, "Target reference."),
+            (
+                "scroll",
+                "string",
+                False,
+                "auto",
+                "auto: scroll the element into view; none: fail if the element is off-screen.",
+            ),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -920,6 +948,13 @@ async def _run_patchright(
     return out
 
 
+def _scroll_args(p: dict[str, Any]) -> list[str]:
+    """`--scroll=none` when asked for; auto is the CLI default, so it adds nothing."""
+    if p["scroll"] not in {"auto", "none"}:
+        raise ValueError("scroll must be auto or none")
+    return ["--scroll=none"] if p["scroll"] == "none" else []
+
+
 def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     # Session-management / startup
     if name == "patchright_open":
@@ -970,14 +1005,11 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     # Straightforward commands
     simple = {
         "patchright_goto": ("goto", ["url"]),
-        "patchright_hover": ("hover", ["ref"]),
-        "patchright_check": ("check", ["ref"]),
         "patchright_uncheck": ("uncheck", ["ref"]),
         "patchright_scroll_to": ("scroll-to", ["ref"]),
         "patchright_generate_locator": ("generate-locator", ["ref"]),
         "patchright_select": ("select", ["ref", "value"]),
         "patchright_text": ("text", ["target"]),
-        "patchright_drag": ("drag", ["from_ref", "to_ref"]),
         "patchright_close": ("close", []),
         "patchright_detach": ("detach", []),
         "patchright_go_back": ("go-back", []),
@@ -1052,7 +1084,15 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         args = [name.removeprefix("patchright_"), _V(p["ref"]), _V(p["button"])]
         if p["modifiers"]:
             args.append(f"--modifiers={p['modifiers']}")
+        if name == "patchright_click":
+            args += _scroll_args(p)
         return args
+
+    if name in {"patchright_hover", "patchright_check"}:
+        return [name.removeprefix("patchright_"), _V(p["ref"]), *_scroll_args(p)]
+
+    if name == "patchright_drag":
+        return ["drag", _V(p["from_ref"]), _V(p["to_ref"]), *_scroll_args(p)]
 
     if name == "patchright_fill":
         args = ["fill", _V(p["ref"]), _V(p["value"])]
