@@ -704,6 +704,17 @@ TOOL_SPECS = {
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
+    "patchright_pick_locator": {
+        "description": (
+            "CLI command: pick-locator Wait for a person to click an element in the headed browser and return "
+            "its locator, plus its snapshot ref when one matches."
+        ),
+        "params": [
+            ("wait", "number", False, 60, "Seconds to wait for the click before cancelling."),
+            ("cancel", "boolean", False, False, "Cancel the pick-locator waiting on this tab instead."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
     "patchright_highlight": {
         "description": "CLI command: highlight Show, style or hide a page highlight overlay.",
         "params": [
@@ -1283,6 +1294,11 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
             args.append("--hide")
         return args
 
+    if name == "patchright_pick_locator":
+        if p["cancel"]:
+            return ["pick-locator", "--cancel"]
+        return ["pick-locator", f"--wait={p['wait']}"]
+
     if name == "patchright_show":
         args = ["show", f"--show-port={p['port']}"]
         if p["annotate"]:
@@ -1311,6 +1327,9 @@ async def _run_registered_tool(name: str, params: dict[str, Any]) -> str:
     session = params.get("session")
     args = _build_args(name, params)
     timeout = 300 if name in LONG_TIMEOUT_TOOLS else 180
+    if name == "patchright_pick_locator" and not params.get("cancel"):
+        # The CLI waits up to --wait plus its own margin; outlast it.
+        timeout = max(timeout, params.get("wait", 60) + 60)
     return await _run_patchright(args, session=session, timeout=timeout)
 
 

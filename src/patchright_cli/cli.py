@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import socket
@@ -19,7 +20,14 @@ from pathlib import Path
 import click
 
 from patchright_cli import __version__
-from patchright_cli.daemon import DEFAULT_PORT, PROTOCOL_VERSION, ensure_daemon_running, read_daemon_token, token_path
+from patchright_cli.daemon import (
+    DEFAULT_PICK_WAIT,
+    DEFAULT_PORT,
+    PROTOCOL_VERSION,
+    ensure_daemon_running,
+    read_daemon_token,
+    token_path,
+)
 
 
 def _soften_output_encoding(*streams) -> None:
@@ -444,25 +452,47 @@ KILL_ALL_PROBE_TIMEOUT = 5
 def _socket_timeout(command: str, options: dict) -> float:
     """How long to wait on the daemon for this command.
 
-    `show --annotate` blocks on a person, so the default would hang up while
-    they are still drawing. Everything else keeps the generous-but-finite
-    default, which is what catches a wedged daemon.
+    `show --annotate` and `pick-locator` block on a person, so the default
+    would hang up while they are still drawing or looking for the element.
+    Everything else keeps the generous-but-finite default, which is what
+    catches a wedged daemon.
     """
     if command == "kill-all":
         return KILL_ALL_SOCKET_TIMEOUT
-    if command != "show" or not options.get("annotate"):
+    if command == "pick-locator" and not options.get("cancel"):
+        default_wait = DEFAULT_PICK_WAIT
+    elif command == "show" and options.get("annotate"):
+        default_wait = 300
+    else:
         return DEFAULT_SOCKET_TIMEOUT
     try:
-        wait = float(options.get("wait", 300))
+        wait = float(options.get("wait", default_wait))
     except (TypeError, ValueError):
         return DEFAULT_SOCKET_TIMEOUT
+    if not math.isfinite(wait):
+        return DEFAULT_SOCKET_TIMEOUT  # the daemon rejects it straight away
     return max(DEFAULT_SOCKET_TIMEOUT, wait + ANNOTATE_SOCKET_MARGIN)
 
 
+# A blocking recv() is not interrupted by Ctrl-C on Windows, so a command that
+# waits on a person reads the reply in slices this long and the interrupt lands
+# between them.
+INTERRUPT_POLL = 0.25
+
+
 def _send_command(
-    command: str, args: list, options: dict, port: int = DEFAULT_PORT, timeout: float | None = None
+    command: str,
+    args: list,
+    options: dict,
+    port: int = DEFAULT_PORT,
+    timeout: float | None = None,
+    interruptible: bool = False,
 ) -> dict:
-    """Connect to daemon, send command, receive response."""
+    """Connect to daemon, send command, receive response.
+
+    `interruptible` keeps the wait responsive to Ctrl-C for commands that can
+    block for minutes; the overall timeout is the same either way.
+    """
     msg = {
         "command": command,
         "args": args,
@@ -477,15 +507,20 @@ def _send_command(
     data = json.dumps(msg).encode("utf-8")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(timeout if timeout is not None else _socket_timeout(command, options))
+    wait = timeout if timeout is not None else _socket_timeout(command, options)
+    sock.settimeout(wait)
     try:
         sock.connect(("127.0.0.1", port))
         sock.sendall(struct.pack("!I", len(data)) + data)
 
+        deadline = None
+        if interruptible:
+            sock.settimeout(INTERRUPT_POLL)
+            deadline = time.monotonic() + wait
         # Read length-prefixed response
-        header = _recv_exact(sock, 4)
+        header = _recv_exact(sock, 4, deadline)
         length = struct.unpack("!I", header)[0]
-        resp_data = _recv_exact(sock, length)
+        resp_data = _recv_exact(sock, length, deadline)
         return json.loads(resp_data.decode("utf-8"))
     finally:
         sock.close()
@@ -571,6 +606,8 @@ def _ensure_and_send(command: str, args: list, options: dict, port: int, headles
         )
         sys.exit(1)
     try:
+        if command == "pick-locator" and not options.get("cancel"):
+            return _send_pick_locator(args, options, port)
         return _send_command(command, args, options, port)
     except (ConnectionError, OSError) as e:
         _print_error(
@@ -581,11 +618,37 @@ def _ensure_and_send(command: str, args: list, options: dict, port: int, headles
         sys.exit(1)
 
 
-def _recv_exact(sock: socket.socket, n: int) -> bytes:
-    """Receive exactly n bytes from socket."""
+def _send_pick_locator(args: list, options: dict, port: int) -> dict:
+    """Run `pick-locator`, cancelling the pick in the page when the user presses Ctrl-C.
+
+    Closing the socket alone would leave the page in pick mode until --wait
+    ran out, so a separate `pick-locator --cancel` ends it.
+    """
+    try:
+        return _send_command("pick-locator", args, options, port, interruptible=True)
+    except KeyboardInterrupt:
+        try:
+            _send_command("pick-locator", [], {**options, "cancel": True}, port, timeout=10)
+        except (ConnectionError, OSError):
+            pass
+        _print_error("pick-locator interrupted; pick mode was cancelled")
+        sys.exit(130)
+
+
+def _recv_exact(sock: socket.socket, n: int, deadline: float | None = None) -> bytes:
+    """Receive exactly n bytes from socket.
+
+    With a `deadline` the socket has a short timeout of its own: each one that
+    expires is retried until the deadline passes.
+    """
     buf = bytearray()
     while len(buf) < n:
-        chunk = sock.recv(n - len(buf))
+        try:
+            chunk = sock.recv(n - len(buf))
+        except TimeoutError:
+            if deadline is None or time.monotonic() >= deadline:
+                raise
+            continue
         if not chunk:
             raise ConnectionError("Connection closed by daemon")
         buf.extend(chunk)
@@ -1030,6 +1093,15 @@ COMMAND_SPECS: dict[str, dict] = {
         "summary": "Emit Playwright locator expression for a ref",
         "examples": ["generate-locator e5"],
     },
+    "pick-locator": {
+        "usage": "pick-locator",
+        "summary": "Wait for a person to click an element; print its locator",
+        "flags": {
+            "wait": "Seconds to wait for the click before cancelling (default: 60)",
+            "cancel": "Cancel the pick-locator waiting on this tab (default: off)",
+        },
+        "examples": ["pick-locator", "pick-locator --wait=180", "pick-locator --cancel"],
+    },
     "highlight": {
         "usage": "highlight <ref>",
         "summary": "Show overlay on element",
@@ -1346,7 +1418,7 @@ COMMAND_CATEGORIES = [
     ("Tracing", ["tracing-start", "tracing-stop"]),
     ("Video", ["video-start", "video-stop", "video-chapter", "video-show-actions", "video-hide-actions"]),
     ("PDF", ["pdf"]),
-    ("DevTools", ["console", "network", "requests", "request", "generate-locator", "highlight"]),
+    ("DevTools", ["console", "network", "requests", "request", "generate-locator", "pick-locator", "highlight"]),
     ("Session", ["list", "close-all", "kill-all", "delete-data"]),
     ("Profiles", ["profile-list", "profile-delete"]),
     ("Dashboard", ["show"]),

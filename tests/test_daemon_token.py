@@ -155,7 +155,9 @@ def test_cli_sends_token_and_omits_it_without_a_token_file(token_dir, monkeypatc
 
     reply = json.dumps({"success": True, "output": ""}).encode()
     monkeypatch.setattr(cli.socket, "socket", FakeSocket)
-    monkeypatch.setattr(cli, "_recv_exact", lambda _s, n: struct.pack("!I", len(reply)) if n == 4 else reply)
+    monkeypatch.setattr(
+        cli, "_recv_exact", lambda _s, n, _deadline=None: struct.pack("!I", len(reply)) if n == 4 else reply
+    )
 
     cli._send_command("list", [], {}, 9398)
     token = daemon.write_daemon_token(9398)

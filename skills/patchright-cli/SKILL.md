@@ -492,6 +492,7 @@ network [--static] [--clear]            # Show network requests
 requests [--static] [--clear]           # Alias for `network`
 request <id> [--body]                   # Show full detail for a network request
 generate-locator <ref>                  # Emit Playwright locator expression for a ref
+pick-locator [--wait] [--cancel]        # Wait for a person to click an element; print its locator
 highlight <ref> [--style] [--hide]      # Show overlay on element
 
 # Session
