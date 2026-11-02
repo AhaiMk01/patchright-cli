@@ -1,5 +1,6 @@
 """Unit tests for daemon command dispatch."""
 
+import asyncio
 from functools import partial
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1243,3 +1244,237 @@ async def test_close_all_works_when_named_session_is_not_open(mock_state):
     response = await handle_command(mock_state, {"command": "close-all", "args": []})
     assert response["success"] is True
     mock_state.close_session.assert_awaited_once_with("work")
+
+
+# -- Console capture ---------------------------------------------------------
+#
+# Console comes from CDP because Patchright suppresses page.on('console'), but
+# an enabled Runtime domain is itself detectable. Enabling it at attach time
+# marks every page as automated, so these tests pin the lazy behaviour.
+
+
+def _console_page():
+    """A Page whose CDP session records the domains enabled on it."""
+    cdp = MagicMock()
+    cdp.send = AsyncMock()
+    cdp.detach = AsyncMock()
+    page = MagicMock()
+    page.url = "https://example.com"
+    page.is_closed = MagicMock(return_value=False)
+    page.context = MagicMock()
+    page.context.new_cdp_session = AsyncMock(return_value=cdp)
+    return page, cdp
+
+
+@pytest.mark.asyncio
+async def test_attaching_a_page_sends_no_runtime_enable():
+    page, cdp = _console_page()
+    session = Session("default", page.context, [page])
+
+    await session.setup_listeners()
+
+    page.context.new_cdp_session.assert_not_awaited()
+    cdp.send.assert_not_awaited()
+    assert session._console_sessions == {}
+    # The page-event listeners, which involve no CDP domain, stay.
+    assert [call.args[0] for call in page.on.call_args_list] == ["request", "response", "dialog"]
+
+
+@pytest.mark.asyncio
+async def test_first_console_call_enables_runtime_exactly_once(mock_state):
+    page, cdp = _console_page()
+    session = Session("default", page.context, [page])
+    await session.setup_listeners()
+    mock_state.sessions = {"default": session}
+
+    first = await handle_command(mock_state, {"command": "console", "args": []})
+    assert first["success"] is True
+    assert "earlier messages are unavailable" in first["output"]
+    assert "detectable" in first["output"]
+    cdp.send.assert_awaited_once_with("Runtime.enable")
+    assert [call.args[0] for call in cdp.on.call_args_list] == ["Runtime.consoleAPICalled"]
+    assert session._console_sessions == {id(page): cdp}
+
+    second = await handle_command(mock_state, {"command": "console", "args": []})
+    assert second["success"] is True
+    assert "earlier messages" not in second["output"]
+    cdp.send.assert_awaited_once_with("Runtime.enable")
+    assert cdp.on.call_count == 1
+    page.context.new_cdp_session.assert_awaited_once_with(page)
+
+
+@pytest.mark.asyncio
+async def test_console_listener_records_messages_after_capture_starts(mock_state):
+    page, cdp = _console_page()
+    session = Session("default", page.context, [page])
+    mock_state.sessions = {"default": session}
+    await handle_command(mock_state, {"command": "console", "args": []})
+
+    listener = cdp.on.call_args.args[1]
+    listener({"type": "warning", "args": [{"value": "careful"}]})
+    listener({"type": "log", "args": [{"value": "hi"}, {"value": 3}]})
+
+    assert [(m["type"], m["text"]) for m in session.console_messages] == [("warning", "careful"), ("log", "hi 3")]
+    assert session.console_messages[0]["url"] == "https://example.com"
+    response = await handle_command(mock_state, {"command": "console", "args": []})
+    assert response["output"] == "[warning] careful\n[log] hi 3"
+
+
+@pytest.mark.asyncio
+async def test_console_capture_retries_a_dead_cdp_session_once(mock_state):
+    page, cdp = _console_page()
+    page.context.new_cdp_session = AsyncMock(side_effect=[RuntimeError("Execution context was destroyed"), cdp])
+    session = Session("default", page.context, [page])
+    mock_state.sessions = {"default": session}
+
+    response = await handle_command(mock_state, {"command": "console", "args": []})
+
+    assert response["success"] is True
+    assert page.context.new_cdp_session.await_count == 2
+    cdp.send.assert_awaited_once_with("Runtime.enable")
+
+
+@pytest.mark.asyncio
+async def test_console_does_not_reuse_capture_after_the_page_closed(mock_state):
+    page, cdp = _console_page()
+    session = Session("default", page.context, [page])
+    await session.setup_listeners()
+    mock_state.sessions = {"default": session}
+    await handle_command(mock_state, {"command": "console", "args": []})
+    cdp.send.reset_mock()
+
+    page.is_closed.return_value = True
+    close_listener = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "close")
+    close_listener()
+    response = await handle_command(mock_state, {"command": "console", "args": []})
+
+    assert response["success"] is True
+    cdp.send.assert_not_awaited()
+    assert session._console_sessions == {}
+
+
+@pytest.mark.asyncio
+async def test_console_reports_capture_failure_and_retries_next_call(mock_state):
+    page, cdp = _console_page()
+    page.context.new_cdp_session = AsyncMock(side_effect=RuntimeError("Target page has been closed"))
+    session = Session("default", page.context, [page])
+    mock_state.sessions = {"default": session}
+
+    response = await handle_command(mock_state, {"command": "console", "args": []})
+
+    assert response["success"] is False
+    assert response["data"] == []
+    assert "0 console messages captured" in response["output"]
+    assert "could not start" in response["output"]
+    assert page.context.new_cdp_session.await_count == 2
+    page.context.new_cdp_session.side_effect = None
+    page.context.new_cdp_session.return_value = cdp
+    assert (await handle_command(mock_state, {"command": "console", "args": []}))["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_console_captures_all_existing_pages_and_future_popups():
+    page, cdp = _console_page()
+    sibling, sibling_cdp = _console_page()
+    session = Session("default", page.context, [page, sibling], is_attached=True)
+    await session.setup_listeners()
+    sibling.context.new_cdp_session.assert_not_awaited()
+
+    assert await session.start_console_capture()
+    cdp.send.assert_awaited_once_with("Runtime.enable")
+    sibling_cdp.send.assert_awaited_once_with("Runtime.enable")
+    popup, popup_cdp = _console_page()
+
+    async def enable(_):
+        popup_cdp.on.call_args.args[1]({"type": "log", "args": [{"value": "popup startup"}]})
+
+    popup_cdp.send.side_effect = enable
+    await session._on_new_page(popup)
+    popup_cdp.send.assert_awaited_once_with("Runtime.enable")
+    assert session.console_messages[-1]["text"] == "popup startup"
+    popup_cdp.on.call_args.args[1]({"type": "log", "args": [{"value": "popup"}]})
+    assert session.console_messages[-1]["text"] == "popup"
+
+
+@pytest.mark.asyncio
+async def test_new_pages_and_named_tabs_are_clean_until_console_then_captured_before_navigation():
+    page, _ = _console_page()
+    session = Session("default", page.context, [page])
+    early, early_cdp = _console_page()
+    await session._on_new_page(early)
+    early.context.new_cdp_session.assert_not_awaited()
+    named, named_cdp = _console_page()
+    page.context.new_page = AsyncMock(return_value=named)
+    await session.open_tab("worker")
+    named.context.new_cdp_session.assert_not_awaited()
+    assert await session.start_console_capture()
+    named_cdp.send.assert_awaited_once_with("Runtime.enable")
+
+    later, later_cdp = _console_page()
+    page.context.new_page.return_value = later
+    assert (await session.open_tab("later")).page is later
+    later_cdp.send.assert_awaited_once_with("Runtime.enable")
+    # The context event can run after new_page() returns without double capture.
+    await session._on_new_page(later)
+    later.context.new_cdp_session.assert_awaited_once_with(later)
+    reopened = Session("reopened", page.context, [later])
+    await reopened.setup_listeners()
+    assert not reopened._console_capture_enabled
+    assert reopened._console_sessions == {}
+
+
+@pytest.mark.asyncio
+async def test_concurrent_console_commands_create_one_cdp_session():
+    page, cdp = _console_page()
+    session = Session("default", page.context, [page])
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def enable(_):
+        started.set()
+        await finish.wait()
+
+    cdp.send.side_effect = enable
+    first = asyncio.create_task(session.start_console_capture())
+    await started.wait()
+    second = asyncio.create_task(session.start_console_capture())
+    popup_event = asyncio.create_task(session._on_new_page(page))
+    finish.set()
+    await asyncio.gather(first, second, popup_event)
+
+    page.context.new_cdp_session.assert_awaited_once_with(page)
+    cdp.send.assert_awaited_once_with("Runtime.enable")
+
+
+@pytest.mark.asyncio
+async def test_console_detaches_failed_cdp_and_ignores_replayed_messages():
+    page, failed = _console_page()
+    _, good = _console_page()
+    page.context.new_cdp_session.side_effect = [failed, good]
+    failed.send.side_effect = RuntimeError("Target went away")
+    session = Session("default", page.context, [page])
+
+    async def enable(_):
+        good.on.call_args.args[1]({"type": "log", "args": [{"value": "before capture"}]})
+
+    good.send.side_effect = enable
+    assert await session.start_console_capture()
+    failed.detach.assert_awaited_once()
+    assert session.console_messages == []
+    failed.on.call_args.args[1]({"type": "log", "args": [{"value": "stale event"}]})
+    good.on.call_args.args[1]({"type": "log", "args": [{"value": "after capture"}]})
+    assert [m["text"] for m in session.console_messages] == ["after capture"]
+
+
+@pytest.mark.asyncio
+async def test_console_page_closing_during_enable_is_detached_and_not_retained():
+    page, cdp = _console_page()
+    session = Session("default", page.context, [page])
+
+    async def enable(_):
+        page.is_closed.return_value = True
+
+    cdp.send.side_effect = enable
+    assert not await session.start_console_capture()
+    assert session._console_sessions == {}
+    cdp.detach.assert_awaited_once()

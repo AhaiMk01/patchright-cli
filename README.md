@@ -399,10 +399,17 @@ patchright-cli network-state-set online   # Restore connectivity
 
 ### DevTools
 ```bash
-patchright-cli console                 # All console messages
+patchright-cli console                 # Start capture / show captured console messages
 patchright-cli console warning         # Filter by level
 patchright-cli console --clear         # Clear after printing
 ```
+
+The first `console` call enables CDP Runtime capture for every page in the session,
+including tabs and popups opened later. Messages from before capture starts are
+unavailable: run `console` before reproducing an issue, then call it again to read
+the messages. Capture can make automation detectable and stays enabled until the
+session closes; `--clear` only clears the message buffer. A new session starts
+with capture disabled.
 
 ### Output
 ```bash

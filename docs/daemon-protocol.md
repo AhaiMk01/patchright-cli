@@ -120,6 +120,12 @@ fewer items than exist, `total` holds the full count.
 | `profile-list` | `[{"name", "size", "session"}]`, where `size` is bytes and `session` is the holding session or `null` |
 | `find` | `[{"ref", "role", "name"}]`, plus `total` when `--limit` cut the hits |
 
+`console` opts the session into CDP Runtime capture on existing and future pages.
+Earlier messages are unavailable; the first response explains this and the CDP
+detection risk. Capture lasts until the session closes; `--clear` only clears the
+buffer. If capture fails on a live page, the response has `success: false` and any
+available messages; another `console` call retries pages that failed.
+
 An empty list is `[]`, and its `output` states the zero explicitly, for example
 `0 cookies in this session`. Commands not listed here send no `data`. More
 fields or commands can gain `data` later, so read only the keys you need.

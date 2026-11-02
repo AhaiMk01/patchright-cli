@@ -43,6 +43,8 @@ def mock_session():
     session._tracing = False
     session._routes = {}
     session.console_messages = []
+    session.start_console_capture = AsyncMock(return_value=True)
+    session._console_capture_enabled = True
     session.network_log = []
     session.is_attached = False
     session.tabs = {"default": MagicMock()}
@@ -281,9 +283,10 @@ async def test_route_list_empty(mock_state, mock_session):
 @pytest.mark.asyncio
 async def test_console_empty(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    assert (await _run(mock_state, "console"))["output"] == "0 console messages in this session"
+    unfiltered = await _run(mock_state, "console")
+    assert unfiltered["output"] == "0 console messages captured"
     filtered = await _run(mock_state, "console", ["error"])
-    assert filtered["output"] == "0 console messages in this session at level 'error'"
+    assert filtered["output"] == "0 console messages captured at level 'error'"
     assert filtered["data"] == []
 
 
