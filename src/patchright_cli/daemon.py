@@ -29,6 +29,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from patchright_cli import daemon_pid
+from patchright_cli.debugger import SessionDebugger
 from patchright_cli.ref_registry import RefRegistry, render_hits
 from patchright_cli.snapshot import save_snapshot, take_snapshot
 
@@ -177,8 +178,23 @@ class Session:
         # Refs shown by `highlight`, per page (by id): the native overlay can't
         # be queried, so this is what `highlight --hide` reports against.
         self.highlights: dict[int, set[str]] = {}
+        # BrowserContext.debugger, wrapped by the first debugger-* command.
+        self.debugger: SessionDebugger | None = None
 
     # -- internal helpers ---------------------------------------------------
+
+    def get_debugger(self) -> tuple[SessionDebugger, bool]:
+        """This Session's debugger, and whether this call created it."""
+        if self.debugger is not None:
+            return self.debugger, False
+        self.debugger = SessionDebugger(self.context.debugger)
+        return self.debugger, True
+
+    async def _unattended(self, coro):
+        """Await a teardown call, resuming any debugger pause it meets so it cannot hang."""
+        if self.debugger is None:
+            return await coro
+        return await self.debugger.unattended(coro)
 
     async def setup_listeners(self):
         """Attach network and dialog listeners to all existing pages."""
@@ -490,7 +506,7 @@ class Session:
                     self.current_tab -= 1
             self.current_tab = max(0, min(self.current_tab, len(self.pages) - 1))
             try:
-                await page.close()
+                await self._unattended(page.close())
             except Exception:
                 pass
 
@@ -529,11 +545,11 @@ class Session:
             for page in list(self.pages):
                 if page in self.own_pages:
                     try:
-                        await page.close()
+                        await self._unattended(page.close())
                     except Exception:
                         pass
         if self.browser is not None:
-            await _disconnect_quietly(self.browser)
+            await self._unattended(_disconnect_quietly(self.browser))
 
     async def end(self) -> None:
         """End the Session the strongest way it is allowed to.
@@ -545,11 +561,11 @@ class Session:
             await self.detach()
             return
         try:
-            await self.context.close()
+            await self._unattended(self.context.close())
         except Exception:
             pass
         if self.browser is not None:
-            await _disconnect_quietly(self.browser)
+            await self._unattended(_disconnect_quietly(self.browser))
 
     async def check_navigation(self, url: str, web_only: bool = False) -> None:
         """Raise when this Session's guard, or a request's `--web-only`, refuses navigating to `url`."""
@@ -3687,8 +3703,96 @@ async def cmd_webmcp_call(
 # ---------------------------------------------------------------------------
 
 
+# -- Debugger ----------------------------------------------------------------
+
+_DEBUGGER_NOTICE = (
+    "Pausing is session-wide and holds patchright-cli's own browser calls inside the Playwright driver; "
+    "it sends nothing to Chrome, so pages cannot detect it. A paused command replies at once and finishes "
+    "on `debugger-step` or `debugger-resume`."
+)
+
+
+def _debugger_reply(debugger: SessionDebugger, output: str, success: bool = True) -> dict:
+    return {"success": success, "output": output, "data": debugger.status_data()}
+
+
+@register("debugger-pause")
+async def cmd_debugger_pause(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    debugger, _ = session.get_debugger()
+    first_call = not debugger.announced
+    debugger.announced = True
+    if debugger.paused:
+        return _debugger_reply(
+            debugger, f"{debugger.describe()}\nAlready paused; `debugger-step` or `debugger-resume` first.", False
+        )
+    if not debugger.armed:
+        await debugger.request_pause()
+    lines = [debugger.describe()]
+    if first_call:
+        lines.append(_DEBUGGER_NOTICE)
+    return _debugger_reply(debugger, "\n".join(lines))
+
+
+@register("debugger-step")
+async def cmd_debugger_step(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    debugger, _ = session.get_debugger()
+    if not debugger.paused:
+        return _debugger_reply(
+            debugger, f"{debugger.describe()}\nNothing to step: run `debugger-pause`, then a command.", False
+        )
+    return await debugger.step()
+
+
+@register("debugger-resume")
+async def cmd_debugger_resume(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    debugger, _ = session.get_debugger()
+    if debugger.paused:
+        return await debugger.resume()
+    if debugger.armed:
+        # A harmless isolated-world evaluate walks into the armed pause and is resumed at once.
+        await debugger.disarm(page.evaluate("0"))
+        return _debugger_reply(debugger, "Pause request cancelled. Debugger off.")
+    return _debugger_reply(debugger, "Not paused (no-op).")
+
+
+@register("debugger-status")
+async def cmd_debugger_status(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    debugger, _ = session.get_debugger()
+    return _debugger_reply(debugger, debugger.describe())
+
+
+# Commands that end a Session run its teardown unattended (see SessionDebugger),
+# so they must not be held at a pause themselves.
+_NOT_HELD = {"close", "close-all", "kill-all", "detach", "delete-data", "list", "profile-list"}
+
+
 async def handle_command(state: DaemonState, msg: dict) -> dict:
-    """Dispatch a single command and return a JSON-serialisable response."""
+    """Dispatch a single command and return a JSON-serialisable response.
+
+    Once a Session's debugger is armed, its commands run through it: one that
+    pauses replies straight away and is held until `debugger-step`/`-resume`.
+    """
+    cmd = msg.get("command", "")
+    options = msg.get("options") or {}
+    session = state.sessions.get(options.get("session") or "default") if isinstance(options, dict) else None
+    debugger = getattr(session, "debugger", None)
+    if not isinstance(debugger, SessionDebugger) or cmd.startswith("debugger-") or cmd in _NOT_HELD:
+        return await _dispatch_command(state, msg)
+    label = " ".join([cmd, *(str(a) for a in msg.get("args") or [])])
+    if len(label) > 80:
+        label = label[:77] + "..."
+    return await debugger.run(label, _dispatch_command(state, msg))
+
+
+async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
     cmd = msg.get("command", "")
     args = msg.get("args", [])
     options = dict(msg.get("options", {}))

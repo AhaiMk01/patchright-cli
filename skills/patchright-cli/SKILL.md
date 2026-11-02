@@ -317,6 +317,22 @@ and future pages, including popups. Earlier messages are unavailable: call it
 before reproducing an issue, then again to read messages. Capture makes CDP
 detectable until the session closes; `console --clear` only clears the buffer.
 
+### Debugger (step through a command's browser calls)
+
+```bash
+debugger-pause                # Arm: the next browser call a command makes pauses
+click e3                      # Replies at once: "Paused before: Evaluate (held: `click e3`)"
+snapshot                      # Other commands still work while paused
+debugger-step                 # Run that call, pause before the next ("Click ...")
+debugger-resume               # Let the held command finish; prints its result
+debugger-status               # off | armed | paused + call title and held command
+```
+
+This is Playwright's action debugger, not a JavaScript debugger: it holds
+patchright-cli's own calls in the driver, sends nothing to Chrome, and page
+scripts keep running, so pages cannot detect it. `debugger-resume` on an armed
+pause that nothing has hit cancels it. `close` while paused resumes and closes.
+
 ### Recording and capture
 
 ```bash
@@ -511,6 +527,12 @@ request <id> [--body]                   # Show full detail for a network request
 generate-locator <ref>                  # Emit Playwright locator expression for a ref
 pick-locator [--wait] [--cancel]        # Wait for a person to click an element; print its locator
 highlight <ref> [--style] [--hide]      # Show overlay on element
+
+# Debugger
+debugger-pause                          # Pause before the next browser call a command makes; that command replies at once, held
+debugger-step                           # Run the paused call and pause before the next one; prints the held command's result
+debugger-resume                         # Let the held command finish and print its result (or cancel an unhit pause)
+debugger-status                         # Show the debugger state: off, armed, or the paused call and held command
 
 # WebMCP
 webmcp-list                             # List the WebMCP tools the page registers

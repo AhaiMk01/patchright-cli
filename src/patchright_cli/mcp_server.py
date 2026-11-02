@@ -347,6 +347,22 @@ TOOL_SPECS = {
         "description": "CLI command: tracing-start Start Playwright tracing.",
         "params": [("session", "string", False, "default", "Named Patchright browser session.")],
     },
+    "patchright_debugger_pause": {
+        "description": "CLI command: debugger-pause Pause before the next browser call a command makes; that command replies at once and is held.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_debugger_step": {
+        "description": "CLI command: debugger-step Run the paused call and pause before the next one; returns the held command's result.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_debugger_resume": {
+        "description": "CLI command: debugger-resume Let the held command finish and return its result, or cancel a pause nothing has hit.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_debugger_status": {
+        "description": "CLI command: debugger-status Show the debugger state: off, armed, or the paused call and held command.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
     "patchright_video_start": {
         "description": "CLI command: video-start Start video recording.",
         "params": [("session", "string", False, "default", "Named Patchright browser session.")],
@@ -1108,6 +1124,10 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         "patchright_sessionstorage_clear": ("sessionstorage-clear", []),
         "patchright_route_list": ("route-list", []),
         "patchright_tracing_start": ("tracing-start", []),
+        "patchright_debugger_pause": ("debugger-pause", []),
+        "patchright_debugger_step": ("debugger-step", []),
+        "patchright_debugger_resume": ("debugger-resume", []),
+        "patchright_debugger_status": ("debugger-status", []),
         "patchright_video_start": ("video-start", []),
         "patchright_list_sessions": ("list", []),
         "patchright_close_all": ("close-all", []),

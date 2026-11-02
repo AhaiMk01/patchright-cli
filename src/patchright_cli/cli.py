@@ -1127,6 +1127,27 @@ COMMAND_SPECS: dict[str, dict] = {
         "flags": {"filename": "Save under .patchright-cli/<name> (default: timestamped)"},
         "examples": ["pdf", "pdf --filename=page.pdf"],
     },
+    # Debugger
+    "debugger-pause": {
+        "usage": "debugger-pause",
+        "summary": "Pause before the next browser call a command makes; that command replies at once, held",
+        "examples": ["debugger-pause", "click e3   # replies 'Paused before: Click ...'"],
+    },
+    "debugger-step": {
+        "usage": "debugger-step",
+        "summary": "Run the paused call and pause before the next one; prints the held command's result",
+        "examples": ["debugger-step"],
+    },
+    "debugger-resume": {
+        "usage": "debugger-resume",
+        "summary": "Let the held command finish and print its result (or cancel an unhit pause)",
+        "examples": ["debugger-resume"],
+    },
+    "debugger-status": {
+        "usage": "debugger-status",
+        "summary": "Show the debugger state: off, armed, or the paused call and held command",
+        "examples": ["debugger-status"],
+    },
     # DevTools
     "console": {
         "usage": "console [level]",
@@ -1508,6 +1529,7 @@ COMMAND_CATEGORIES = [
     ("Video", ["video-start", "video-stop", "video-chapter", "video-show-actions", "video-hide-actions"]),
     ("PDF", ["pdf"]),
     ("DevTools", ["console", "network", "requests", "request", "generate-locator", "pick-locator", "highlight"]),
+    ("Debugger", ["debugger-pause", "debugger-step", "debugger-resume", "debugger-status"]),
     ("WebMCP", ["webmcp-list", "webmcp-call"]),
     ("Session", ["list", "close-all", "kill-all", "delete-data"]),
     ("Profiles", ["profile-list", "profile-delete"]),
