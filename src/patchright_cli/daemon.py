@@ -1603,7 +1603,6 @@ async def cmd_drop(session: Session, page, args: list, options: dict, cwd: str |
 
     files: list[dict] = []
     if path_opt:
-        import base64
         import mimetypes
 
         paths = [path_opt] if isinstance(path_opt, str) else list(path_opt)
@@ -1611,43 +1610,26 @@ async def cmd_drop(session: Session, page, args: list, options: dict, cwd: str |
             fp = Path(p)
             if not fp.exists():
                 return {"success": False, "output": f"File not found: {p}"}
+            # In-memory buffers rather than paths, so the MIME type stays the one
+            # Python's mimetypes guesses (Playwright's own table differs for some extensions).
             mime = mimetypes.guess_type(fp.name)[0] or "application/octet-stream"
-            files.append(
-                {
-                    "name": fp.name,
-                    "type": mime,
-                    "b64": base64.b64encode(fp.read_bytes()).decode("ascii"),
-                }
-            )
+            files.append({"name": fp.name, "mimeType": mime, "buffer": fp.read_bytes()})
 
-    data_entries: list[tuple[str, str]] = []
+    data: dict[str, str] = {}
     if data_opt:
         raw_list = [data_opt] if isinstance(data_opt, str) else list(data_opt)
         for raw in raw_list:
             if "=" not in raw:
                 return {"success": False, "output": f"Invalid --data (need mime=value): {raw}"}
             mime, value = raw.split("=", 1)
-            data_entries.append((mime, value))
+            data[mime] = value
 
-    js = """
-    async (target, { files, dataEntries }) => {
-      const dt = new DataTransfer();
-      for (const f of files) {
-        const bytes = Uint8Array.from(atob(f.b64), c => c.charCodeAt(0));
-        dt.items.add(new File([bytes], f.name, { type: f.type }));
-      }
-      for (const [mime, value] of dataEntries) {
-        dt.setData(mime, value);
-      }
-      const evt = (type) => new DragEvent(type, {
-        bubbles: true, cancelable: true, dataTransfer: dt,
-      });
-      target.dispatchEvent(evt('dragenter'));
-      target.dispatchEvent(evt('dragover'));
-      target.dispatchEvent(evt('drop'));
-    }
-    """
-    await elem.evaluate(js, {"files": files, "dataEntries": data_entries})
+    payload: dict = {}
+    if files:
+        payload["files"] = files
+    if data:
+        payload["data"] = data
+    await elem.drop(payload)
     return await _page_info(session, cwd)
 
 
@@ -2204,65 +2186,83 @@ async def cmd_cookie_export(
 # -- LocalStorage ------------------------------------------------------------
 
 
-def _storage_list(store: str, raw: str) -> dict:
-    """Reply for `localstorage-list` / `sessionstorage-list` from the page's JSON dump of the store."""
-    try:
-        items = json.loads(raw) if raw else {}
-    except (TypeError, ValueError):
-        items = {}
-    if not isinstance(items, dict):
-        items = {}
-    data = [{"key": k, "value": v} for k, v in items.items()]
+def _storage_list(store: str, items: list[dict]) -> dict:
+    """Reply for `localstorage-list` / `sessionstorage-list` from `WebStorage.items()` name/value pairs.
+
+    The text output stays the compact JSON object `JSON.stringify(localStorage)` used to print.
+    """
+    data = [{"key": item["name"], "value": item["value"]} for item in items]
     if not data:
         return {"success": True, "output": f"0 {store} keys on this page", "data": data}
+    raw = json.dumps({d["key"]: d["value"] for d in data}, separators=(",", ":"), ensure_ascii=False)
     return {"success": True, "output": raw, "data": data}
+
+
+def _web_storage(page, store: str):
+    """The page's native `WebStorage` for `localStorage` or `sessionStorage`."""
+    return page.local_storage if store == "localStorage" else page.session_storage
+
+
+async def _storage_list_cmd(page, store: str) -> dict:
+    return _storage_list(store, await _web_storage(page, store).items())
+
+
+async def _storage_get(page, store: str, key: str) -> dict:
+    result = await _web_storage(page, store).get_item(key)
+    return {"success": True, "output": json.dumps(result, default=str)}
+
+
+async def _storage_set(page, store: str, key: str, value: str) -> dict:
+    await _web_storage(page, store).set_item(key, value)
+    return {"success": True, "output": f"{store}['{key}'] set."}
+
+
+async def _storage_delete(page, store: str, key: str) -> dict:
+    storage = _web_storage(page, store)
+    if await storage.get_item(key) is None:
+        return {"success": True, "output": f"{store} has no key '{key}' (no-op)"}
+    await storage.remove_item(key)
+    return {"success": True, "output": f"{store}['{key}'] deleted."}
+
+
+async def _storage_clear(page, store: str) -> dict:
+    await _web_storage(page, store).clear()
+    return {"success": True, "output": f"{store} cleared."}
 
 
 @register("localstorage-list")
 async def cmd_localstorage_list(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    return _storage_list("localStorage", await page.evaluate("() => JSON.stringify(localStorage)"))
+    return await _storage_list_cmd(page, "localStorage")
 
 
 @register("localstorage-get")
 async def cmd_localstorage_get(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key = args[0]
-    result = await page.evaluate(f"() => localStorage.getItem({json.dumps(key)})")
-    return {"success": True, "output": json.dumps(result, default=str)}
+    return await _storage_get(page, "localStorage", args[0])
 
 
 @register("localstorage-set")
 async def cmd_localstorage_set(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key, value = args[0], args[1]
-    await page.evaluate(f"() => localStorage.setItem({json.dumps(key)}, {json.dumps(value)})")
-    return {"success": True, "output": f"localStorage['{key}'] set."}
+    return await _storage_set(page, "localStorage", args[0], args[1])
 
 
 @register("localstorage-delete")
 async def cmd_localstorage_delete(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key = args[0]
-    existed = await page.evaluate(
-        f"() => {{ const had = localStorage.getItem({json.dumps(key)}) !== null;"
-        f" localStorage.removeItem({json.dumps(key)}); return had; }}"
-    )
-    if not existed:
-        return {"success": True, "output": f"localStorage has no key '{key}' (no-op)"}
-    return {"success": True, "output": f"localStorage['{key}'] deleted."}
+    return await _storage_delete(page, "localStorage", args[0])
 
 
 @register("localstorage-clear")
 async def cmd_localstorage_clear(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    await page.evaluate("() => localStorage.clear()")
-    return {"success": True, "output": "localStorage cleared."}
+    return await _storage_clear(page, "localStorage")
 
 
 # -- DevTools / Network ------------------------------------------------------
@@ -2534,26 +2534,10 @@ async def cmd_state_load(
     filepath = args[0] if args else ""
     if not filepath or not Path(filepath).exists():
         return {"success": False, "output": f"File not found: {filepath}"}
-    state_data = json.loads(Path(filepath).read_text(encoding="utf-8"))
-    if state_data.get("cookies"):
-        await session.context.add_cookies(state_data["cookies"])
-    ls_applied = 0
-    ls_skipped = 0
-    for origin_data in state_data.get("origins", []):
-        origin = origin_data.get("origin", "")
-        ls = origin_data.get("localStorage", [])
-        if ls and page.url.startswith(origin):
-            for item in ls:
-                await page.evaluate(
-                    f"() => localStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])})"
-                )
-            ls_applied += len(ls)
-        elif ls:
-            ls_skipped += len(ls)
-    msg = f"State loaded from {filepath}"
-    if ls_skipped:
-        msg += f" (note: {ls_skipped} localStorage item(s) skipped — navigate to the matching origin first)"
-    return {"success": True, "output": msg}
+    # One native call: clears the context's cookies, storage, IndexedDB, OPFS and virtual
+    # WebAuthn credentials, then applies the file's state to every origin it lists.
+    await session.context.set_storage_state(filepath)
+    return {"success": True, "output": f"State loaded from {filepath}"}
 
 
 # -- Session storage ---------------------------------------------------------
@@ -2563,47 +2547,35 @@ async def cmd_state_load(
 async def cmd_sessionstorage_list(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    return _storage_list("sessionStorage", await page.evaluate("() => JSON.stringify(sessionStorage)"))
+    return await _storage_list_cmd(page, "sessionStorage")
 
 
 @register("sessionstorage-get")
 async def cmd_sessionstorage_get(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key = args[0]
-    result = await page.evaluate(f"() => sessionStorage.getItem({json.dumps(key)})")
-    return {"success": True, "output": json.dumps(result, default=str)}
+    return await _storage_get(page, "sessionStorage", args[0])
 
 
 @register("sessionstorage-set")
 async def cmd_sessionstorage_set(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key, value = args[0], args[1]
-    await page.evaluate(f"() => sessionStorage.setItem({json.dumps(key)}, {json.dumps(value)})")
-    return {"success": True, "output": f"sessionStorage['{key}'] set."}
+    return await _storage_set(page, "sessionStorage", args[0], args[1])
 
 
 @register("sessionstorage-delete")
 async def cmd_sessionstorage_delete(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key = args[0]
-    existed = await page.evaluate(
-        f"() => {{ const had = sessionStorage.getItem({json.dumps(key)}) !== null;"
-        f" sessionStorage.removeItem({json.dumps(key)}); return had; }}"
-    )
-    if not existed:
-        return {"success": True, "output": f"sessionStorage has no key '{key}' (no-op)"}
-    return {"success": True, "output": f"sessionStorage['{key}'] deleted."}
+    return await _storage_delete(page, "sessionStorage", args[0])
 
 
 @register("sessionstorage-clear")
 async def cmd_sessionstorage_clear(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    await page.evaluate("() => sessionStorage.clear()")
-    return {"success": True, "output": "sessionStorage cleared."}
+    return await _storage_clear(page, "sessionStorage")
 
 
 # -- Route (request interception) --------------------------------------------

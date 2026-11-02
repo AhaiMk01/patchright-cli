@@ -56,6 +56,16 @@ def mock_session():
     return session
 
 
+def _web_storage(session, store):
+    """The mocked native `WebStorage` behind `page.local_storage` / `page.session_storage`."""
+    attr = "local_storage" if store == "localStorage" else "session_storage"
+    storage = getattr(session.page, attr)
+    for method in ("items", "get_item", "set_item", "remove_item", "clear"):
+        if not isinstance(getattr(storage, method), AsyncMock):
+            setattr(storage, method, AsyncMock())
+    return storage
+
+
 async def _run(state, command, args=None, **options):
     return await handle_command(state, {"command": command, "args": args or [], "options": options})
 
@@ -168,18 +178,40 @@ async def test_cookie_delete_present_removes_it(mock_state, mock_session):
 )
 async def test_storage_delete_absent_key_is_a_noop(mock_state, mock_session, command, store):
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.evaluate.return_value = False
+    storage = _web_storage(mock_session, store)
+    storage.get_item.return_value = None
     response = await _run(mock_state, command, ["token"])
     _assert_noop(response)
     assert store in response["output"]
+    storage.remove_item.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_storage_delete_present_key(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.evaluate.return_value = True
+    storage = _web_storage(mock_session, "localStorage")
+    storage.get_item.return_value = ""  # an empty value still counts as present
     response = await _run(mock_state, "localstorage-delete", ["token"])
     assert response == {"success": True, "output": "localStorage['token'] deleted."}
+    storage.remove_item.assert_awaited_once_with("token")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("store", ["localStorage", "sessionStorage"])
+async def test_storage_get_set_clear_use_native_web_storage(mock_state, mock_session, store):
+    mock_state.sessions = {"default": mock_session}
+    prefix = store.lower()
+    storage = _web_storage(mock_session, store)
+    storage.get_item.return_value = "v1"
+    assert await _run(mock_state, f"{prefix}-get", ["k1"]) == {"success": True, "output": '"v1"'}
+    storage.get_item.assert_awaited_once_with("k1")
+    storage.get_item.return_value = None
+    assert (await _run(mock_state, f"{prefix}-get", ["nope"]))["output"] == "null"
+    assert await _run(mock_state, f"{prefix}-set", ["k1", "v1"]) == {"success": True, "output": f"{store}['k1'] set."}
+    storage.set_item.assert_awaited_once_with("k1", "v1")
+    assert await _run(mock_state, f"{prefix}-clear") == {"success": True, "output": f"{store} cleared."}
+    storage.clear.assert_awaited_once()
+    mock_session.page.evaluate.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -268,7 +300,7 @@ async def test_cookie_list_empty(mock_state, mock_session):
 )
 async def test_storage_list_empty(mock_state, mock_session, command, store):
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.evaluate.return_value = "{}"
+    _web_storage(mock_session, store).items.return_value = []
     response = await _run(mock_state, command)
     assert response == {"success": True, "output": f"0 {store} keys on this page", "data": []}
 
@@ -361,11 +393,15 @@ async def test_cookie_list_data_keeps_json_output(mock_state, mock_session):
 
 @pytest.mark.asyncio
 async def test_storage_list_data_keeps_json_output(mock_state, mock_session):
-    mock_session.page.evaluate.return_value = '{"a":"1","b":"x"}'
+    _web_storage(mock_session, "localStorage").items.return_value = [
+        {"name": "a", "value": "1"},
+        {"name": "b", "value": 'x"\u00fc'},
+    ]
     mock_state.sessions = {"default": mock_session}
     response = await _run(mock_state, "localstorage-list")
-    assert response["output"] == '{"a":"1","b":"x"}'
-    assert response["data"] == [{"key": "a", "value": "1"}, {"key": "b", "value": "x"}]
+    # Same compact text JSON.stringify(localStorage) printed: no spaces, non-ASCII kept as is.
+    assert response["output"] == '{"a":"1","b":"x\\"\u00fc"}'
+    assert response["data"] == [{"key": "a", "value": "1"}, {"key": "b", "value": 'x"\u00fc'}]
 
 
 @pytest.mark.asyncio
