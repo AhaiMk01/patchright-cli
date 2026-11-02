@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import os
+import stat
 from unittest.mock import AsyncMock
 
 import pytest
@@ -155,8 +157,31 @@ async def test_export_writes_keys_relative_to_cwd(state, session, tmp_path):
     session.context.credentials.get.return_value = [dict(CRED)]
     resp = await _run(state, "passkey-export", ["out/pk.json"], cwd=str(tmp_path))
     target = tmp_path / "out" / "pk.json"
-    assert resp == {"success": True, "output": f"Exported 1 passkey(s) to {target}"}
+    assert resp == {
+        "success": True,
+        "output": f"Exported 1 passkey(s) to {target} (contains private keys; keep it out of version control)",
+    }
     assert json.loads(target.read_text(encoding="utf-8")) == [CRED]
+
+
+async def test_export_replaces_an_existing_file(state, session, tmp_path):
+    session._passkeys_installed = True
+    session.context.credentials.get.return_value = [dict(CRED)]
+    target = tmp_path / "pk.json"
+    target.write_text("old", encoding="utf-8")
+    await _run(state, "passkey-export", [str(target)])
+    assert json.loads(target.read_text(encoding="utf-8")) == [CRED]
+    assert [p.name for p in tmp_path.iterdir()] == ["pk.json"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+async def test_export_file_is_owner_only(state, session, tmp_path):
+    session._passkeys_installed = True
+    target = tmp_path / "pk.json"
+    target.write_text("old", encoding="utf-8")
+    target.chmod(0o644)
+    await _run(state, "passkey-export", [str(target)])
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
 
 
 async def test_export_default_path(state, session, tmp_path):

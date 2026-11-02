@@ -2720,10 +2720,12 @@ async def cmd_passkey_export(
     else:
         filepath = (Path(cwd) if cwd else Path.cwd()) / ".patchright-cli" / f"passkeys-{int(time.time() * 1000)}.json"
     filepath.parent.mkdir(parents=True, exist_ok=True)
-    filepath.write_text(json.dumps([dict(c) for c in creds], indent=2), encoding="utf-8")
+    # The file holds private keys: owner-only, like the daemon token.
+    _write_owner_only(filepath, json.dumps([dict(c) for c in creds], indent=2))
     return {
         "success": True,
-        "output": _passkey_notice(installed) + f"Exported {len(creds)} passkey(s) to {filepath}",
+        "output": _passkey_notice(installed)
+        + f"Exported {len(creds)} passkey(s) to {filepath} (contains private keys; keep it out of version control)",
     }
 
 
@@ -3744,19 +3746,28 @@ def write_daemon_token(port: int) -> str:
     token = secrets.token_urlsafe(32)
     path = token_path(port)
     path.parent.mkdir(parents=True, exist_ok=True)
+    _write_owner_only(path, token)
+    return token
+
+
+def _write_owner_only(path: Path, text: str) -> None:
+    """Write `text` to `path`, replacing it, as a file only this user can read.
+
+    Goes through an owner-only temp file (see _create_owner_only_file) and
+    os.replace, so the content is never readable by others, not even briefly.
+    """
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     with contextlib.suppress(FileNotFoundError):
         tmp.unlink()
     fd = _create_owner_only_file(tmp)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(token)
+            f.write(text)
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):
             tmp.unlink()
         raise
-    return token
 
 
 def remove_daemon_token(port: int, token: str) -> None:

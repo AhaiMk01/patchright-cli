@@ -925,7 +925,7 @@ COMMAND_SPECS: dict[str, dict] = {
     # Passkeys: every passkey-* command first installs the session's virtual WebAuthn authenticator.
     "passkey-list": {
         "usage": "passkey-list",
-        "summary": "List virtual passkeys (installs the authenticator)",
+        "summary": "List virtual passkeys; run before the page uses WebAuthn",
         "flags": {
             "rp-id": "Only passkeys for this relying party id (default: all)",
             "id": "Only the passkey with this credential id (default: all)",
@@ -957,7 +957,7 @@ COMMAND_SPECS: dict[str, dict] = {
     },
     "passkey-export": {
         "usage": "passkey-export [file]",
-        "summary": "Export virtual passkeys with their keys to JSON",
+        "summary": "Export virtual passkeys with private keys to an owner-only JSON",
         "flags": {"rp-id": "Only passkeys for this relying party id (default: all)"},
         "examples": ["passkey-export", "passkey-export passkeys.json"],
     },
