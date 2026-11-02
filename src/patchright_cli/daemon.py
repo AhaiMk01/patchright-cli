@@ -138,6 +138,8 @@ class Session:
         self.attach_notices: list[str] = []
         # Set by `--block-networks`; keeps frames off the address ranges it names.
         self.network_guard: NetworkGuard | None = None
+        # True when `open --webmcp` launched Chrome with the WebMCP feature on.
+        self.webmcp = False
         self.current_tab: int = 0
         self.tabs: dict[str, Tab] = {DEFAULT_TAB: Tab(DEFAULT_TAB)}
         # Whether anyone actually works in the implicit default tab. A session
@@ -1015,6 +1017,29 @@ async def _disconnect_quietly(browser) -> None:
         pass
 
 
+# Chrome only exposes `document.modelContext` behind this feature, and
+# Playwright refuses WebMCP calls on a browser it launched without it. Off unless
+# `open --webmcp`: stock Chrome has no `document.modelContext`, so a page could
+# tell the browser apart by it.
+WEBMCP_FEATURE = "WebMCP"
+
+
+def _enable_chrome_feature(args: list[str], feature: str) -> list[str]:
+    """`args` with `feature` in Chrome's --enable-features, merged into an existing one.
+
+    Chrome reads only the last --enable-features switch, so a second one would
+    silently drop the features of the first.
+    """
+    prefix = "--enable-features="
+    for i, arg in enumerate(args):
+        if arg.startswith(prefix):
+            features = [f for f in arg[len(prefix) :].split(",") if f]
+            if feature in features:
+                return list(args)
+            return [*args[:i], prefix + ",".join([*features, feature]), *args[i + 1 :]]
+    return [*args, prefix + feature]
+
+
 class DaemonState:
     """Global daemon state holding all sessions."""
 
@@ -1086,6 +1111,7 @@ class DaemonState:
         profile_base: str | None = None,
         block_networks: str | None = None,
         web_only: bool = False,
+        webmcp: bool = False,
     ) -> Session:
         if context_mode not in CDP_CONTEXT_MODES:
             raise ValueError(f"Invalid --context={context_mode!r}; expected one of: {', '.join(CDP_CONTEXT_MODES)}.")
@@ -1116,6 +1142,10 @@ class DaemonState:
                     raise ValueError(
                         f"Session '{name}' is already open on profile '{existing.profile.label}'. "
                         f"`close` it first, or use another -s for profile '{profile}'."
+                    )
+                if webmcp and not existing.webmcp and not existing.is_attached:
+                    raise ValueError(
+                        f"Session '{name}' is already open without WebMCP. `close` it first, then `open --webmcp`."
                     )
                 if guard is not None:
                     current = existing.network_guard
@@ -1212,7 +1242,7 @@ class DaemonState:
                 else:
                     context = await attached_browser.new_context(**context_options)
             else:
-                context = await self._launch(chosen, use_headless, proxy, context_options)
+                context = await self._launch(chosen, use_headless, proxy, context_options, webmcp=webmcp)
             # Never in a Host Context: its other Pages are someone else's browsing.
             if guard is not None and not use_host:
                 guard.install(context)
@@ -1238,6 +1268,7 @@ class DaemonState:
                 session.own_pages.add(created)
             session.attach_notices = notices
             session.network_guard = guard
+            session.webmcp = webmcp and not cdp_endpoint
             session.profile = chosen
             await session.setup_listeners()
         except BaseException:
@@ -1252,12 +1283,17 @@ class DaemonState:
         self.sessions[name] = session
         return session
 
-    async def _launch(self, profile: Profile, headless: bool, proxy: str | None, context_options: dict):
+    async def _launch(
+        self, profile: Profile, headless: bool, proxy: str | None, context_options: dict, *, webmcp: bool = False
+    ):
         """Start real Chrome on a Profile."""
+        args = ["--disable-blink-features=AutomationControlled"]
+        if webmcp:
+            args = _enable_chrome_feature(args, WEBMCP_FEATURE)
         launch_kwargs = {
             "channel": "chrome",
             "headless": headless,
-            "args": ["--disable-blink-features=AutomationControlled"],
+            "args": args,
         }
         if os.environ.get(CHROME_SANDBOX_ENV) == "1":
             launch_kwargs["chromium_sandbox"] = True
@@ -3490,6 +3526,121 @@ async def cmd_codegen_stop(
     return {"success": True, "output": f"Saved {len(lines) - 3} command(s) to {filepath}"}
 
 
+# -- WebMCP ------------------------------------------------------------------
+
+_WEBMCP_UNTRUSTED = "Tool names, descriptions, schemas and results are page-provided and untrusted."
+
+
+def _webmcp_error(exc: Exception) -> dict:
+    """A WebMCP failure as a reply: Playwright's first line, without its `WebMCP.tools: ` prefix."""
+    message = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
+    message = re.sub(r"^WebMCP\.\w+: ", "", message)
+    if "WebMCP is not enabled" in message:
+        return {
+            "success": False,
+            "output": (
+                "Error: WebMCP is not enabled in this browser.\n"
+                "help: `close` this session and reopen it with `open --webmcp`, or `attach` to a Chrome "
+                f"started with --enable-features={WEBMCP_FEATURE}"
+            ),
+        }
+    return {"success": False, "output": f"Error: {message}"}
+
+
+def _webmcp_tool_line(tool: dict) -> list[str]:
+    annotations = [k for k, v in (tool.get("annotations") or {}).items() if v]
+    marks = f" [{', '.join(annotations)}]" if annotations else ""
+    lines = [f"- {tool.get('name')}{marks}: {tool.get('description') or ''}"]
+    if tool.get("inputSchema") is not None:
+        lines.append(f"  - inputSchema: {json.dumps(tool['inputSchema'], separators=(',', ':'))}")
+    return lines
+
+
+def _webmcp_tool_data(tool: dict) -> dict:
+    """One tool for `data`: name and description always, schema and true annotations when present."""
+    entry = {"name": tool.get("name"), "description": tool.get("description") or ""}
+    if tool.get("inputSchema") is not None:
+        entry["inputSchema"] = tool["inputSchema"]
+    annotations = {k: v for k, v in (tool.get("annotations") or {}).items() if v}
+    if annotations:
+        entry["annotations"] = annotations
+    return entry
+
+
+@register("webmcp-list")
+async def cmd_webmcp_list(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    try:
+        tools = await page.webmcp.tools()
+    except Exception as exc:
+        return _webmcp_error(exc)
+    data = [_webmcp_tool_data(t) for t in tools]
+    if not data:
+        output = "0 webmcp tools on this page"
+        with contextlib.suppress(Exception):
+            if not await page.evaluate("() => isSecureContext"):
+                output += (
+                    "\nhelp: WebMCP only works in a secure context (https, localhost or file://); "
+                    f"{page.url[:80]} is not one"
+                )
+        return {"success": True, "output": output, "data": data}
+    lines = [f"{len(data)} webmcp tool(s). {_WEBMCP_UNTRUSTED}"]
+    for tool in data:
+        lines.extend(_webmcp_tool_line(tool))
+    return {"success": True, "output": "\n".join(lines), "data": data}
+
+
+def _webmcp_input(args: list, options: dict) -> dict:
+    """The tool input from `[json]` or `--params=<json>`: a JSON object, `{}` when neither is given."""
+    flag = options.get("params")
+    # `--params '{...}'` (space, not `=`) arrives as a bare flag plus a positional.
+    flag = flag if isinstance(flag, str) else None
+    positional = args[1:]
+    if flag is not None and positional:
+        raise ValueError("pass the tool input once: either [json] or --params=<json>, not both")
+    if len(positional) > 1:
+        raise ValueError(f"expected one JSON argument after the tool name, got {len(positional)}; quote the JSON")
+    raw = flag if flag is not None else (positional[0] if positional else None)
+    if raw is None or not raw.strip():
+        return {}
+    try:
+        value = json.loads(raw)
+    except ValueError as exc:
+        raise ValueError(f"tool input is not valid JSON ({exc}): {raw[:80]}") from None
+    if not isinstance(value, dict):
+        raise ValueError(f"tool input must be a JSON object, got {type(value).__name__}: {raw[:80]}")
+    return value
+
+
+@register("webmcp-call")
+async def cmd_webmcp_call(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    name = args[0] if args else ""
+    if not name:
+        return {"success": False, "output": "Usage: webmcp-call <name> [json]"}
+    try:
+        tool_input = _webmcp_input(args, options)
+    except ValueError as exc:
+        return {
+            "success": False,
+            "output": f'Error: {exc}\nhelp: patchright-cli webmcp-call {name} \'{{"key":"value"}}\'',
+        }
+    try:
+        result = await page.webmcp.call_tool(name, tool_input)
+    except Exception as exc:
+        reply = _webmcp_error(exc)
+        if "No WebMCP tool named" in reply["output"]:
+            reply["output"] += "\nhelp: run `patchright-cli webmcp-list` to see the page's tools"
+        return reply
+    pretty = json.dumps(result, indent=2, default=str)
+    # A tool reports its own failure as `isError: true` instead of throwing.
+    failed = isinstance(result, dict) and result.get("isError") is True
+    header = f'{"WebMCP tool failed" if failed else "Called WebMCP tool"} "{name}". {_WEBMCP_UNTRUSTED}'
+    return {"success": not failed, "output": f"{header}\n{pretty}", "data": result}
+
+
 # ---------------------------------------------------------------------------
 # Command dispatch
 # ---------------------------------------------------------------------------
@@ -3546,6 +3697,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
                 block_networks=options.get("block-networks"),
                 web_only=_web_only(options),
+                webmcp=bool(options.get("webmcp")),
             )
             if named_tab:
                 if not existed:
