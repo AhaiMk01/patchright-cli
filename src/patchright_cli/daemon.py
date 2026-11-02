@@ -156,7 +156,10 @@ class Session:
         self.emulation_lock = asyncio.Lock()
         # The Profile a Launched Session runs on (None for Attached Sessions).
         self.profile: Profile | None = None
-        self._cdp_sessions: dict[int, object] = {}
+        # Pages whose console output we already capture over CDP, by id(page).
+        # Populated on the first `console` command for a page, never at attach:
+        # see start_console_capture.
+        self._console_sessions: dict[int, object] = {}
         self._video_cdp = None
         self._video_page = None
         self._video_frames: list[bytes] = []
@@ -170,7 +173,7 @@ class Session:
     # -- internal helpers ---------------------------------------------------
 
     async def setup_listeners(self):
-        """Attach console / network listeners to all existing pages."""
+        """Attach network and dialog listeners to all existing pages."""
         for page in self.pages:
             await self._attach_page_listeners(page)
         self.context.on("page", lambda page: asyncio.ensure_future(self._on_new_page(page)))
@@ -198,27 +201,53 @@ class Session:
                 await page.emulate_media(**self.emulation)
 
     async def _attach_page_listeners(self, page):
-        # Use CDP for console messages (Patchright suppresses page.on('console'))
-        try:
-            cdp = await page.context.new_cdp_session(page)
-            await cdp.send("Runtime.enable")
-            cdp.on(
-                "Runtime.consoleAPICalled",
-                lambda event: self.console_messages.append(
-                    {
-                        "type": event["type"] if event["type"] != "warning" else "warning",
-                        "text": " ".join(str(a.get("value", a.get("description", ""))) for a in event.get("args", [])),
-                        "url": page.url,
-                        "ts": time.time(),
-                    }
-                ),
-            )
-            self._cdp_sessions[id(page)] = cdp
-        except Exception:
-            pass
+        # These are Playwright page events, no CDP domain involved. Console
+        # output is deliberately absent: see start_console_capture.
         page.on("request", lambda req: self._on_request(req))
         page.on("response", lambda resp: asyncio.ensure_future(self._on_response(resp)))
         page.on("dialog", lambda dialog: self._handle_dialog(dialog))
+
+    async def start_console_capture(self, page) -> bool:
+        """Capture `page`'s console output from now on; True once it is active.
+
+        Patchright suppresses page.on('console'), so this goes through CDP. But
+        an enabled Runtime domain is itself a detected signal: it makes Chrome
+        serialise logged Errors, which fingerprinting scripts probe with
+        Error.prepareStackTrace. Attach-time enabling therefore marks every
+        page as automated, so the domain is enabled on the first `console`
+        command instead -- a page whose console was never asked for stays clean.
+        """
+        if id(page) in self._console_sessions:
+            if not page.is_closed():
+                return True
+            self._console_sessions.pop(id(page), None)
+            return False
+        # A page that closed between commands, or a CDP session torn down by a
+        # navigation, fails once; a fresh session usually works, so retry once.
+        for _ in range(2):
+            try:
+                cdp = await page.context.new_cdp_session(page)
+                await cdp.send("Runtime.enable")
+                cdp.on("Runtime.consoleAPICalled", lambda event: self._on_console_event(event, page))
+            except Exception:
+                continue
+            self._console_sessions[id(page)] = cdp
+            return True
+        return False
+
+    def _on_console_event(self, event, page):
+        try:
+            url = page.url
+        except Exception:
+            url = ""
+        self.console_messages.append(
+            {
+                "type": event["type"],
+                "text": " ".join(str(a.get("value", a.get("description", ""))) for a in event.get("args", [])),
+                "url": url,
+                "ts": time.time(),
+            }
+        )
 
     def _on_request(self, req):
         try:
@@ -396,7 +425,7 @@ class Session:
         tab = self.tabs.pop(name)
         page = tab.page
         if page is not None:
-            self._cdp_sessions.pop(id(page), None)
+            self._console_sessions.pop(id(page), None)
             if page in self.pages:
                 removed_index = self.pages.index(page)
                 self.pages.remove(page)
@@ -1985,7 +2014,7 @@ async def cmd_tab_close(session: Session, page, args: list, options: dict, cwd: 
         return {"success": True, "output": f"Tab {idx} closed (was tab '{owner}')."}
 
     session.pages.pop(idx)
-    session._cdp_sessions.pop(id(page), None)
+    session._console_sessions.pop(id(page), None)
     if idx < session.current_tab:
         session.current_tab -= 1
     session.current_tab = max(0, min(session.current_tab, len(session.pages) - 1))
@@ -2196,6 +2225,7 @@ async def cmd_localstorage_clear(
 
 @register("console")
 async def cmd_console(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    capturing = await session.start_console_capture(page)
     level_filter = args[0] if args else None
     filter_aliases = {"warn": "warning"}
     if level_filter:
@@ -2209,7 +2239,16 @@ async def cmd_console(session: Session, page, args: list, options: dict, cwd: st
     if len(matching) > len(shown):
         result["total"] = len(matching)
     if not lines:
-        lines = ["0 console messages in this session" + (f" at level '{level_filter}'" if level_filter else "")]
+        if session.console_messages:
+            lines = [f"0 console messages in this session at level '{level_filter}'"]
+        elif level_filter:
+            lines = [
+                f"0 console messages at level '{level_filter}' captured yet; capture starts with the first `console` call"
+            ]
+        else:
+            lines = ["0 console messages captured yet; capture starts with the first `console` call"]
+    if not capturing:
+        lines.append("console capture could not start on this page; it may have closed")
     result["output"] = "\n".join(lines)
     return result
 
