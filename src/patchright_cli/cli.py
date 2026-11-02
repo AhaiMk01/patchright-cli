@@ -997,7 +997,7 @@ COMMAND_SPECS: dict[str, dict] = {
     # DevTools
     "console": {
         "usage": "console [level]",
-        "summary": "Show console messages",
+        "summary": "Start session-wide CDP capture and show messages; earlier messages are unavailable (detectable)",
         "flags": {"clear": "Clear the buffer after showing it (default: off)"},
         "examples": ["console", "console error", "console --clear"],
     },

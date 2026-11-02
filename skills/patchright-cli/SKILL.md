@@ -300,7 +300,7 @@ dialog-dismiss                # Dismiss next dialog
 ### DevTools
 
 ```bash
-console                       # Show console messages
+console                       # Start capture / show captured console messages
 console warning               # Filter by level
 network                       # Show network requests (each line is `#<id> METHOD STATUS URL`)
 requests                      # Alias for `network`
@@ -311,6 +311,11 @@ generate-locator <ref>        # Emit Playwright locator string for a ref
 highlight <ref>               # Persistent overlay on element [--style=CSS]
 highlight <ref> --hide        # Remove overlay; `highlight --hide` clears all
 ```
+
+The first `console` call starts CDP Runtime capture across this session's existing
+and future pages, including popups. Earlier messages are unavailable: call it
+before reproducing an issue, then again to read messages. Capture makes CDP
+detectable until the session closes; `console --clear` only clears the buffer.
 
 ### Recording and capture
 
@@ -482,7 +487,7 @@ video-hide-actions                      # Stop annotating actions
 pdf [--filename]                        # Save page as PDF
 
 # DevTools
-console [level] [--clear]               # Show console messages
+console [level] [--clear]               # Start session-wide CDP capture and show messages; earlier messages are unavailable (detectable)
 network [--static] [--clear]            # Show network requests
 requests [--static] [--clear]           # Alias for `network`
 request <id> [--body]                   # Show full detail for a network request
