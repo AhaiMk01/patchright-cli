@@ -1941,7 +1941,7 @@ async def cmd_pick_locator(
                 "success": False,
                 "output": (
                     f"No element was picked within {wait_seconds:g}s; pick mode was cancelled.\n"
-                    "Raise the window with `pick-locator --wait=<seconds>`."
+                    "Wait longer with `pick-locator --wait=<seconds>`."
                 ),
             }
         try:

@@ -140,7 +140,7 @@ async def test_pick_times_out_and_cancels_pick_mode(state_with_page):
     r = await _run(state, wait="0.05")
     assert r["success"] is False
     assert "No element was picked within 0.05s" in r["output"]
-    assert "--wait=<seconds>" in r["output"]
+    assert "Wait longer with `pick-locator --wait=<seconds>`." in r["output"]
     page.cancel_pick_locator.assert_awaited_once()
     assert page not in daemon._active_picks
 
