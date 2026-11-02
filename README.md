@@ -363,6 +363,19 @@ patchright-cli sessionstorage-delete <key>
 patchright-cli sessionstorage-clear
 ```
 
+### Passkeys
+A virtual WebAuthn authenticator for testing passkey sign-ups and logins. The first `passkey-*` command installs it in the session, overriding `navigator.credentials.create()` / `.get()` in every page (a page can notice the override, so it stays off until asked for). Passkeys live in the session only; use `passkey-export` / `passkey-import` to keep them.
+```bash
+patchright-cli passkey-list                      # Installs the authenticator, lists passkeys (no keys shown)
+patchright-cli passkey-list --rp-id=example.com
+patchright-cli passkey-add example.com           # Seed a new P-256 passkey
+patchright-cli passkey-add example.com --id=<b64url> --user-handle=<b64url> --private-key=<b64url> --public-key=<b64url> --sign-count=5
+patchright-cli passkey-delete <credential-id>
+patchright-cli passkey-clear [--rp-id=example.com]
+patchright-cli passkey-export passkeys.json      # Includes private keys
+patchright-cli passkey-import passkeys.json
+```
+
 ### Request Mocking
 ```bash
 patchright-cli route "**/*.jpg" --status=404

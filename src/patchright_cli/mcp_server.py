@@ -569,6 +569,55 @@ TOOL_SPECS = {
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
+    "patchright_passkey_list": {
+        "description": "CLI command: passkey-list List the session's virtual WebAuthn passkeys (installs the virtual authenticator).",
+        "params": [
+            ("rp_id", "string", False, "", "Relying party id filter."),
+            ("id", "string", False, "", "Base64url credential id filter."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_passkey_add": {
+        "description": "CLI command: passkey-add Seed a virtual WebAuthn passkey for a relying party.",
+        "params": [
+            ("rp_id", "string", True, None, "Relying party id, typically the site's domain."),
+            ("id", "string", False, "", "Base64url credential id; generated when empty."),
+            ("user_handle", "string", False, "", "Base64url user handle; generated when empty."),
+            ("private_key", "string", False, "", "Base64url PKCS#8 private key; requires public_key."),
+            ("public_key", "string", False, "", "Base64url SPKI public key; requires private_key."),
+            ("sign_count", "number", False, 0, "Initial signature counter."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_passkey_delete": {
+        "description": "CLI command: passkey-delete Delete a virtual passkey by credential id.",
+        "params": [
+            ("id", "string", True, None, "Base64url credential id."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_passkey_clear": {
+        "description": "CLI command: passkey-clear Delete all virtual passkeys, optionally for one relying party.",
+        "params": [
+            ("rp_id", "string", False, "", "Relying party id filter."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_passkey_export": {
+        "description": "CLI command: passkey-export Export virtual passkeys, including private keys, to a JSON file.",
+        "params": [
+            ("path", "string", False, "", "Output JSON path."),
+            ("rp_id", "string", False, "", "Relying party id filter."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_passkey_import": {
+        "description": "CLI command: passkey-import Seed virtual passkeys from a passkey-export JSON file.",
+        "params": [
+            ("path", "string", True, None, "Input JSON path."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
     "patchright_localstorage_get": {
         "description": "CLI command: localstorage-get Get a localStorage item.",
         "params": [
@@ -1009,6 +1058,8 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         "patchright_cookie_get": ("cookie-get", ["name"]),
         "patchright_cookie_delete": ("cookie-delete", ["name"]),
         "patchright_cookie_import": ("cookie-import", ["path"]),
+        "patchright_passkey_delete": ("passkey-delete", ["id"]),
+        "patchright_passkey_import": ("passkey-import", ["path"]),
         "patchright_localstorage_get": ("localstorage-get", ["key"]),
         "patchright_localstorage_set": ("localstorage-set", ["key", "value"]),
         "patchright_localstorage_delete": ("localstorage-delete", ["key"]),
@@ -1035,7 +1086,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     }
     if name in simple:
         cmd, keys = simple[name]
-        if name in {"patchright_state_load", "patchright_cookie_import"}:
+        if name in {"patchright_state_load", "patchright_cookie_import", "patchright_passkey_import"}:
             _validate_cli_path(p["path"], required=True)
         if name == "patchright_goto":
             _validate_url(p["url"])
@@ -1207,6 +1258,32 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name == "patchright_cookie_export":
         args = ["cookie-export"]
         if p["path"]:
+            _validate_cli_path(p["path"])
+            args.append(_V(p["path"]))
+        return args
+
+    if name == "patchright_passkey_list":
+        args = ["passkey-list"]
+        if p["rp_id"]:
+            args.append(f"--rp-id={p['rp_id']}")
+        if p["id"]:
+            args.append(f"--id={p['id']}")
+        return args
+
+    if name == "patchright_passkey_add":
+        args = ["passkey-add", _V(p["rp_id"])]
+        for key in ("id", "user_handle", "private_key", "public_key"):
+            if p[key]:
+                args.append(f"--{key.replace('_', '-')}={p[key]}")
+        if p["sign_count"]:
+            args.append(f"--sign-count={int(p['sign_count'])}")
+        return args
+
+    if name in {"patchright_passkey_clear", "patchright_passkey_export"}:
+        args = [name.removeprefix("patchright_").replace("_", "-")]
+        if p["rp_id"]:
+            args.append(f"--rp-id={p['rp_id']}")
+        if p.get("path"):
             _validate_cli_path(p["path"])
             args.append(_V(p["path"]))
         return args

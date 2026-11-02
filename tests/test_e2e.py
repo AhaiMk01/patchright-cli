@@ -5,7 +5,10 @@ import os
 import re
 import socket
 import struct
+import threading
 import time
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -13,7 +16,8 @@ import pytest
 from patchright_cli.daemon import ensure_daemon_running, read_daemon_token
 
 FIXTURE_URL = "file://" + os.path.join(os.path.dirname(__file__), "fixture.html")
-TEST_PORT = 19321
+# Parallel runs (e.g. several worktrees) each set their own port; the profile follows it.
+TEST_PORT = int(os.environ.get("PATCHRIGHT_E2E_PORT", "19321"))
 
 
 def _send_tcp(port: int, cmd: str, args=None, options=None) -> dict:
@@ -50,7 +54,8 @@ def daemon():
     ensure_daemon_running(port=TEST_PORT, headless=True)
 
     # Open fixture
-    resp = _send_tcp(TEST_PORT, "open", args=[FIXTURE_URL])
+    profile = {} if TEST_PORT == 19321 else {"profile": f"e2e-{TEST_PORT}"}
+    resp = _send_tcp(TEST_PORT, "open", args=[FIXTURE_URL], options=profile)
     assert resp["success"] is True
 
     yield TEST_PORT
@@ -236,3 +241,74 @@ class TestE2E:
 
         still_there = _cmd(daemon, "url")
         assert still_there["success"] is True
+
+
+PASSKEY_PAGE = r"""<!doctype html><html><body>
+<button onclick="run()">Register then sign in</button><pre id="out">idle</pre>
+<script>
+const b64u = b => btoa(String.fromCharCode(...new Uint8Array(b)))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function run() {
+  const out = document.getElementById('out');
+  try {
+    const c = await navigator.credentials.create({publicKey: {challenge: new Uint8Array(32),
+      rp: {name: 'Test', id: 'localhost'},
+      user: {id: new TextEncoder().encode('alice'), name: 'alice', displayName: 'Alice'},
+      pubKeyCredParams: [{type: 'public-key', alg: -7}], authenticatorSelection: {residentKey: 'required'}}});
+    const a = await navigator.credentials.get({publicKey: {challenge: new Uint8Array(32), rpId: 'localhost'}});
+    out.textContent = 'created=' + b64u(c.rawId) + ' signed=' + b64u(a.rawId);
+  } catch (e) { out.textContent = 'ERR ' + e.name + ': ' + e.message; }
+}
+</script></body></html>"""
+
+
+@pytest.fixture(scope="module")
+def passkey_site(tmp_path_factory):
+    """WebAuthn needs a secure context with a real rp id, so serve the page from http://localhost."""
+    root = tmp_path_factory.mktemp("passkey-site")
+    (root / "passkey.html").write_text(PASSKEY_PAGE, encoding="utf-8")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(SimpleHTTPRequestHandler, directory=str(root)))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://localhost:{server.server_port}/passkey.html"
+    server.shutdown()
+
+
+@pytest.mark.e2e
+class TestPasskeysE2E:
+    def test_page_ceremony_uses_the_virtual_authenticator(self, daemon, passkey_site, tmp_path):
+        opts = {"session": f"e2e-passkeys-{daemon}"}
+        try:
+            assert _cmd(daemon, "open", args=[passkey_site], options=opts)["success"] is True
+            # Installed after the page loaded: the override still reaches the open page.
+            first = _cmd(daemon, "passkey-list", options=opts)
+            assert first["output"].startswith("Virtual passkey authenticator installed")
+            assert first["data"] == []
+
+            snap = _cmd(daemon, "snapshot", options=opts)
+            ref = _find_ref(Path(snap["snapshot_path"]).read_text(encoding="utf-8"), "button")
+            assert _cmd(daemon, "click", args=[ref], options=opts)["success"] is True
+            out = ""
+            for _ in range(20):
+                out = _cmd(daemon, "eval", args=["document.getElementById('out').textContent"], options=opts)["output"]
+                if "idle" not in out:
+                    break
+                time.sleep(0.25)
+            created = re.search(r"created=([\w-]+) signed=([\w-]+)", out)
+            assert created, out
+            assert created.group(1) == created.group(2)
+
+            listed = _cmd(daemon, "passkey-list", options=opts)
+            assert listed["data"] == [
+                {"id": created.group(1), "rpId": "localhost", "userHandle": "YWxpY2U", "signCount": 1}
+            ]
+
+            # Export, clear, import: the credential comes back with its keys.
+            exported = tmp_path / "passkeys.json"
+            assert _cmd(daemon, "passkey-export", args=[str(exported)], options=opts)["success"] is True
+            assert json.loads(exported.read_text(encoding="utf-8"))[0]["privateKey"]
+            assert _cmd(daemon, "passkey-clear", options=opts)["output"] == "Deleted 1 passkey(s)."
+            assert _cmd(daemon, "passkey-list", options=opts)["data"] == []
+            assert _cmd(daemon, "passkey-import", args=[str(exported)], options=opts)["success"] is True
+            assert [c["id"] for c in _cmd(daemon, "passkey-list", options=opts)["data"]] == [created.group(1)]
+        finally:
+            _cmd(daemon, "close", options=opts)

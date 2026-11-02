@@ -160,6 +160,9 @@ class Session:
         self._console_capture_enabled = False
         self._console_lock = asyncio.Lock()
         self._console_sessions: dict[int, object] = {}
+        # Virtual WebAuthn authenticator, installed by the first passkey-* command.
+        self._passkeys_installed = False
+        self._passkey_lock = asyncio.Lock()
         self._video_cdp = None
         self._video_page = None
         self._video_frames: list[bytes] = []
@@ -2604,6 +2607,154 @@ async def cmd_sessionstorage_clear(
 ) -> dict:
     await page.evaluate("() => sessionStorage.clear()")
     return {"success": True, "output": "sessionStorage cleared."}
+
+
+# -- Passkeys (virtual WebAuthn authenticator) -------------------------------
+
+# Fields of a VirtualCredential that passkey-list shows; the keys stay out of it
+# and only leave the daemon through passkey-export.
+_PASSKEY_LIST_FIELDS = ("id", "rpId", "userHandle", "signCount")
+# passkey-add flag -> Credentials.create() keyword.
+_PASSKEY_ADD_FLAGS = {
+    "id": "id",
+    "user-handle": "user_handle",
+    "private-key": "private_key",
+    "public-key": "public_key",
+}
+
+
+async def _ensure_passkeys(session: Session) -> bool:
+    """Install the session's virtual authenticator once. Returns True when this call installed it.
+
+    Installing overrides navigator.credentials in every page of the context, which a
+    page could notice, so it only happens once a passkey-* command asks for it.
+    """
+    async with session._passkey_lock:
+        if session._passkeys_installed:
+            return False
+        await session.context.credentials.install()
+        session._passkeys_installed = True
+        return True
+
+
+def _passkey_notice(installed: bool) -> str:
+    return "Virtual passkey authenticator installed in this session.\n" if installed else ""
+
+
+def _user_file(cwd: str | None, filepath: str) -> Path:
+    path = Path(filepath)
+    return path if path.is_absolute() or not cwd else Path(cwd) / path
+
+
+@register("passkey-list")
+async def cmd_passkey_list(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    installed = await _ensure_passkeys(session)
+    creds = await session.context.credentials.get(id=options.get("id"), rp_id=options.get("rp-id"))
+    data = [{k: c.get(k) for k in _PASSKEY_LIST_FIELDS} for c in creds]
+    if not data:
+        filters = "".join(f" --{k}={options[k]}" for k in ("rp-id", "id") if options.get(k))
+        output = "0 passkeys in this session" + (f" matching{filters}" if filters else "")
+    else:
+        output = json.dumps(data, indent=2)
+    return {"success": True, "output": _passkey_notice(installed) + output, "data": data}
+
+
+@register("passkey-add")
+async def cmd_passkey_add(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    kwargs = {kw: str(options[flag]) for flag, kw in _PASSKEY_ADD_FLAGS.items() if options.get(flag) is not None}
+    # The API takes a lone private key without complaint, leaving a keypair that may not
+    # match; a supplied key is only usable with its public half.
+    if ("private_key" in kwargs) != ("public_key" in kwargs):
+        return {"success": False, "output": "Pass --private-key and --public-key together (or neither)."}
+    if options.get("sign-count") is not None:
+        try:
+            kwargs["sign_count"] = int(options["sign-count"])
+        except ValueError:
+            return {"success": False, "output": f"--sign-count must be an integer, got '{options['sign-count']}'"}
+    installed = await _ensure_passkeys(session)
+    cred = await session.context.credentials.create(args[0], **kwargs)
+    data = {k: cred.get(k) for k in _PASSKEY_LIST_FIELDS}
+    return {
+        "success": True,
+        "output": _passkey_notice(installed) + f"Passkey '{cred['id']}' added for {cred['rpId']}.",
+        "data": data,
+    }
+
+
+@register("passkey-delete")
+async def cmd_passkey_delete(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    installed = await _ensure_passkeys(session)
+    cred_id = args[0]
+    if not await session.context.credentials.get(id=cred_id):
+        return {"success": True, "output": _passkey_notice(installed) + f"No passkey with id '{cred_id}' (no-op)"}
+    await session.context.credentials.delete(cred_id)
+    return {"success": True, "output": _passkey_notice(installed) + f"Passkey '{cred_id}' deleted."}
+
+
+@register("passkey-clear")
+async def cmd_passkey_clear(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    installed = await _ensure_passkeys(session)
+    creds = await session.context.credentials.get(rp_id=options.get("rp-id"))
+    for cred in creds:
+        await session.context.credentials.delete(cred["id"])
+    scope = f" for {options['rp-id']}" if options.get("rp-id") else ""
+    return {"success": True, "output": _passkey_notice(installed) + f"Deleted {len(creds)} passkey(s){scope}."}
+
+
+@register("passkey-export")
+async def cmd_passkey_export(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    installed = await _ensure_passkeys(session)
+    creds = await session.context.credentials.get(rp_id=options.get("rp-id"))
+    if args:
+        filepath = _user_file(cwd, args[0])
+    else:
+        filepath = (Path(cwd) if cwd else Path.cwd()) / ".patchright-cli" / f"passkeys-{int(time.time() * 1000)}.json"
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    filepath.write_text(json.dumps([dict(c) for c in creds], indent=2), encoding="utf-8")
+    return {
+        "success": True,
+        "output": _passkey_notice(installed) + f"Exported {len(creds)} passkey(s) to {filepath}",
+    }
+
+
+@register("passkey-import")
+async def cmd_passkey_import(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    filepath = _user_file(cwd, args[0])
+    if not filepath.is_file():
+        return {"success": False, "output": f"File not found: {filepath}"}
+    try:
+        creds = json.loads(filepath.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        return {"success": False, "output": f"Invalid passkey file {filepath}: {exc}"}
+    required = ("id", "rpId", "userHandle", "privateKey", "publicKey")
+    if not isinstance(creds, list) or not all(isinstance(c, dict) and all(c.get(k) for k in required) for c in creds):
+        return {
+            "success": False,
+            "output": f"Invalid passkey file {filepath}: expected a passkey-export list, each with {', '.join(required)}",
+        }
+    installed = await _ensure_passkeys(session)
+    for c in creds:
+        await session.context.credentials.create(
+            c["rpId"],
+            id=c["id"],
+            user_handle=c["userHandle"],
+            private_key=c["privateKey"],
+            public_key=c["publicKey"],
+            sign_count=int(c.get("signCount") or 0),
+        )
+    return {"success": True, "output": _passkey_notice(installed) + f"Imported {len(creds)} passkey(s) from {filepath}"}
 
 
 # -- Route (request interception) --------------------------------------------

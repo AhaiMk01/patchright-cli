@@ -460,6 +460,14 @@ sessionstorage-set <key> <value>        # Set sessionStorage item
 sessionstorage-delete <key>             # Delete sessionStorage item
 sessionstorage-clear                    # Clear sessionStorage
 
+# Passkeys
+passkey-list [--rp-id] [--id]           # List virtual passkeys (installs the authenticator)
+passkey-add <rp-id> [--id] [--user-handle] [--private-key] [--public-key] [--sign-count]  # Seed a virtual passkey
+passkey-delete <id>                     # Delete a virtual passkey by credential id
+passkey-clear [--rp-id]                 # Delete all virtual passkeys
+passkey-export [file] [--rp-id]         # Export virtual passkeys with their keys to JSON
+passkey-import <file>                   # Seed virtual passkeys from a passkey-export file
+
 # Permissions
 grant-permissions <perms> [--origin]    # Grant comma-separated permissions
 
