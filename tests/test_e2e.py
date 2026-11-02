@@ -197,6 +197,60 @@ class TestE2E:
         resp = _cmd(daemon, "wait", options={"url": "**/fixture.html"})
         assert resp["success"] is True
 
+    def test_highlight_shows_and_hides_the_native_overlay(self, daemon):
+        goto = _cmd(daemon, "goto", args=[FIXTURE_URL])
+        assert goto["success"] is True
+        ref = _find_ref(_read_snapshot(daemon), "button")
+
+        shown = _cmd(daemon, "highlight", args=[ref], options={"style": "outline: 3px dashed blue"})
+        assert shown == {"success": True, "output": f"Highlighted {ref}."}
+        # Playwright draws the overlay inside its own glass-pane element.
+        glass = _cmd(daemon, "eval", args=["document.querySelectorAll('x-pw-glass').length"])
+        assert glass["output"] == "1"
+
+        hidden = _cmd(daemon, "highlight", args=[ref], options={"hide": True})
+        assert hidden["output"] == f"Hid highlight on {ref}."
+        again = _cmd(daemon, "highlight", args=[ref], options={"hide": True})
+        assert "(no-op)" in again["output"]
+
+    def test_scroll_none_refuses_an_element_outside_the_viewport(self, daemon):
+        page = "data:text/html,<div style='height:3000px'></div><button>Far</button>"
+        assert _cmd(daemon, "goto", args=[page])["success"] is True
+        ref = _find_ref(_read_snapshot(daemon), "button")
+
+        refused = _cmd(daemon, "click", args=[ref], options={"scroll": "none", "timeout-action": "1500"})
+        assert refused["success"] is False
+        assert "outside of the viewport" in refused["output"]
+
+        clicked = _cmd(daemon, "click", args=[ref], options={"scroll": "auto", "timeout-action": "30000"})
+        assert clicked["success"] is True
+
+    def test_console_messages_carry_the_page_timestamp(self, daemon):
+        assert _cmd(daemon, "goto", args=[FIXTURE_URL])["success"] is True
+        assert _cmd(daemon, "console", options={"clear": True})["success"] is True
+        logged = _cmd(daemon, "eval", args=["(() => { const t = Date.now(); console.log('stamp'); return t; })()"])
+        page_ms = float(logged["output"])
+
+        resp = _cmd(daemon, "console")
+        stamp = next(m for m in resp["data"] if m["text"] == "stamp")
+        assert abs(stamp["timestamp"] - page_ms) < 1000
+
+    def test_request_shows_the_http_version(self, daemon):
+        import http.server
+        import threading
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}/"
+            assert _cmd(daemon, "goto", args=[url])["success"] is True
+            listing = _cmd(daemon, "network")
+            entry = next(r for r in reversed(listing["data"]) if r["url"] == url)
+            detail = _cmd(daemon, "request", args=[str(entry["id"])])
+            assert re.search(r"^- HTTP version: http/1\.[01]$", detail["output"], re.MULTILINE | re.IGNORECASE)
+        finally:
+            server.shutdown()
+
     # Tab tests run last: they add pages to the shared session, and the
     # index-based tests above assume only the fixture page is open.
 
