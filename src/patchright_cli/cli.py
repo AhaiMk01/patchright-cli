@@ -752,10 +752,26 @@ COMMAND_SPECS: dict[str, dict] = {
             "regex": "Treat <text> as a regular expression (default: off)",
             "all": "Match every role, not just interactive ones (default: off)",
             "limit": "Maximum matches (default: 20)",
+            "role": "Find by ARIA role instead of <text>, e.g. button (default: off)",
+            "name": "With --role: accessible name, substring or /regex/i (default: any)",
+            "description": "With --role: accessible description (aria-describedby, aria-description, "
+            "title), substring or /regex/i (default: any)",
+            "exact": "With --role: --name/--description match whole and case-sensitive (default: off)",
         },
         # `find --regex=<pattern>` carries its text in the flag value.
         "args_from_flag_value": "regex",
-        "examples": ['find "Sign in"', 'find "^Item \\d+" --regex --limit=50'],
+        # `find --role=<role>` needs no <text>.
+        "optional_args_with": "role",
+        "missing_args": (
+            "`find` requires <text> or --role=<role>",
+            "help: --name, --description and --exact only apply with --role, "
+            'e.g. find --role=button --description="Deletes"',
+        ),
+        "examples": [
+            'find "Sign in"',
+            'find "^Item \\d+" --regex --limit=50',
+            'find --role=button --description="Deletes the file"',
+        ],
     },
     "eval": {
         "usage": "eval <expr> [ref]",
@@ -765,6 +781,18 @@ COMMAND_SPECS: dict[str, dict] = {
         "min_args": 0,
     },
     "text": {"usage": "text <ref|selector>", "summary": "Get text content of element", "examples": ["text e5"]},
+    "html": {
+        "usage": "html [ref]",
+        "summary": "Print page HTML, or one element's outerHTML",
+        "flags": {
+            "selector": "CSS selector of the one element to print (default: whole page)",
+            "include-shadow": "Include open shadow roots as <template shadowrootmode=open>; "
+            "closed shadow roots are never included (default: off)",
+            "filename": "Save the whole HTML under .patchright-cli/<name> (default: print it)",
+            "max-chars": "Cut printed HTML after this many characters, 0 for no limit (default: 8000)",
+        },
+        "examples": ["html", "html --include-shadow --filename=page.html", "html e5 --max-chars=0"],
+    },
     "screenshot": {
         "usage": "screenshot [ref]",
         "summary": "Save screenshot",
@@ -1094,7 +1122,15 @@ COMMAND_SPECS: dict[str, dict] = {
     "tracing-start": {"usage": "tracing-start", "summary": "Start Playwright tracing", "examples": ["tracing-start"]},
     "tracing-stop": {"usage": "tracing-stop", "summary": "Stop tracing and save", "examples": ["tracing-stop"]},
     # Video
-    "video-start": {"usage": "video-start", "summary": "Start video recording", "examples": ["video-start"]},
+    "video-start": {
+        "usage": "video-start",
+        "summary": "Start video recording",
+        "flags": {
+            "fps": "Real-time video at this frame rate, 1-60; each frame lasts until the next "
+            "(default: off, every captured frame once at 5 fps)",
+        },
+        "examples": ["video-start", "video-start --fps=25"],
+    },
     "video-stop": {
         "usage": "video-stop",
         "summary": "Stop recording and save",
@@ -1431,6 +1467,9 @@ def _validate_positionals(command: str, args: list, flags: dict) -> None:
     else:
         need = _min_args(spec)
     if len(args) < need:
+        if "missing_args" in spec:
+            message, *hints = spec["missing_args"]
+            raise UsageError(message, *hints, f"help: run `patchright-cli {command} --help` for flags and examples")
         required = " ".join(t for t in spec["usage"].split()[1:] if t.startswith("<"))
         raise UsageError(
             f"`{command}` requires {required}",
@@ -1466,6 +1505,7 @@ COMMAND_CATEGORIES = [
             "find",
             "eval",
             "text",
+            "html",
             "screenshot",
             "drag",
             "drop",

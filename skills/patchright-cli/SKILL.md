@@ -165,7 +165,13 @@ patchright-cli find --regex "sign (in|up)" # regex, case-insensitive
 patchright-cli find --regex "/Sign In/"    # slash form carries flags (i, m, s)
 patchright-cli find "price" --all          # include text/paragraph nodes
 patchright-cli find "hide" --limit=50      # default limit is 20
+patchright-cli find --role=button --description="Deletes"  # role + accessible description
 ```
+
+The snapshot never shows accessible descriptions (`aria-describedby`,
+`aria-description`, a `title` that is not the name). To target an element by
+one, use `find --role=<role>` with `--name` and/or `--description`: substring
+and case-insensitive, `/regex/i`, or whole with `--exact`. It returns refs.
 
 `find` searches links, buttons, inputs and headings by default — the things
 you can act on. Use `--all` when you are looking for page *content* rather
@@ -408,9 +414,10 @@ select <ref> <value>                    # Select dropdown option
 check <ref> [--scroll]                  # Check checkbox/radio
 uncheck <ref>                           # Uncheck checkbox/radio
 snapshot [ref] [--selector] [--filename] [--depth] [--interactive] [--boxes]  # Take accessibility snapshot
-find <text> [--regex] [--all] [--limit]  # Search the snapshot for matching elements
+find <text> [--regex] [--all] [--limit] [--role] [--name] [--description] [--exact]  # Search the snapshot for matching elements
 eval <expr> [ref] [--file]              # Evaluate JavaScript (expression, --file or stdin)
 text <ref|selector>                     # Get text content of element
+html [ref] [--selector] [--include-shadow] [--filename] [--max-chars]  # Print page HTML, or one element's outerHTML
 screenshot [ref] [--full-page] [--hires] [--filename]  # Save screenshot
 drag <from> <to> [--scroll]             # Drag element to target
 drop <ref> [--path] [--data]            # Drop file/data onto element
@@ -515,7 +522,7 @@ tracing-start                           # Start Playwright tracing
 tracing-stop                            # Stop tracing and save
 
 # Video
-video-start                             # Start video recording
+video-start [--fps]                     # Start video recording
 video-stop [--filename]                 # Stop recording and save
 video-chapter <title>                   # Add chapter marker to video
 video-show-actions [--duration] [--position]  # Annotate actions in the recording

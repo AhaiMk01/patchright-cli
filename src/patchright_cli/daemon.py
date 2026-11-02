@@ -169,6 +169,9 @@ class Session:
         self._video_cdp = None
         self._video_page = None
         self._video_frames: list[bytes] = []
+        # With `video-start --fps`: each frame's capture time, to pace the output.
+        self._video_times: list[float] = []
+        self._video_fps: int | None = None
         self._video_recording: bool = False
         self._video_chapters: list[tuple[int, str]] = []
         self._video_show_actions: dict | None = None
@@ -1845,8 +1848,144 @@ async def _annotate_with_boxes(page, snapshot_text: str, registry) -> str:
     return "\n".join(out)
 
 
+# `find --role` filters. --name and --description are what get_by_role takes;
+# --exact makes both whole-string and case-sensitive.
+_ROLE_FILTERS = ("name", "description", "exact")
+_SLASH_TEXT_RE = re.compile(r"^/(.*)/([ims]*)$", re.S)
+# Each match is mapped to a snapshot ref with one identity check per same-role,
+# same-name ref; more candidates than this and the match is listed without a ref.
+ROLE_REF_CANDIDATES = 20
+
+
+def _role_text(value: str):
+    """A --name/--description value: `/pattern/flags` is a regex, anything else plain text."""
+    m = _SLASH_TEXT_RE.match(value)
+    if not m:
+        return value
+    flags = 0
+    for f in m.group(2):
+        flags |= {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL}[f]
+    return re.compile(m.group(1), flags)
+
+
+async def _ref_for_element(registry, page, target) -> str | None:
+    """The snapshot ref that resolves to the element `target` (a one-element locator), if any.
+
+    The element's own aria snapshot gives its role and name, which narrows the
+    refs to the few with the same pair; each is checked for being the same element.
+    """
+    from patchright_cli.ref_registry import _parse_node
+
+    try:
+        head = (await target.aria_snapshot(timeout=2000)).splitlines()[0]
+    except Exception:
+        return None
+    node = _parse_node(head)
+    if node is None:
+        return None
+    candidates = [e for e in registry.entries.values() if (e.role, e.name) == node]
+    if not candidates or len(candidates) > ROLE_REF_CANDIDATES:
+        return None
+    try:
+        handle = await target.element_handle(timeout=2000)
+    except Exception:
+        return None
+    try:
+        for entry in candidates:
+            try:
+                same = await registry.resolve(page, entry.ref).evaluate(
+                    "(el, target) => el === target", handle, timeout=1000
+                )
+            except Exception:
+                continue
+            if same:
+                return entry.ref
+        return None
+    finally:
+        with contextlib.suppress(Exception):
+            await handle.dispose()
+
+
+async def _find_by_role(session: Session, page, role: str, options: dict, limit: int) -> dict:
+    """`find --role=<role>`: elements get_by_role matches, mapped to snapshot refs."""
+    kwargs: dict = {}
+    shown = [f"role={role}"]
+    for key in ("name", "description"):
+        value = options.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value:
+            return {"success": False, "output": f'Give --{key} a value, e.g. --{key}="Delete".'}
+        try:
+            kwargs[key] = _role_text(value)
+        except re.error as exc:
+            return {"success": False, "output": f"Invalid --{key} regex {value!r}: {exc}"}
+        shown.append(f"{key}={json.dumps(value)}")
+    if options.get("exact"):
+        kwargs["exact"] = True
+        shown.append("exact")
+    query = " ".join(shown)
+
+    locator = page.get_by_role(role, **kwargs)
+    try:
+        total = await locator.count()
+    except Exception as exc:
+        return {"success": False, "output": f"find {query} failed: {exc}"}
+    if not total:
+        return {
+            "success": True,
+            "output": f"0 matches for {query}.\nDrop a filter, or use /pattern/i for a looser --name/--description.",
+            "data": [],
+        }
+
+    _, session.ref_registry = await take_snapshot(page)
+    data = []
+    lines = []
+    for i in range(min(total, limit)):
+        target = locator.nth(i)
+        ref = await _ref_for_element(session.ref_registry, page, target)
+        entry = session.ref_registry.entries.get(ref) if ref else None
+        name = entry.name if entry else ""
+        data.append({"ref": ref or "", "role": role, "name": name})
+        label = f'- {role} "{name}"' if name else f"- {role}"
+        lines.append(f"{label} [ref={ref}]" if ref else f"{label} (no ref: not in the snapshot; nth={i})")
+    if total > len(data):
+        header = f"Found {len(data)} of {total} matches for {query}. Narrow the filters to reduce ambiguity."
+    else:
+        header = f"Found {total} match{'' if total == 1 else 'es'} for {query}."
+    result = {"success": True, "output": "\n".join([header, "", *lines]) + "\n", "data": data}
+    if total > len(data):
+        result["total"] = total
+    return result
+
+
 @register("find")
 async def cmd_find(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    raw_limit = options.get("limit", 20)
+    try:
+        if isinstance(raw_limit, bool):
+            raise TypeError
+        limit = int(raw_limit)
+    except (TypeError, ValueError):
+        return {"success": False, "output": f"Invalid --limit value: {raw_limit!r}. Expected a positive integer."}
+    if limit < 1:
+        return {"success": False, "output": f"Invalid --limit value: {limit}. Expected a positive integer."}
+
+    role = options.get("role")
+    if role is None:
+        stray = [f"--{k}" for k in _ROLE_FILTERS if k in options]
+        if stray:
+            return {"success": False, "output": f"{', '.join(stray)} only works with --role=<role>."}
+    else:
+        if not isinstance(role, str) or not role:
+            return {"success": False, "output": "Give --role an ARIA role, e.g. --role=button."}
+        if args or "regex" in options or "all" in options:
+            return {
+                "success": False,
+                "output": "find --role filters by role, --name and --description; "
+                "it takes no <text>, --regex or --all. Run them as two finds.",
+            }
+        return await _find_by_role(session, page, role, options, limit)
     regex_option = options.get("regex", False)
     if isinstance(regex_option, str):
         if args:
@@ -1863,16 +2002,6 @@ async def cmd_find(session: Session, page, args: list, options: dict, cwd: str |
             "success": False,
             "output": "find requires a search term. Usage: find <text> [--regex] [--all] [--limit=N]",
         }
-
-    raw_limit = options.get("limit", 20)
-    try:
-        if isinstance(raw_limit, bool):
-            raise TypeError
-        limit = int(raw_limit)
-    except (TypeError, ValueError):
-        return {"success": False, "output": f"Invalid --limit value: {raw_limit!r}. Expected a positive integer."}
-    if limit < 1:
-        return {"success": False, "output": f"Invalid --limit value: {limit}. Expected a positive integer."}
 
     # Refs are numbered across the whole tree, so they agree with `snapshot`.
     _, session.ref_registry = await take_snapshot(page)
@@ -2124,6 +2253,95 @@ async def cmd_text(session: Session, page, args: list, options: dict, cwd: str |
         elem = page.locator(target)
     text = (await elem.text_content()) or ""
     return {"success": True, "output": text}
+
+
+# `html` prints at most this many characters unless --max-chars says otherwise;
+# the same cut as `request --body`. --filename always gets the whole document.
+DEFAULT_HTML_MAX_CHARS = 8000
+
+# An element's outerHTML; with `shadow`, its open shadow roots (its own and
+# nested ones) as declarative `<template shadowrootmode="open">`, the way
+# Page.content(include_shadow=True) writes them for the whole page.
+_ELEMENT_HTML_JS = """(el, shadow) => {
+  if (!shadow) return el.outerHTML;
+  const roots = [];
+  const walk = (node) => {
+    for (const child of node.querySelectorAll('*')) {
+      if (child.shadowRoot) { roots.push(child.shadowRoot); walk(child.shadowRoot); }
+    }
+  };
+  if (el.shadowRoot) { roots.push(el.shadowRoot); walk(el.shadowRoot); }
+  walk(el);
+  const inner = el.getHTML({ serializableShadowRoots: true, shadowRoots: roots });
+  const shell = el.cloneNode(false).outerHTML;
+  const close = `</${el.localName}>`;
+  if (!shell.endsWith(close)) return shell;  // a void element has no content
+  return shell.slice(0, shell.length - close.length) + inner + close;
+}"""
+
+
+@register("html")
+async def cmd_html(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    """Print the page's HTML, or one element's, with open shadow roots on --include-shadow."""
+    ref = args[0] if args else None
+    selector = options.get("selector")
+    if selector is not None:
+        if not isinstance(selector, str) or not selector:
+            return {"success": False, "output": 'Give --selector a CSS selector, e.g. --selector="#main".'}
+        if ref:
+            return {"success": False, "output": "html takes either a ref or --selector=<css>, not both."}
+
+    raw_max = options.get("max-chars", DEFAULT_HTML_MAX_CHARS)
+    try:
+        if isinstance(raw_max, bool):
+            raise TypeError
+        max_chars = int(raw_max)
+    except (TypeError, ValueError):
+        max_chars = -1
+    if max_chars < 0:
+        return {
+            "success": False,
+            "output": f"Invalid --max-chars value: {raw_max!r}. Expected a whole number; 0 means no limit.",
+        }
+
+    fn = options.get("filename")
+    if fn is not None and (not isinstance(fn, str) or not fn):
+        return {"success": False, "output": "Give --filename a name, e.g. --filename=page.html."}
+
+    include_shadow = bool(options.get("include-shadow", False))
+    if selector:
+        scoped = page.locator(selector)
+        try:
+            matches = await scoped.count()
+        except Exception as exc:
+            return {"success": False, "output": f"Invalid selector {selector!r}: {exc}"}
+        if matches != 1:
+            if not matches:
+                return {"success": False, "output": f"No element matches {selector!r} on this page."}
+            return {
+                "success": False,
+                "output": f"{selector!r} matches {matches} elements; html needs exactly one. Narrow the selector.",
+            }
+        html = await scoped.evaluate(_ELEMENT_HTML_JS, include_shadow)
+    elif ref:
+        elem = await _resolve_ref(session, page, ref)
+        html = await elem.evaluate(_ELEMENT_HTML_JS, include_shadow)
+    else:
+        html = await page.content(include_shadow=include_shadow)
+
+    if fn:
+        base = Path(cwd) if cwd else Path.cwd()
+        filepath = base / ".patchright-cli" / fn
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        filepath.write_text(html, encoding="utf-8")
+        return {"success": True, "output": f"HTML saved to {filepath} ({len(html)} chars)"}
+
+    if max_chars and len(html) > max_chars:
+        html = (
+            html[:max_chars] + f"\n... (truncated: {max_chars} of {len(html)} chars; "
+            "--filename=<name> saves it all, --max-chars=0 prints it all)"
+        )
+    return {"success": True, "output": html}
 
 
 @register("screenshot")
@@ -3062,26 +3280,80 @@ async def cmd_tracing_stop(
 # -- Video recording ---------------------------------------------------------
 
 
+# Chrome composites at the display refresh rate, so more than 60 fps only
+# repeats frames.
+MAX_VIDEO_FPS = 60
+
+
+def _parse_video_fps(raw) -> int | None:
+    """A `video-start --fps` value as a whole number of frames per second, or None if invalid."""
+    if isinstance(raw, bool):
+        return None
+    try:
+        fps = int(str(raw))
+    except ValueError:
+        return None
+    return fps if 1 <= fps <= MAX_VIDEO_FPS else None
+
+
+def _video_length(times: list[float], stopped_at: float, fps: int) -> float:
+    """Seconds from the first captured frame until the recording stopped (at least one frame)."""
+    return max(stopped_at, times[-1] + 1 / fps) - times[0]
+
+
+def _video_concat_list(times: list[float], stopped_at: float, fps: int) -> str:
+    """An ffmpeg concat-demuxer script showing frame i from times[i] until times[i+1].
+
+    The last frame lasts until the recording stopped (and at least one output
+    frame). It is listed twice: some ffmpeg versions drop the last entry's
+    duration, others add it again, so the caller cuts the output at
+    _video_length() with -t.
+    """
+    lines = []
+    for i, start in enumerate(times):
+        end = times[i + 1] if i + 1 < len(times) else max(stopped_at, start + 1 / fps)
+        lines.append(f"file 'frame-{i:06d}.jpg'")
+        lines.append(f"duration {max(end - start, 0):.6f}")
+    lines.append(f"file 'frame-{len(times) - 1:06d}.jpg'")
+    return "\n".join(lines) + "\n"
+
+
 @register("video-start")
 async def cmd_video_start(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
     if session._video_recording:
         return {"success": True, "output": "Video recording already in progress (no-op)"}
+    fps = None
+    if options.get("fps") is not None:
+        fps = _parse_video_fps(options["fps"])
+        if fps is None:
+            return {
+                "success": False,
+                "output": f"Invalid --fps value: {options['fps']!r}. Expected a whole number from 1 to {MAX_VIDEO_FPS}.",
+            }
     cdp = await page.context.new_cdp_session(page)
     session._video_cdp = cdp
     session._video_page = page
     session._video_frames = []
+    session._video_times = []
+    session._video_fps = fps
     session._video_recording = True
 
     def _on_frame(event):
         import base64
 
         session._video_frames.append(base64.b64decode(event["data"]))
+        # Arrival time, not metadata.timestamp: the first frame's timestamp is
+        # when it was painted, possibly long before video-start, and a remote
+        # (attached) Chrome's clock is not this one.
+        session._video_times.append(time.time())
         asyncio.ensure_future(cdp.send("Page.screencastFrameAck", {"sessionId": event["sessionId"]}))
 
     cdp.on("Page.screencastFrame", _on_frame)
     await cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 80, "maxWidth": 1280, "maxHeight": 720})
+    if fps:
+        return {"success": True, "output": f"Video recording started at {fps} fps."}
     return {"success": True, "output": "Video recording started."}
 
 
@@ -3096,8 +3368,13 @@ async def cmd_video_stop(
     except Exception:
         pass
     session._video_recording = False
+    stopped_at = time.time()
     frames = session._video_frames
+    times = list(getattr(session, "_video_times", None) or [])
+    fps = getattr(session, "_video_fps", None)
     session._video_frames = []
+    session._video_times = []
+    session._video_fps = None
     session._video_cdp = None
     session._video_page = None
     chapters = list(session._video_chapters)
@@ -3130,13 +3407,20 @@ async def cmd_video_stop(
         with tempfile.TemporaryDirectory() as tmpdir:
             for i, frame_data in enumerate(frames):
                 Path(tmpdir, f"frame-{i:06d}.jpg").write_bytes(frame_data)
+            if fps and len(times) == len(frames):
+                # Real time: each frame stays on screen until the next one arrived,
+                # resampled to a constant `fps`.
+                concat = Path(tmpdir, "frames.txt")
+                concat.write_text(_video_concat_list(times, stopped_at, fps), encoding="utf-8")
+                length = f"{_video_length(times, stopped_at, fps):.3f}"
+                source = ["-f", "concat", "-safe", "0", "-i", str(concat), "-vf", f"fps={fps}", "-t", length]
+            else:
+                # Each captured frame once, at 5 fps (Chrome sends a frame only when the page changes).
+                source = ["-framerate", "5", "-i", str(Path(tmpdir, "frame-%06d.jpg"))]
             proc = await asyncio.create_subprocess_exec(
                 "ffmpeg",
                 "-y",
-                "-framerate",
-                "5",
-                "-i",
-                str(Path(tmpdir, "frame-%06d.jpg")),
+                *source,
                 "-c:v",
                 "libvpx",
                 "-b:v",

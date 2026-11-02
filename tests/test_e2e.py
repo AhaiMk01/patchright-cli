@@ -612,3 +612,85 @@ class TestDebuggerE2E:
         closed = self._cmd(daemon, "close")
         assert closed["success"] is True, closed
         assert "closed" in closed["output"]
+
+
+EXTRAS_PAGE = """<!doctype html><html><head><title>extras</title></head><body>
+<p id="tip">Deletes the file forever</p>
+<button aria-describedby="tip">Delete</button>
+<button aria-describedby="tip">Delete</button>
+<button title="Save your work">Save</button>
+<button>Plain</button>
+<div id="host"></div><div id="closed"></div>
+<div id="anim" style="width:40px;height:40px;background:red;position:relative"></div>
+<script>
+const open = document.getElementById("host").attachShadow({mode: "open"});
+open.innerHTML = '<span>OPEN</span><div id="inner"></div>';
+open.getElementById("inner").attachShadow({mode: "open"}).innerHTML = "<b>NESTED</b>";
+document.getElementById("closed").attachShadow({mode: "closed"}).innerHTML = "<i>HIDDEN</i>";
+let x = 0;
+setInterval(() => { x = (x + 3) % 300; document.getElementById("anim").style.left = x + "px"; }, 16);
+</script></body></html>"""
+
+
+@pytest.fixture
+def extras_page(daemon, tmp_path):
+    page = tmp_path / "extras.html"
+    page.write_text(EXTRAS_PAGE, encoding="utf-8")
+    resp = _cmd(daemon, "goto", args=[page.resolve().as_uri()])
+    assert resp["success"] is True, resp
+    return daemon
+
+
+class TestFindByRoleHtmlAndVideoFps:
+    def test_find_by_role_and_description_returns_refs(self, extras_page):
+        resp = _cmd(extras_page, "find", options={"role": "button", "description": "deletes the file"})
+        assert resp["success"] is True, resp
+        refs = [m["ref"] for m in resp["data"]]
+        assert len(refs) == 2 and all(refs) and refs[0] != refs[1]
+        # Each ref is its own element: the second Delete button follows the first.
+        second = _cmd(extras_page, "eval", args=["el => el.previousElementSibling.textContent", refs[1]])
+        assert json.loads(second["output"]) == "Delete"
+
+        titled = _cmd(extras_page, "find", options={"role": "button", "description": "/^save/i"})
+        assert [m["name"] for m in titled["data"]] == ["Save"]
+        exact = _cmd(extras_page, "find", options={"role": "button", "description": "deletes", "exact": True})
+        assert exact["data"] == []
+
+    def test_html_includes_open_shadow_roots_only_with_the_flag(self, extras_page):
+        plain = _cmd(extras_page, "html", options={"max-chars": "0"})
+        assert plain["success"] is True
+        assert "shadowrootmode" not in plain["output"]
+
+        shadow = _cmd(extras_page, "html", options={"max-chars": "0", "include-shadow": True})
+        assert '<div id="host"><template shadowrootmode="open"><span>OPEN</span>' in shadow["output"]
+        assert '<template shadowrootmode="open"><b>NESTED</b></template>' in shadow["output"]
+        assert '<div id="closed"></div>' in shadow["output"]
+
+        scoped = _cmd(extras_page, "html", options={"selector": "#host", "include-shadow": True})
+        assert scoped["output"].startswith('<div id="host"><template shadowrootmode="open">')
+        assert _cmd(extras_page, "html", options={"selector": "#host"})["output"] == '<div id="host"></div>'
+
+        cut = _cmd(extras_page, "html", options={"max-chars": "50"})
+        assert "... (truncated: 50 of" in cut["output"]
+
+    def test_video_fps_matches_wall_time(self, extras_page, tmp_path):
+        import shutil
+        import subprocess
+
+        if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
+            pytest.skip("ffmpeg/ffprobe not installed")
+        assert _cmd(extras_page, "video-start", options={"fps": "25"})["success"] is True
+        time.sleep(2)
+        out = tmp_path / "fps.webm"
+        stopped = _cmd(extras_page, "video-stop", options={"filename": str(out)})
+        assert stopped["success"] is True, stopped
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=avg_frame_rate"]
+            + ["-show_entries", "format=duration", "-of", "json", str(out)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        info = json.loads(probe.stdout)
+        assert info["streams"][0]["avg_frame_rate"] == "25/1"
+        assert 1.8 <= float(info["format"]["duration"]) <= 3.5
