@@ -80,7 +80,7 @@ patchright-cli state-save auth.json                     # Save cookies + localSt
 patchright-cli state-load auth.json                     # Restore state
 ```
 
-When loading state, navigate to the matching origin first so localStorage can be applied correctly.
+`state-load` replaces the session's state: it first clears the existing cookies, localStorage, IndexedDB and OPFS data, then applies the file. localStorage is applied to every origin in the file; you do not need to visit an origin first.
 
 ## Cookie persistence login pattern
 

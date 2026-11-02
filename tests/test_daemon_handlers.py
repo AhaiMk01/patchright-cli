@@ -332,11 +332,12 @@ async def test_drop_requires_path_or_data(mock_state, mock_session):
 
 
 @pytest.mark.asyncio
-async def test_drop_with_data_dispatches_drop_event(mock_state, mock_session):
+async def test_drop_with_data_uses_native_locator_drop(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
     registry = MagicMock()
     locator = MagicMock()
-    locator.evaluate = AsyncMock(return_value=None)
+    locator.drop = AsyncMock(return_value=None)
+    locator.evaluate = AsyncMock()
     registry.resolve.return_value = locator
     mock_session.ref_registry = registry
 
@@ -349,11 +350,48 @@ async def test_drop_with_data_dispatches_drop_event(mock_state, mock_session):
             )
 
     assert response["success"] is True
-    locator.evaluate.assert_awaited_once()
-    js, payload = locator.evaluate.call_args.args
-    assert "DataTransfer" in js
-    assert payload["dataEntries"] == [("text/plain", "hello")]
-    assert payload["files"] == []
+    locator.drop.assert_awaited_once_with({"data": {"text/plain": "hello"}})
+    locator.evaluate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_drop_with_files_and_data_sends_buffers_with_guessed_mime(mock_state, mock_session, tmp_path):
+    note = tmp_path / "note.txt"
+    note.write_bytes(b"hello file")
+    blob = tmp_path / "blob.zzunknown"
+    blob.write_bytes(b"\x00\x01")
+    mock_state.sessions = {"default": mock_session}
+    registry = MagicMock()
+    locator = MagicMock()
+    locator.drop = AsyncMock(return_value=None)
+    registry.resolve.return_value = locator
+    mock_session.ref_registry = registry
+
+    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = ("snapshot-text", registry)
+        with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
+            response = await handle_command(
+                mock_state,
+                {
+                    "command": "drop",
+                    "args": ["e1"],
+                    "options": {
+                        "path": [str(note), str(blob)],
+                        "data": ["text/uri-list=https://x.test/", "text/plain=a=b"],
+                    },
+                },
+            )
+
+    assert response["success"] is True
+    locator.drop.assert_awaited_once_with(
+        {
+            "files": [
+                {"name": "note.txt", "mimeType": "text/plain", "buffer": b"hello file"},
+                {"name": "blob.zzunknown", "mimeType": "application/octet-stream", "buffer": b"\x00\x01"},
+            ],
+            "data": {"text/uri-list": "https://x.test/", "text/plain": "a=b"},
+        }
+    )
 
 
 @pytest.mark.asyncio
@@ -361,7 +399,7 @@ async def test_drop_with_missing_file(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
     registry = MagicMock()
     locator = MagicMock()
-    locator.evaluate = AsyncMock()
+    locator.drop = AsyncMock()
     registry.resolve.return_value = locator
     mock_session.ref_registry = registry
 
@@ -371,6 +409,33 @@ async def test_drop_with_missing_file(mock_state, mock_session):
     )
     assert response["success"] is False
     assert "File not found" in response["output"]
+    locator.drop.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_state_load_applies_file_with_one_native_call(mock_state, mock_session, tmp_path):
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    mock_state.sessions = {"default": mock_session}
+    mock_session.context.set_storage_state = AsyncMock()
+    mock_session.context.add_cookies = AsyncMock()
+    mock_session.page.evaluate = AsyncMock()
+
+    response = await handle_command(mock_state, {"command": "state-load", "args": [str(state_file)]})
+
+    assert response == {"success": True, "output": f"State loaded from {state_file}"}
+    mock_session.context.set_storage_state.assert_awaited_once_with(str(state_file))
+    mock_session.context.add_cookies.assert_not_called()
+    mock_session.page.evaluate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_state_load_missing_file(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    mock_session.context.set_storage_state = AsyncMock()
+    response = await handle_command(mock_state, {"command": "state-load", "args": ["/no/such/state.json"]})
+    assert response == {"success": False, "output": "File not found: /no/such/state.json"}
+    mock_session.context.set_storage_state.assert_not_awaited()
 
 
 @pytest.mark.asyncio
