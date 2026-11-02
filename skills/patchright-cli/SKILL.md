@@ -357,6 +357,15 @@ clear-media
 `--content-type`, `--header`); `route-list` and `unroute` manage them, and
 `network-state-set offline|online` simulates connectivity.
 
+### Passkeys (WebAuthn)
+
+Run a `passkey-*` command, such as `passkey-list`, BEFORE the page calls
+`navigator.credentials.create()` or `.get()`. The first one installs a virtual
+authenticator in the session; until then the page gets Chrome's native OS
+passkey dialog and the ceremony hangs. Then `passkey-list` shows what the page
+registered, `passkey-add <rp-id>` seeds one, and `passkey-export` /
+`passkey-import` keep passkeys across sessions (the export holds private keys).
+
 ## Command reference
 
 Every command, its flags and what it does. `patchright-cli <command> --help`
@@ -459,6 +468,14 @@ sessionstorage-get <key>                # Get sessionStorage item
 sessionstorage-set <key> <value>        # Set sessionStorage item
 sessionstorage-delete <key>             # Delete sessionStorage item
 sessionstorage-clear                    # Clear sessionStorage
+
+# Passkeys
+passkey-list [--rp-id] [--id]           # List virtual passkeys; run before the page uses WebAuthn
+passkey-add <rp-id> [--id] [--user-handle] [--private-key] [--public-key] [--sign-count]  # Seed a virtual passkey
+passkey-delete <id>                     # Delete a virtual passkey by credential id
+passkey-clear [--rp-id]                 # Delete all virtual passkeys
+passkey-export [file] [--rp-id]         # Export virtual passkeys with private keys to an owner-only JSON
+passkey-import <file>                   # Seed virtual passkeys from a passkey-export file
 
 # Permissions
 grant-permissions <perms> [--origin]    # Grant comma-separated permissions

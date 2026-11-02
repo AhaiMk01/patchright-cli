@@ -985,6 +985,50 @@ COMMAND_SPECS: dict[str, dict] = {
         "summary": "Clear sessionStorage",
         "examples": ["sessionstorage-clear"],
     },
+    # Passkeys: every passkey-* command first installs the session's virtual WebAuthn authenticator.
+    "passkey-list": {
+        "usage": "passkey-list",
+        "summary": "List virtual passkeys; run before the page uses WebAuthn",
+        "flags": {
+            "rp-id": "Only passkeys for this relying party id (default: all)",
+            "id": "Only the passkey with this credential id (default: all)",
+        },
+        "examples": ["passkey-list", "passkey-list --rp-id=example.com"],
+    },
+    "passkey-add": {
+        "usage": "passkey-add <rp-id>",
+        "summary": "Seed a virtual passkey",
+        "flags": {
+            "id": "Base64url credential id (default: generated)",
+            "user-handle": "Base64url user handle (default: generated)",
+            "private-key": "Base64url PKCS#8 private key (default: new P-256 key)",
+            "public-key": "Base64url SPKI public key (default: derived from the new key)",
+            "sign-count": "Initial signature counter (default: 0)",
+        },
+        "examples": ["passkey-add example.com", "passkey-add example.com --sign-count=5"],
+    },
+    "passkey-delete": {
+        "usage": "passkey-delete <id>",
+        "summary": "Delete a virtual passkey by credential id",
+        "examples": ["passkey-delete rOcULsEhnOTidWZYElf2oA"],
+    },
+    "passkey-clear": {
+        "usage": "passkey-clear",
+        "summary": "Delete all virtual passkeys",
+        "flags": {"rp-id": "Only passkeys for this relying party id (default: all)"},
+        "examples": ["passkey-clear", "passkey-clear --rp-id=example.com"],
+    },
+    "passkey-export": {
+        "usage": "passkey-export [file]",
+        "summary": "Export virtual passkeys with private keys to an owner-only JSON",
+        "flags": {"rp-id": "Only passkeys for this relying party id (default: all)"},
+        "examples": ["passkey-export", "passkey-export passkeys.json"],
+    },
+    "passkey-import": {
+        "usage": "passkey-import <file>",
+        "summary": "Seed virtual passkeys from a passkey-export file",
+        "examples": ["passkey-import passkeys.json"],
+    },
     # Route
     "route": {
         "usage": "route <pattern>",
@@ -1411,6 +1455,10 @@ COMMAND_CATEGORIES = [
             "sessionstorage-delete",
             "sessionstorage-clear",
         ],
+    ),
+    (
+        "Passkeys",
+        ["passkey-list", "passkey-add", "passkey-delete", "passkey-clear", "passkey-export", "passkey-import"],
     ),
     ("Permissions", ["grant-permissions"]),
     ("Route", ["route", "route-list", "unroute", "network-state-set"]),
