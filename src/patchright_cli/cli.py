@@ -626,8 +626,11 @@ COMMAND_SPECS: dict[str, dict] = {
     "click": {
         "usage": "click <ref> [button]",
         "summary": "Click element",
-        "flags": {"modifiers": "Comma-separated modifier keys held during the click, e.g. Alt,Shift (default: none)"},
-        "examples": ["click e5", "click e5 right", "click e5 --modifiers=Control"],
+        "flags": {
+            "modifiers": "Comma-separated modifier keys held during the click, e.g. Alt,Shift (default: none)",
+            "scroll": "auto scrolls the element into view; none fails if it is outside the viewport (default: auto)",
+        },
+        "examples": ["click e5", "click e5 right --modifiers=Control", "click e5 --scroll=none"],
     },
     "dblclick": {
         "usage": "dblclick <ref> [button]",
@@ -647,9 +650,23 @@ COMMAND_SPECS: dict[str, dict] = {
         "flags": {"submit": "Press Enter after typing (default: off)"},
         "examples": ['type "hello"', 'type "query" --submit'],
     },
-    "hover": {"usage": "hover <ref>", "summary": "Hover over element", "examples": ["hover e4"]},
+    "hover": {
+        "usage": "hover <ref>",
+        "summary": "Hover over element",
+        "flags": {
+            "scroll": "auto scrolls the element into view; none fails if it is outside the viewport (default: auto)"
+        },
+        "examples": ["hover e4", "hover e4 --scroll=none"],
+    },
     "select": {"usage": "select <ref> <value>", "summary": "Select dropdown option", "examples": ["select e9 blue"]},
-    "check": {"usage": "check <ref>", "summary": "Check checkbox/radio", "examples": ["check e12"]},
+    "check": {
+        "usage": "check <ref>",
+        "summary": "Check checkbox/radio",
+        "flags": {
+            "scroll": "auto scrolls the element into view; none fails if it is outside the viewport (default: auto)"
+        },
+        "examples": ["check e12", "check e12 --scroll=none"],
+    },
     "uncheck": {"usage": "uncheck <ref>", "summary": "Uncheck checkbox/radio", "examples": ["uncheck e12"]},
     "snapshot": {
         "usage": "snapshot [ref]",
@@ -693,7 +710,14 @@ COMMAND_SPECS: dict[str, dict] = {
         },
         "examples": ["screenshot", "screenshot --full-page --filename=page.png", "screenshot e5"],
     },
-    "drag": {"usage": "drag <from> <to>", "summary": "Drag element to target", "examples": ["drag e3 e7"]},
+    "drag": {
+        "usage": "drag <from> <to>",
+        "summary": "Drag element to target",
+        "flags": {
+            "scroll": "auto scrolls the element into view; none fails if it is outside the viewport (default: auto)"
+        },
+        "examples": ["drag e3 e7", "drag e3 e7 --scroll=none"],
+    },
     "drop": {
         "usage": "drop <ref>",
         "summary": "Drop file/data onto element",

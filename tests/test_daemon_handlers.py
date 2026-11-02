@@ -90,7 +90,77 @@ async def test_click_resolves_ref_and_clicks(mock_state, mock_session):
 
     assert response["success"] is True
     registry.resolve.assert_called_once_with(mock_session.page, "e1")
-    locator.click.assert_awaited_once_with(button="left", modifiers=None)
+    locator.click.assert_awaited_once_with(button="left", modifiers=None, scroll=None)
+
+
+def _action_locator(mock_session, href=None):
+    registry = MagicMock()
+    locator = MagicMock()
+    for method in ("click", "hover", "check", "drag_to"):
+        setattr(locator, method, AsyncMock())
+    locator.evaluate = AsyncMock(return_value=href)
+    registry.resolve.return_value = locator
+    mock_session.ref_registry = registry
+    return locator
+
+
+async def _run_action(mock_state, command, args, options):
+    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = ("snapshot-text", MagicMock())
+        with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
+            return await handle_command(mock_state, {"command": command, "args": args, "options": options})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["auto", "none"])
+@pytest.mark.parametrize(
+    ("command", "args", "method"),
+    [
+        ("click", ["e1"], "click"),
+        ("hover", ["e1"], "hover"),
+        ("check", ["e1"], "check"),
+        ("drag", ["e1", "e2"], "drag_to"),
+    ],
+)
+async def test_actions_pass_scroll_through(mock_state, mock_session, command, args, method, value):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session)
+    response = await _run_action(mock_state, command, args, {"scroll": value})
+    assert response["success"] is True, response
+    assert getattr(locator, method).await_args.kwargs["scroll"] == value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["click", "hover", "check", "drag"])
+@pytest.mark.parametrize("value", ["sideways", True])
+async def test_actions_reject_bad_scroll_values(mock_state, mock_session, command, value):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session)
+    response = await _run_action(mock_state, command, ["e1", "e2"], {"scroll": value})
+    assert response["success"] is False
+    assert "--scroll" in response["output"] and "auto, none" in response["output"]
+    for method in ("click", "hover", "check", "drag_to"):
+        getattr(locator, method).assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_click_link_with_scroll_none_checks_reachability_first(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session, href="https://example.com/next")
+    response = await _run_action(mock_state, "click", ["e1"], {"scroll": "none"})
+    assert response["success"] is True, response
+    locator.click.assert_awaited_once_with(trial=True, scroll="none")
+    mock_session.page.goto.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_click_link_unreachable_without_scrolling_does_not_navigate(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    locator = _action_locator(mock_session, href="https://example.com/next")
+    locator.click.side_effect = Exception("Timeout 30000ms exceeded.")
+    response = await _run_action(mock_state, "click", ["e1"], {"scroll": "none"})
+    assert response["success"] is False
+    mock_session.page.goto.assert_not_awaited()
 
 
 @pytest.mark.asyncio

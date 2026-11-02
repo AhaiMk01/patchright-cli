@@ -1510,9 +1510,25 @@ async def cmd_title(session: Session, page, args: list, options: dict, cwd: str 
 
 # -- Core interactions -------------------------------------------------------
 
+SCROLL_VALUES = ("auto", "none")
+
+
+def _scroll_option(options: dict) -> str | None:
+    """The `--scroll` value for an action: auto (the default) or none.
+
+    `none` makes the action fail instead of scrolling the element into view.
+    """
+    value = options.get("scroll")
+    if value is None:
+        return None
+    if value not in SCROLL_VALUES:
+        raise ValueError(f"Invalid --scroll value: {value!r}. Expected one of: {', '.join(SCROLL_VALUES)}.")
+    return value
+
 
 @register("click")
 async def cmd_click(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
     button = args[1] if len(args) > 1 else "left"
     modifiers = options.get("modifiers", "").split(",") if options.get("modifiers") else []
@@ -1522,10 +1538,13 @@ async def cmd_click(session: Session, page, args: list, options: dict, cwd: str 
         "el => { while (el) { if (el.tagName === 'A') return el.href; el = el.parentElement; } return null; }"
     )
     if link_href:
+        if scroll == "none":
+            # The link is followed without a click, so check reachability with a trial click first.
+            await elem.click(trial=True, scroll="none")
         await session.goto(page, link_href, _web_only(options))
         session.push_history(page.url)
     else:
-        await elem.click(button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None)
+        await elem.click(button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None, scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -1558,8 +1577,9 @@ async def cmd_type(session: Session, page, args: list, options: dict, cwd: str |
 
 @register("hover")
 async def cmd_hover(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
-    await elem.hover()
+    await elem.hover(scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -1572,8 +1592,9 @@ async def cmd_select(session: Session, page, args: list, options: dict, cwd: str
 
 @register("check")
 async def cmd_check(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
-    await elem.check()
+    await elem.check(scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -1586,9 +1607,10 @@ async def cmd_uncheck(session: Session, page, args: list, options: dict, cwd: st
 
 @register("drag")
 async def cmd_drag(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     src = await _resolve_ref(session, page, args[0])
     dst = await _resolve_ref(session, page, args[1])
-    await src.drag_to(dst)
+    await src.drag_to(dst, scroll=scroll)
     return await _page_info(session, cwd)
 
 
