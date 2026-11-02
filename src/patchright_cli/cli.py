@@ -1130,7 +1130,7 @@ COMMAND_SPECS: dict[str, dict] = {
     # Debugger
     "debugger-pause": {
         "usage": "debugger-pause",
-        "summary": "Pause before the next browser call a command makes; that command replies at once, held",
+        "summary": "Pause before the next page action, navigation or eval; that command replies at once, held",
         "examples": ["debugger-pause", "click e3   # replies 'Paused before: Click ...'"],
     },
     "debugger-step": {

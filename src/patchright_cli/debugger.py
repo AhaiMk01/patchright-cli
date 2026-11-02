@@ -31,6 +31,15 @@ STATE_OFF = "off"
 STATE_ARMED = "armed"
 STATE_PAUSED = "paused"
 
+# What the driver pauses on. Calls marked pausable in its protocol metainfo:
+# actions, navigation, evaluate and element getters. Snapshots (ariaSnapshot),
+# page title, cookies, storage state, new pages and highlight are not.
+PAUSES_ON = "the next page action, navigation or evaluate (click, fill, goto, eval, ...)"
+ARMED = f"Armed: {PAUSES_ON} pauses."
+STILL_ARMED = (
+    "Still armed: the next page action a command makes pauses again; `debugger-resume` turns the debugger off."
+)
+
 
 class SessionDebugger:
     """One session's view of `context.debugger`, created by the first debugger-* command."""
@@ -81,7 +90,12 @@ class SessionDebugger:
         if not self.armed or self.paused:
             return await coro
         task = asyncio.ensure_future(coro)
-        return await self._until_done_or_paused(command, task)
+        result = await self._until_done_or_paused(command, task)
+        if self.armed and not result.get("paused") and isinstance(result.get("output"), str):
+            # Snapshots, titles, cookies and the like make no pausable call.
+            result = dict(result)
+            result["output"] += f"\nDebugger: `{command}` ran without pausing (it makes no page action); still armed."
+        return result
 
     async def _until_done_or_paused(self, command: str, task: asyncio.Future) -> dict:
         self._pause_hit.clear()
@@ -119,7 +133,7 @@ class SessionDebugger:
         self.armed = True
         if task is None or task.done():
             self._clear_held(task)
-            return _released(command, task, still_armed=True)
+            return _released(command, task, still_armed=self.armed)
         # The held command may finish, or stop again at one of its own later calls.
         result = await self._until_done_or_paused(command, task)
         if result.get("paused"):
@@ -175,7 +189,7 @@ class SessionDebugger:
                 line += f" (held: `{self.held_command}`)"
             return line
         if self.armed:
-            return "Armed: the next browser call a command makes will pause."
+            return ARMED
         return "Not paused."
 
     def status_data(self) -> dict:
@@ -190,12 +204,13 @@ class SessionDebugger:
 
 _NEXT_STEPS = (
     "The command is held and finishes in the background: `debugger-step` runs to the next call, "
-    "`debugger-resume` lets it finish; both print its result. Other commands still work meanwhile."
+    "`debugger-resume` lets it finish; both print its result. Other commands, including actions, "
+    "still run immediately meanwhile, so their side effects can land before the held one's."
 )
 
 
 def _released(command: str | None, task: asyncio.Future | None, *, still_armed: bool) -> dict:
-    tail = "Armed: the next browser call a command makes will pause." if still_armed else "Debugger off."
+    tail = STILL_ARMED if still_armed else "Debugger off."
     if task is None:
         return {"success": True, "output": tail}
     if task.cancelled():

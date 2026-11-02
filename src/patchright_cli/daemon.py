@@ -3735,15 +3735,19 @@ async def cmd_debugger_pause(
     return _debugger_reply(debugger, "\n".join(lines))
 
 
+def _nothing_to_step(debugger: SessionDebugger) -> str:
+    if debugger.armed:
+        return "Armed, nothing paused yet: run a command to pause it, or `debugger-resume` to disarm."
+    return "Not paused: run `debugger-pause`, then a command."
+
+
 @register("debugger-step")
 async def cmd_debugger_step(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
     debugger, _ = session.get_debugger()
     if not debugger.paused:
-        return _debugger_reply(
-            debugger, f"{debugger.describe()}\nNothing to step: run `debugger-pause`, then a command.", False
-        )
+        return _debugger_reply(debugger, _nothing_to_step(debugger), False)
     return await debugger.step()
 
 

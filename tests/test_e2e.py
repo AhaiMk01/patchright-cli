@@ -574,6 +574,12 @@ class TestDebuggerE2E:
             armed = self._cmd(daemon, "debugger-pause")
             assert armed["data"]["state"] == "armed", armed
 
+            # aria_snapshot is not a pausable driver call: it runs through and says so.
+            snap = self._cmd(daemon, "snapshot")
+            assert snap["success"] is True, snap
+            assert "paused" not in snap
+            assert "Debugger: `snapshot` ran without pausing" in snap["output"]
+
             held = self._cmd(daemon, "eval", ["document.title = 'stepped'"])
             assert held.get("paused") is True, held
             assert held["data"]["title"] == "Evaluate"

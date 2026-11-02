@@ -133,6 +133,7 @@ async def test_a_paused_command_is_held_and_resume_returns_its_result(state, dri
             "location": {"file": "daemon.py", "line": 1, "column": 0},
         }
         assert "held: `fake-click e1`" in held["output"]
+        assert "Other commands, including actions, still run immediately" in held["output"]
 
         # Other commands keep working while the call is paused.
         status = await asyncio.wait_for(_send(state, "debugger-status"), 2)
@@ -167,7 +168,10 @@ async def test_step_stops_again_inside_the_same_command(state, driver):
         finished = await asyncio.wait_for(_send(state, "debugger-step"), 2)
         assert "`fake-two` finished:\ndone" in finished["output"]
         # `next` re-arms, so the next call pauses again.
-        assert finished["output"].endswith("Armed: the next browser call a command makes will pause.")
+        assert finished["output"].endswith(
+            "Still armed: the next page action a command makes pauses again; `debugger-resume` turns the debugger off."
+        )
+        assert (await _send(state, "debugger-status"))["data"]["state"] == "armed"
     finally:
         daemon.COMMAND_HANDLERS.pop("fake-two")
 
@@ -197,6 +201,39 @@ async def test_step_without_a_pause_fails_clearly(state):
     reply = await _send(state, "debugger-step")
     assert reply["success"] is False
     assert "run `debugger-pause`, then a command" in reply["output"]
+
+
+@pytest.mark.asyncio
+async def test_step_while_armed_says_nothing_is_paused_yet(state):
+    await _send(state, "debugger-pause")
+    reply = await _send(state, "debugger-step")
+    assert reply["success"] is False
+    assert reply["output"] == ("Armed, nothing paused yet: run a command to pause it, or `debugger-resume` to disarm.")
+
+
+@pytest.mark.asyncio
+async def test_a_command_without_a_pausable_call_runs_through_and_says_so(state):
+    # Like `snapshot`: aria_snapshot is not a pausable call in the driver.
+    async def no_pausable_call(*_):
+        return {"success": True, "output": "- button [ref=e1]"}
+
+    from patchright_cli import daemon
+
+    daemon.COMMAND_HANDLERS["fake-snapshot"] = no_pausable_call
+    try:
+        armed = await _send(state, "debugger-pause")
+        assert armed["output"].startswith(
+            "Armed: the next page action, navigation or evaluate (click, fill, goto, eval, ...) pauses."
+        )
+        reply = await asyncio.wait_for(_send(state, "fake-snapshot"), 2)
+        assert reply["success"] is True
+        assert "paused" not in reply
+        assert reply["output"] == (
+            "- button [ref=e1]\nDebugger: `fake-snapshot` ran without pausing (it makes no page action); still armed."
+        )
+        assert (await _send(state, "debugger-status"))["data"]["state"] == "armed"
+    finally:
+        daemon.COMMAND_HANDLERS.pop("fake-snapshot")
 
 
 @pytest.mark.asyncio
