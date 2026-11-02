@@ -242,6 +242,17 @@ TOOL_SPECS = {
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
+    "patchright_html": {
+        "description": "CLI command: html Print the page HTML, or one element's outerHTML.",
+        "params": [
+            ("ref", "string", False, "", "Optional element reference."),
+            ("selector", "string", False, "", "Optional CSS selector of the one element to print."),
+            ("include_shadow", "boolean", False, False, "Include open shadow roots; closed ones never are."),
+            ("filename", "string", False, "", "Save the whole HTML to this file instead of printing it."),
+            ("max_chars", "number", False, 8000, "Cut printed HTML after this many characters; zero is no limit."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
     "patchright_text": {
         "description": "CLI command: text Get text content from an element reference or selector.",
         "params": [
@@ -349,7 +360,16 @@ TOOL_SPECS = {
     },
     "patchright_video_start": {
         "description": "CLI command: video-start Start video recording.",
-        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+        "params": [
+            (
+                "fps",
+                "number",
+                False,
+                0,
+                "Real-time video at this frame rate, 1-60; zero keeps every captured frame once at 5 fps.",
+            ),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
     },
     "patchright_list_sessions": {
         "description": "CLI command: list List Patchright sessions.",
@@ -831,10 +851,20 @@ TOOL_SPECS = {
     "patchright_find": {
         "description": "CLI command: find Search the latest snapshot for matching elements.",
         "params": [
-            ("text", "string", True, None, "Text, or a regular expression when regex is true."),
+            ("text", "string", False, "", "Text, or a regular expression when regex is true; omit with role."),
             ("regex", "boolean", False, False, "Treat text as a regular expression."),
             ("all", "boolean", False, False, "Include non-interactive matches."),
             ("limit", "number", False, 20, "Maximum number of matches."),
+            ("role", "string", False, "", "Find by ARIA role instead of text, e.g. button."),
+            ("name", "string", False, "", "With role: accessible name, substring or /regex/i."),
+            (
+                "description",
+                "string",
+                False,
+                "",
+                "With role: accessible description (aria-describedby, aria-description, title), substring or /regex/i.",
+            ),
+            ("exact", "boolean", False, False, "With role: name and description match whole and case-sensitive."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -1108,7 +1138,6 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         "patchright_sessionstorage_clear": ("sessionstorage-clear", []),
         "patchright_route_list": ("route-list", []),
         "patchright_tracing_start": ("tracing-start", []),
-        "patchright_video_start": ("video-start", []),
         "patchright_list_sessions": ("list", []),
         "patchright_close_all": ("close-all", []),
         "patchright_kill_all": ("kill-all", []),
@@ -1224,12 +1253,45 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name == "patchright_find":
         if p["limit"] < 1:
             raise ValueError("limit must be at least 1")
-        args = ["find", _V(p["text"]), f"--limit={p['limit']}"]
+        if not p["text"] and not p["role"]:
+            raise ValueError("Either text or role is required")
+        args = ["find", f"--limit={p['limit']}"]
+        if p["text"]:
+            args.insert(1, _V(p["text"]))
         if p["regex"]:
             args.append("--regex")
         if p["all"]:
             args.append("--all")
+        if p["role"]:
+            args.append(f"--role={p['role']}")
+        for key in ("name", "description"):
+            if p[key]:
+                args.append(f"--{key}={p[key]}")
+        if p["exact"]:
+            args.append("--exact")
         return args
+
+    if name == "patchright_html":
+        if p["max_chars"] < 0:
+            raise ValueError("max_chars must be zero or more")
+        if p["filename"]:
+            _validate_cli_path(p["filename"])
+        args = ["html"]
+        if p["ref"]:
+            args.append(_V(p["ref"]))
+        if p["selector"]:
+            args.append(f"--selector={p['selector']}")
+        if p["include_shadow"]:
+            args.append("--include-shadow")
+        if p["filename"]:
+            args.append(f"--filename={p['filename']}")
+        args.append(f"--max-chars={p['max_chars']}")
+        return args
+
+    if name == "patchright_video_start":
+        if p["fps"] and not 1 <= p["fps"] <= 60:
+            raise ValueError("fps must be from 1 to 60, or zero for the default")
+        return ["video-start", f"--fps={p['fps']}"] if p["fps"] else ["video-start"]
 
     if name == "patchright_video_show_actions":
         if p["position"] not in CALLOUT_POSITIONS:

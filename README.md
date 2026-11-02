@@ -258,6 +258,10 @@ patchright-cli find "text"             # Search snapshot for text
 patchright-cli find --regex "a|b"      # Search by regex
 patchright-cli find "text" --all       # Include text/paragraph nodes
 patchright-cli find "text" --limit=50  # Cap hits (default 20)
+patchright-cli find --role=button --description="Deletes"  # By role + accessible name/description
+patchright-cli html                    # Page HTML (first 8000 chars; --max-chars=0 for all)
+patchright-cli html --include-shadow --filename=page.html  # With open shadow roots, to a file
+patchright-cli html e5                 # One element's outerHTML (or --selector=CSS)
 patchright-cli eval <expr>             # Run JavaScript
 patchright-cli eval --file=script.js   # Run JS from file
 patchright-cli run-code <code>         # Run JS with return value
@@ -393,6 +397,7 @@ patchright-cli unroute                 # Remove all routes
 patchright-cli tracing-start
 patchright-cli tracing-stop            # Saves .zip trace file
 patchright-cli video-start             # Start video recording (CDP screencast)
+patchright-cli video-start --fps=25    # Real-time video at 25 fps (default: each frame once at 5 fps)
 patchright-cli video-stop              # Stop and save video (requires ffmpeg for .webm)
 patchright-cli video-stop --filename=recording.webm
 patchright-cli show --annotate          # Ask a human to mark up the page, wait for it
