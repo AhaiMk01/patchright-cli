@@ -1126,10 +1126,9 @@ COMMAND_SPECS: dict[str, dict] = {
         "usage": "video-start",
         "summary": "Start video recording",
         "flags": {
-            "fps": "Real-time video at this frame rate, 1-60; each frame lasts until the next "
-            "(default: off, every captured frame once at 5 fps)",
+            "fps": "Frame rate of the real-time video, 1-60; each frame lasts until the next (default: 25)",
         },
-        "examples": ["video-start", "video-start --fps=25"],
+        "examples": ["video-start", "video-start --fps=60"],
     },
     "video-stop": {
         "usage": "video-stop",

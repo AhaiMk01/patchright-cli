@@ -617,17 +617,19 @@ class TestFindByRoleHtmlAndVideoFps:
         cut = _cmd(extras_page, "html", options={"max-chars": "50"})
         assert "... (truncated: 50 of" in cut["output"]
 
-    def test_video_fps_matches_wall_time(self, extras_page, tmp_path):
+    @pytest.mark.parametrize(("options", "rate"), [({}, "25/1"), ({"fps": "10"}, "10/1")])
+    def test_video_is_real_time_at_the_fps(self, extras_page, tmp_path, options, rate):
         import shutil
         import subprocess
 
         if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
             pytest.skip("ffmpeg/ffprobe not installed")
-        assert _cmd(extras_page, "video-start", options={"fps": "25"})["success"] is True
+        assert _cmd(extras_page, "video-start", options=options)["success"] is True
         time.sleep(2)
         out = tmp_path / "fps.webm"
         stopped = _cmd(extras_page, "video-stop", options={"filename": str(out)})
         assert stopped["success"] is True, stopped
+        assert "Warning" not in stopped["output"]
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=avg_frame_rate"]
             + ["-show_entries", "format=duration", "-of", "json", str(out)],
@@ -636,5 +638,5 @@ class TestFindByRoleHtmlAndVideoFps:
             check=True,
         )
         info = json.loads(probe.stdout)
-        assert info["streams"][0]["avg_frame_rate"] == "25/1"
+        assert info["streams"][0]["avg_frame_rate"] == rate
         assert 1.8 <= float(info["format"]["duration"]) <= 3.5
