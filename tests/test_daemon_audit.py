@@ -199,3 +199,62 @@ async def test_daemon_rejects_an_unknown_console_level_before_capturing(mock_sta
     assert reply["success"] is False and reply["exit_code"] == 2
     assert reply["output"].startswith("Error: invalid [level] value `bogus` for `console`")
     mock_session.start_console_capture.assert_not_called()
+
+
+# -- F. Failed replies carry a stable `code` for the states clients branch on --
+
+
+@pytest.mark.asyncio
+async def test_session_not_open_carries_its_code(mock_state):  # noqa: F811
+    reply = await _run(mock_state, "snapshot", session="w")
+    assert reply["success"] is False and reply["code"] == "session_not_open"
+
+
+@pytest.mark.asyncio
+async def test_tab_not_open_carries_its_code(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    reply = await _run(mock_state, "title", tab="gone")
+    assert reply["success"] is False and reply["code"] == "tab_not_open"
+
+
+def _closed_errors():
+    from patchright._impl._errors import TargetClosedError
+
+    return [TargetClosedError(), Exception("Page.title: Target page, context or browser has been closed")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exc", _closed_errors(), ids=["TargetClosedError", "plain-error"])
+async def test_a_closed_target_carries_its_code(mock_state, mock_session, exc):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.title = AsyncMock(side_effect=exc)
+    reply = await _run(mock_state, "title")
+    assert reply["success"] is False and reply["code"] == "target_closed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["snapshot", "html"])
+async def test_a_closed_target_is_not_reported_as_a_bad_selector(mock_state, mock_session, command):  # noqa: F811
+    from patchright._impl._errors import TargetClosedError
+
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.locator = MagicMock(return_value=MagicMock(count=AsyncMock(side_effect=TargetClosedError())))
+    reply = await _run(mock_state, command, selector="#main")
+    assert reply["code"] == "target_closed"
+    assert "Invalid selector" not in reply["output"]
+
+
+@pytest.mark.asyncio
+async def test_other_failures_carry_no_code(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.title = AsyncMock(side_effect=Exception("Page.title: Timeout 30000ms exceeded."))
+    reply = await _run(mock_state, "title")
+    assert reply["success"] is False and "code" not in reply
+
+
+@pytest.mark.asyncio
+async def test_a_session_without_pages_carries_its_code(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page = None
+    reply = await _run(mock_state, "title")
+    assert reply["success"] is False and reply["code"] == "no_page"

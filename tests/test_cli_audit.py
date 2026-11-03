@@ -256,6 +256,14 @@ def test_failed_json_reply_gains_an_error_field(monkeypatch, capsys):
     assert payload["help"] == ["run 'open' first"]
 
 
+def test_failed_json_reply_keeps_the_error_code(monkeypatch, capsys):
+    import json
+
+    reply = {"success": False, "output": "Session 'w' is not open. Run 'open' first.", "code": "session_not_open"}
+    _, lines, _ = _run(["--json", "-s=w", "snapshot"], monkeypatch, capsys, reply=reply)
+    assert json.loads(lines[0])["code"] == "session_not_open"
+
+
 def test_failed_toon_reply_prints_the_error_format(monkeypatch, capsys):
     reply = {"success": False, "output": "Error: boom", "data": []}
     code, lines, _ = _run(["--toon", "tab-list"], monkeypatch, capsys, reply=reply)

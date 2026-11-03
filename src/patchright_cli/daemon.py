@@ -1791,9 +1791,29 @@ def _error_message(cmd: str, args: list, options: dict, exc: Exception) -> tuple
     return message, []
 
 
+# Stable `code` values on failed replies (docs/daemon-protocol.md). Clients branch
+# on these instead of on `output`, whose wording can change in any release.
+SESSION_NOT_OPEN = "session_not_open"
+TAB_NOT_OPEN = "tab_not_open"
+TARGET_CLOSED = "target_closed"
+NO_PAGE = "no_page"
+
+
+def _is_target_closed(exc: Exception) -> bool:
+    """The page, context or browser closed under the command.
+
+    Patchright is imported lazily, so match its TargetClosedError by name; the
+    message covers closes the driver reports as a plain Error.
+    """
+    return type(exc).__name__ == "TargetClosedError" or "has been closed" in str(exc)
+
+
 def _error_reply(cmd: str, args: list, options: dict, exc: Exception, *extra: str) -> dict:
     message, helps = _error_message(cmd, args, options, exc)
-    return {"success": False, "output": "\n".join([f"Error: {message}", *extra, *helps])}
+    reply = {"success": False, "output": "\n".join([f"Error: {message}", *extra, *helps])}
+    if _is_target_closed(exc):
+        reply["code"] = TARGET_CLOSED
+    return reply
 
 
 @register("click")
@@ -1969,6 +1989,8 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
         try:
             matches = await scoped.count()
         except Exception as exc:
+            if _is_target_closed(exc):
+                raise
             return {"success": False, "output": f"Invalid selector {selector!r}: {exc}"}
         if not matches:
             return {"success": False, "output": f"No element matches {selector!r} on this page."}
@@ -2068,6 +2090,8 @@ async def _find_by_role(session: Session, page, role: str, options: dict, limit:
     try:
         total = await locator.count()
     except Exception as exc:
+        if _is_target_closed(exc):
+            raise
         return {"success": False, "output": f"find {query} failed: {exc}"}
     if not total:
         return {
@@ -2499,6 +2523,8 @@ async def cmd_html(session: Session, page, args: list, options: dict, cwd: str |
         try:
             matches = await scoped.count()
         except Exception as exc:
+            if _is_target_closed(exc):
+                raise
             return {"success": False, "output": f"Invalid selector {selector!r}: {exc}"}
         if matches != 1:
             if not matches:
@@ -4482,6 +4508,7 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
             return {
                 "success": False,
                 "output": f"Session '{session_name}' is not open. Run 'open' first.",
+                "code": SESSION_NOT_OPEN,
             }
 
         page = session.page
@@ -4541,6 +4568,7 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
                     f"Tab '{tab_name}' is not open in session '{session_name}'. "
                     f"Run `patchright-cli --tab {tab_name} open <url>` first."
                 ),
+                "code": TAB_NOT_OPEN,
             }
         session.activate_tab(tab_name)
         page = session.page
@@ -4549,6 +4577,7 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
             return {
                 "success": False,
                 "output": "No page open. Run 'tab-new' to create one, or 'close' and 'open' again.",
+                "code": NO_PAGE,
             }
 
         await _apply_timeouts(page, options)
