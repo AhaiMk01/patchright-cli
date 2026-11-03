@@ -1859,12 +1859,6 @@ async def cmd_hover(session: Session, page, args: list, options: dict, cwd: str 
 @register("select")
 async def cmd_select(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     elem = await _resolve_ref(session, page, args[0])
-    if normalize_ref(args[1]):
-        # Options carry no refs; the value is the label printed under the combobox.
-        return {
-            "success": False,
-            "output": f"select takes the option label shown under the combobox, e.g. select {_parse_ref(args[0])} Green",
-        }
     try:
         await elem.select_option(args[1])
     except Exception as exc:
@@ -1873,6 +1867,11 @@ async def cmd_select(session: Session, page, args: list, options: dict, cwd: str
         block = snapshot_text.subtree(session.last_raw or "", _parse_ref(args[0])) or ""
         options_shown = [line.strip() for line in block.splitlines() if line.strip().startswith("- option ")]
         listed = ["Options:", *options_shown] if options_shown else []
+        if normalize_ref(args[1]):
+            # Options carry no refs; a ref that matched no option was meant as one.
+            listed.append(
+                f"help: select takes the option label shown under the combobox, e.g. select {_parse_ref(args[0])} Green"
+            )
         return _error_reply("select", args, options, exc, *listed)
     return await _page_info(session, cwd)
 
