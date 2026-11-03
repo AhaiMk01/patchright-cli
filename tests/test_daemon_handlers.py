@@ -2,11 +2,13 @@
 
 import asyncio
 from functools import partial
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from patchright_cli.daemon import DaemonState, Session, handle_command
+from tests.ref_helpers import use_refs
 
 
 @pytest.fixture
@@ -24,7 +26,7 @@ def mock_session():
     session.name = "default"
     session.pages = []
     session.current_tab = 0
-    session.ref_registry = None
+    session.last_raw = None
     session.context = MagicMock()
     session.page = MagicMock()
     session.page.goto = AsyncMock()
@@ -64,9 +66,8 @@ async def test_list_sessions(mock_state):
 @pytest.mark.asyncio
 async def test_goto_calls_page_goto(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
-    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
-        mock_snap.return_value = ("snapshot-text", registry)
+    with patch("patchright_cli.daemon.ai_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = "snapshot-text"
         with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
             response = await handle_command(mock_state, {"command": "goto", "args": ["https://example.com"]})
     assert response["success"] is True
@@ -76,37 +77,33 @@ async def test_goto_calls_page_goto(mock_state, mock_session):
 @pytest.mark.asyncio
 async def test_click_resolves_ref_and_clicks(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
     locator = MagicMock()
     locator.click = AsyncMock()
     locator.evaluate = AsyncMock(return_value=None)
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
+    use_refs(mock_session, locator)
 
-    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
-        mock_snap.return_value = ("snapshot-text", registry)
+    with patch("patchright_cli.daemon.ai_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = "snapshot-text"
         with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
             response = await handle_command(mock_state, {"command": "click", "args": ["e1"]})
 
     assert response["success"] is True
-    registry.resolve.assert_called_once_with(mock_session.page, "e1")
+    mock_session.page.get_by_ref.assert_called_with("e1")
     locator.click.assert_awaited_once_with(button="left", modifiers=None, scroll=None)
 
 
 def _action_locator(mock_session, href=None):
-    registry = MagicMock()
     locator = MagicMock()
     for method in ("click", "hover", "check", "drag_to"):
         setattr(locator, method, AsyncMock())
     locator.evaluate = AsyncMock(return_value=href)
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
+    use_refs(mock_session, locator)
     return locator
 
 
 async def _run_action(mock_state, command, args, options):
-    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
-        mock_snap.return_value = ("snapshot-text", MagicMock())
+    with patch("patchright_cli.daemon.ai_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = "snapshot-text"
         with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
             return await handle_command(mock_state, {"command": command, "args": args, "options": options})
 
@@ -275,11 +272,9 @@ async def test_wait_command(mock_state, mock_session):
 @pytest.mark.asyncio
 async def test_eval_with_ref(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
     locator = MagicMock()
     locator.evaluate = AsyncMock(return_value="el-result")
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
+    use_refs(mock_session, locator)
 
     response = await handle_command(
         mock_state,
@@ -287,25 +282,25 @@ async def test_eval_with_ref(mock_state, mock_session):
     )
     assert response["success"] is True
     assert "el-result" in response["output"]
-    registry.resolve.assert_called_once_with(mock_session.page, "e1")
+    mock_session.page.get_by_ref.assert_called_with("e1")
     locator.evaluate.assert_awaited_once_with("el => el.textContent")
 
 
 @pytest.mark.asyncio
-async def test_snapshot_with_depth(mock_state, mock_session):
+async def test_snapshot_with_depth(mock_state, mock_session, tmp_path):
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
-    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
-        mock_snap.return_value = ("snapshot-text", registry)
-        with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
-            response = await handle_command(
-                mock_state,
-                {"command": "snapshot", "args": [], "options": {"depth": "2"}},
-            )
+    raw = '- list [ref=e1]:\n  - listitem [ref=e2]:\n    - link "Deep" [ref=e3]\n'
+    with patch("patchright_cli.daemon.ai_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = raw
+        response = await handle_command(
+            mock_state,
+            {"command": "snapshot", "args": [], "options": {"depth": "1"}, "cwd": str(tmp_path)},
+        )
     assert response["success"] is True
-    mock_snap.assert_awaited_once()
-    _, kwargs = mock_snap.call_args
-    assert kwargs.get("max_depth") == 2
+    # --depth is a text filter over one full snapshot; native depth= is never used.
+    mock_snap.assert_awaited_once_with(mock_session.page, boxes=False)
+    text = Path(response["snapshot_path"]).read_text(encoding="utf-8")
+    assert text == "- list [ref=e1]:\n  - listitem [ref=e2]: # +1 ref\n"
 
 
 @pytest.mark.asyncio
@@ -386,9 +381,8 @@ async def test_codegen_records_commands(mock_state, mock_session):
     assert isinstance(mock_session._codegen, list)
 
     # Run a goto — should get appended
-    registry = MagicMock()
-    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
-        mock_snap.return_value = ("snapshot-text", registry)
+    with patch("patchright_cli.daemon.ai_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = "snapshot-text"
         with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
             response = await handle_command(
                 mock_state,
@@ -450,11 +444,9 @@ async def test_show_dashboard(mock_state, mock_session):
 @pytest.mark.asyncio
 async def test_drop_requires_path_or_data(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
     locator = MagicMock()
     locator.evaluate = AsyncMock()
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
+    use_refs(mock_session, locator)
 
     response = await handle_command(mock_state, {"command": "drop", "args": ["e1"]})
     assert response["success"] is False
@@ -464,15 +456,13 @@ async def test_drop_requires_path_or_data(mock_state, mock_session):
 @pytest.mark.asyncio
 async def test_drop_with_data_uses_native_locator_drop(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
     locator = MagicMock()
     locator.drop = AsyncMock(return_value=None)
     locator.evaluate = AsyncMock()
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
+    use_refs(mock_session, locator)
 
-    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
-        mock_snap.return_value = ("snapshot-text", registry)
+    with patch("patchright_cli.daemon.ai_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = "snapshot-text"
         with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
             response = await handle_command(
                 mock_state,
@@ -491,14 +481,12 @@ async def test_drop_with_files_and_data_sends_buffers_with_guessed_mime(mock_sta
     blob = tmp_path / "blob.zzunknown"
     blob.write_bytes(b"\x00\x01")
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
     locator = MagicMock()
     locator.drop = AsyncMock(return_value=None)
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
+    use_refs(mock_session, locator)
 
-    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
-        mock_snap.return_value = ("snapshot-text", registry)
+    with patch("patchright_cli.daemon.ai_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = "snapshot-text"
         with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
             response = await handle_command(
                 mock_state,
@@ -527,11 +515,9 @@ async def test_drop_with_files_and_data_sends_buffers_with_guessed_mime(mock_sta
 @pytest.mark.asyncio
 async def test_drop_with_missing_file(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
     locator = MagicMock()
     locator.drop = AsyncMock()
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
+    use_refs(mock_session, locator)
 
     response = await handle_command(
         mock_state,
@@ -674,7 +660,7 @@ async def test_requests_aliases_to_network(mock_state, mock_session):
 
 @pytest.mark.asyncio
 async def test_generate_locator_no_snapshot(mock_state, mock_session):
-    mock_session.ref_registry = None
+    mock_session.last_raw = None
     mock_state.sessions = {"default": mock_session}
     response = await handle_command(mock_state, {"command": "generate-locator", "args": ["e1"]})
     assert response["success"] is False
@@ -683,32 +669,28 @@ async def test_generate_locator_no_snapshot(mock_state, mock_session):
 
 @pytest.mark.asyncio
 async def test_generate_locator_emits_role_name(mock_state, mock_session):
-    from patchright_cli.ref_registry import AriaRefEntry, RefRegistry
-
-    registry = RefRegistry()
-    registry.entries = {
-        "e1": AriaRefEntry(ref="e1", role="button", name="Sign in", nth=0),
-        "e2": AriaRefEntry(ref="e2", role="link", name="", nth=2),
-    }
-    mock_session.ref_registry = registry
+    raw = '- generic [ref=e1]:\n  - button "Sign in" [ref=e2]\n  - link [ref=e3]\n'
+    locator = use_refs(mock_session, raw=raw)
+    locator.element_handle = AsyncMock(return_value=MagicMock(dispose=AsyncMock()))
+    single = MagicMock(count=AsyncMock(return_value=1))
+    links = MagicMock(count=AsyncMock(return_value=3))
+    links.nth = lambda i: MagicMock(evaluate=AsyncMock(return_value=i == 2))
+    mock_session.page.get_by_role = MagicMock(side_effect=lambda role, **kw: single if role == "button" else links)
     mock_state.sessions = {"default": mock_session}
 
-    r1 = await handle_command(mock_state, {"command": "generate-locator", "args": ["e1"]})
+    r1 = await handle_command(mock_state, {"command": "generate-locator", "args": ["e2"]})
     assert r1["success"] is True
     assert r1["output"] == "getByRole('button', { name: 'Sign in', exact: true })"
 
-    r2 = await handle_command(mock_state, {"command": "generate-locator", "args": ["e2"]})
+    r2 = await handle_command(mock_state, {"command": "generate-locator", "args": ["e3"]})
     assert r2["success"] is True
     assert r2["output"] == "getByRole('link').nth(2)"
 
 
 @pytest.mark.asyncio
 async def test_generate_locator_escapes_quote(mock_state, mock_session):
-    from patchright_cli.ref_registry import AriaRefEntry, RefRegistry
-
-    registry = RefRegistry()
-    registry.entries = {"e1": AriaRefEntry(ref="e1", role="button", name="It's me", nth=0)}
-    mock_session.ref_registry = registry
+    use_refs(mock_session, raw='- button "It\'s me" [ref=e1]\n')
+    mock_session.page.get_by_role = MagicMock(return_value=MagicMock(count=AsyncMock(return_value=1)))
     mock_state.sessions = {"default": mock_session}
 
     r = await handle_command(mock_state, {"command": "generate-locator", "args": ["e1"]})
@@ -717,12 +699,10 @@ async def test_generate_locator_escapes_quote(mock_state, mock_session):
 
 
 def _highlight_locator(mock_session):
-    registry = MagicMock()
     locator = MagicMock()
     locator.highlight = AsyncMock()
     locator.hide_highlight = AsyncMock()
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
+    use_refs(mock_session, locator)
     return locator
 
 
@@ -782,29 +762,18 @@ async def test_highlight_hide_ref_uses_native_hide(mock_state, mock_session):
 
 
 @pytest.mark.asyncio
-async def test_snapshot_with_boxes(mock_state, mock_session):
-    from patchright_cli.ref_registry import AriaRefEntry, RefRegistry
-
-    registry = RefRegistry()
-    registry.entries = {"e1": AriaRefEntry(ref="e1", role="button", name="Go", nth=0)}
-    locator = MagicMock()
-    locator.bounding_box = AsyncMock(return_value={"x": 10, "y": 20, "width": 100, "height": 30})
-
+async def test_snapshot_with_boxes(mock_state, mock_session, tmp_path):
     mock_state.sessions = {"default": mock_session}
-
-    snap = '- button "Go" [ref=e1]'
-    with (
-        patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap,
-        patch.object(registry, "resolve", return_value=locator),
-        patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"),
-    ):
-        mock_snap.return_value = (snap, registry)
+    raw = '- button "Go" [ref=e1] [box=10,20,100,30]\n'
+    with patch("patchright_cli.daemon.ai_snapshot", new_callable=AsyncMock) as mock_snap:
+        mock_snap.return_value = raw
         response = await handle_command(
             mock_state,
-            {"command": "snapshot", "args": [], "options": {"boxes": True}},
+            {"command": "snapshot", "args": [], "options": {"boxes": True}, "cwd": str(tmp_path)},
         )
     assert response["success"] is True
-    assert response["snapshot_path"] == "/tmp/snap.yml"
+    mock_snap.assert_awaited_once_with(mock_session.page, boxes=True)
+    assert Path(response["snapshot_path"]).read_text(encoding="utf-8") == raw
 
 
 @pytest.mark.asyncio
@@ -822,26 +791,24 @@ async def test_network_includes_id(mock_state, mock_session):
 
 @pytest.fixture
 def find_session(mock_session):
-    from patchright_cli.ref_registry import RefRegistry
-
-    registry = RefRegistry()
-    registry.parse('- banner:\n  - link "Sign in"\n  - link "Sign up"\n  - text: Signal strength\n')
-    mock_session.ref_registry = registry
     return mock_session
 
 
-def _patch_snapshot(registry):
-    """take_snapshot is patched to return a pre-parsed registry, so no browser is needed."""
-    return patch(
-        "patchright_cli.daemon.take_snapshot",
-        AsyncMock(return_value=("ignored", registry)),
-    )
+FIND_RAW = (
+    '- banner [ref=e1]:\n  - link "Sign in" [ref=e2] [cursor=pointer]\n  - link "Sign up" [ref=e3]\n'
+    "  - text: Signal strength\n"
+)
+
+
+def _patch_snapshot(raw=FIND_RAW):
+    """ai_snapshot is patched to return the page's raw AI snapshot, so no browser is needed."""
+    return patch("patchright_cli.daemon.ai_snapshot", AsyncMock(return_value=raw))
 
 
 @pytest.mark.asyncio
 async def test_find_returns_matches(mock_state, find_session):
     mock_state.sessions = {"default": find_session}
-    with _patch_snapshot(find_session.ref_registry):
+    with _patch_snapshot():
         response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {}})
     assert response["success"] is True
     assert "Sign in" in response["output"]
@@ -851,7 +818,7 @@ async def test_find_returns_matches(mock_state, find_session):
 @pytest.mark.asyncio
 async def test_find_excludes_text_nodes_by_default(mock_state, find_session):
     mock_state.sessions = {"default": find_session}
-    with _patch_snapshot(find_session.ref_registry):
+    with _patch_snapshot():
         response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {}})
     assert "Signal strength" not in response["output"]
 
@@ -859,7 +826,7 @@ async def test_find_excludes_text_nodes_by_default(mock_state, find_session):
 @pytest.mark.asyncio
 async def test_find_all_flag_includes_text_nodes(mock_state, find_session):
     mock_state.sessions = {"default": find_session}
-    with _patch_snapshot(find_session.ref_registry):
+    with _patch_snapshot():
         response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {"all": True}})
     assert "Signal strength" in response["output"]
 
@@ -875,7 +842,7 @@ async def test_find_without_query_fails(mock_state, find_session):
 @pytest.mark.asyncio
 async def test_find_invalid_regex_fails(mock_state, find_session):
     mock_state.sessions = {"default": find_session}
-    with _patch_snapshot(find_session.ref_registry):
+    with _patch_snapshot():
         response = await handle_command(
             mock_state, {"command": "find", "args": ["Sign (unclosed"], "options": {"regex": True}}
         )
@@ -918,7 +885,7 @@ async def test_find_rejects_pattern_given_twice(mock_state, find_session):
 @pytest.mark.asyncio
 async def test_find_no_matches_succeeds(mock_state, find_session):
     mock_state.sessions = {"default": find_session}
-    with _patch_snapshot(find_session.ref_registry):
+    with _patch_snapshot():
         response = await handle_command(mock_state, {"command": "find", "args": ["absent"], "options": {}})
     assert response["success"] is True
     assert response["output"].startswith('0 matches for "absent".')
@@ -1017,11 +984,9 @@ async def test_screenshot_hires_uses_device_scale(mock_state, mock_session, tmp_
 @pytest.mark.asyncio
 async def test_element_screenshot_honours_hires(mock_state, mock_session, tmp_path):
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
     locator = MagicMock()
     locator.screenshot = AsyncMock()
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
+    use_refs(mock_session, locator)
 
     response = await handle_command(
         mock_state, {"command": "screenshot", "args": ["e1"], "options": {"hires": True}, "cwd": str(tmp_path)}
@@ -1133,18 +1098,12 @@ async def test_action_callout_names_the_target_element(mock_session):
     mock_session._video_show_actions = {"duration": 600, "position": "top-right"}
     mock_session._video_recording = True
 
-    entry = MagicMock()
-    entry.role = "button"
-    entry.name = "Sign in"
-    registry = MagicMock()
-    registry.entries = {"e1": entry}
     locator = MagicMock()
     locator.bounding_box = AsyncMock(return_value={"x": 1, "y": 2, "width": 3, "height": 4})
-    registry.resolve.return_value = locator
-    mock_session.ref_registry = registry
-
     page = MagicMock()
     page.evaluate = AsyncMock()
+    page.get_by_ref = MagicMock(return_value=locator)
+    mock_session.last_raw = '- button "Sign in" [ref=e1]\n'
 
     await _draw_action_callout(mock_session, page, "click", ["e1"])
 
@@ -1175,7 +1134,7 @@ async def test_action_callout_never_breaks_the_action(mock_session):
 
     mock_session._video_show_actions = {"duration": 600, "position": "top-right"}
     mock_session._video_recording = True
-    mock_session.ref_registry = None
+    mock_session.last_raw = None
     page = MagicMock()
     page.evaluate = AsyncMock(side_effect=RuntimeError("execution context destroyed"))
 
@@ -1300,9 +1259,13 @@ async def test_snapshot_scoped_to_a_css_selector(mock_state, mock_session, tmp_p
     scoped = MagicMock()
     scoped.count = AsyncMock(return_value=1)
     mock_session.page.locator = MagicMock(return_value=scoped)
+    mock_session.page.get_by_ref = MagicMock(return_value=MagicMock(count=AsyncMock(return_value=1)))
+    raw = '- generic [ref=e1]:\n  - main [ref=e2]:\n    - button "In" [ref=e3]\n  - button "Out" [ref=e4]\n'
 
-    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
-        mock_snap.return_value = ("scoped-text", MagicMock())
+    with (
+        patch("patchright_cli.daemon.ai_snapshot", AsyncMock(return_value=raw)),
+        patch("patchright_cli.daemon.probe_ref", AsyncMock(return_value="e2")) as probe,
+    ):
         response = await handle_command(
             mock_state,
             {"command": "snapshot", "args": [], "options": {"selector": "#main"}, "cwd": str(tmp_path)},
@@ -1310,7 +1273,8 @@ async def test_snapshot_scoped_to_a_css_selector(mock_state, mock_session, tmp_p
 
     assert response["success"] is True
     mock_session.page.locator.assert_called_once_with("#main")
-    assert mock_snap.await_args.kwargs["root_element"] is scoped
+    probe.assert_awaited_once_with(scoped)
+    assert Path(response["snapshot_path"]).read_text(encoding="utf-8") == '- main [ref=e2]:\n  - button "In" [ref=e3]\n'
 
 
 @pytest.mark.asyncio
@@ -1457,17 +1421,14 @@ def test_daemon_is_idle_once_nothing_is_running():
 
 @pytest.mark.asyncio
 async def test_snapshot_selector_matching_many_is_an_error(mock_state, mock_session, tmp_path):
-    """aria_snapshot() is strict; snapshot.py swallows the violation into an
-    empty tree, so a multi-match selector used to report success while wiping
-    the ref registry."""
+    """A multi-match selector used to report success while wiping the refs."""
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
-    mock_session.ref_registry = registry
+    mock_session.last_raw = "- button [ref=e1]"
     scoped = MagicMock()
     scoped.count = AsyncMock(return_value=3)
     mock_session.page.locator = MagicMock(return_value=scoped)
 
-    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as mock_snap:
+    with patch("patchright_cli.daemon.ai_snapshot", new_callable=AsyncMock) as mock_snap:
         response = await handle_command(
             mock_state,
             {"command": "snapshot", "args": [], "options": {"selector": ".card"}, "cwd": str(tmp_path)},
@@ -1478,7 +1439,7 @@ async def test_snapshot_selector_matching_many_is_an_error(mock_state, mock_sess
     assert "3" in response["output"]
     mock_snap.assert_not_awaited()
     # The previous snapshot's refs must survive a rejected command.
-    assert mock_session.ref_registry is registry
+    assert mock_session.last_raw == "- button [ref=e1]"
 
 
 @pytest.mark.asyncio
@@ -1761,3 +1722,13 @@ async def test_console_page_closing_during_enable_is_detached_and_not_retained()
     assert not await session.start_console_capture()
     assert session._console_sessions == {}
     cdp.detach.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generate_locator_flags_too_many_matches(mock_state, mock_session):
+    use_refs(mock_session, raw='- button "Buy" [ref=e1]\n')
+    mock_session.page.get_by_role = MagicMock(return_value=MagicMock(count=AsyncMock(return_value=25)))
+    mock_state.sessions = {"default": mock_session}
+
+    r = await handle_command(mock_state, {"command": "generate-locator", "args": ["e1"]})
+    assert r["output"] == "getByRole('button', { name: 'Buy', exact: true })  # ambiguous: 25 matches"

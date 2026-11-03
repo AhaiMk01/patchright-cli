@@ -537,3 +537,19 @@ def test_foreign_stamp_files_do_not_break_commands(tmp_path, monkeypatch, conten
     monkeypatch.setattr(cli, "_skill_check_stamp", lambda: tmp_path / "skill-check.json")
     (tmp_path / "skill-check.json").write_text(content)
     assert cli._skill_warning_is_throttled() is False
+
+
+def test_a_malformed_ref_exits_2(monkeypatch, capsys):
+    reply = {
+        "success": False,
+        "output": 'Error: "zz" is not a ref (refs look like e5 or f3e5, from snapshot)',
+        "exit_code": 2,
+    }
+    code, out = _run_reply(["click", "zz"], reply, monkeypatch, capsys)
+    assert code == 2
+    assert "is not a ref" in out
+
+
+def test_a_failed_command_without_exit_code_exits_1(monkeypatch, capsys):
+    code, _ = _run_reply(["click", "e9"], {"success": False, "output": "Error: stale"}, monkeypatch, capsys)
+    assert code == 1

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Nav one</title><script src="common.js"></script></head>
+<body>
+  <h1>Nav one</h1>
+  <button id="stay" type="button" onclick="log('stay')">Stay</button>
+  <button id="rerender" type="button" onclick="rerender()">Rerender</button>
+  <ul id="items">
+    <li><button type="button" onclick="log('item-a')">Item A</button></li>
+    <li><button type="button" onclick="log('item-b')">Item B</button></li>
+  </ul>
+  <a href="nav2.html">Go to page two</a>
+  <script>
+    function rerender() {
+      log('rerender');
+      // Same roles and names on new elements, B now before A.
+      const items = document.getElementById('items');
+      items.replaceChildren();
+      for (const [name, tag] of [['Item B', 'item-b2'], ['Item A', 'item-a2']]) {
+        const li = document.createElement('li');
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = name;
+        b.onclick = () => log(tag);
+        li.appendChild(b);
+        items.appendChild(li);
+      }
+    }
+  </script>
+</body>
+</html>

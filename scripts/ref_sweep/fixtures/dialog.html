@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Dialog</title><script src="common.js"></script></head>
+<body>
+  <h1>Dialog</h1>
+  <button id="open" type="button" onclick="document.getElementById('dlg').showModal()">Open dialog</button>
+  <dialog id="dlg" aria-label="Confirm action">
+    <label>Reason <input id="reason" type="text"></label>
+    <button id="confirm" type="button" onclick="log('confirm'); document.getElementById('dlg').close()">Confirm</button>
+  </dialog>
+</body>
+</html>

@@ -1,7 +1,10 @@
-"""Generate accessibility-tree snapshots from Patchright pages.
+"""The only code that calls Playwright's aria_snapshot().
 
-Uses Playwright's native aria_snapshot() and annotates the output with
-ephemeral refs via RefRegistry.
+Any aria_snapshot() call -- default mode, or AI mode on a locator -- replaces
+the frame's ref map, after which refs outside it stop resolving with
+`page.get_by_ref`. So the daemon takes one full-page AI snapshot and derives
+every view from its text (snapshot_text.py), and `tests/test_snapshot_text.py`
+fails if `aria_snapshot(` shows up anywhere else in the package.
 """
 
 from __future__ import annotations
@@ -9,30 +12,34 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from patchright_cli.ref_registry import RefRegistry
+from patchright_cli.snapshot_text import REF_TAG
+
+EMPTY_SNAPSHOT = "# Empty page - no accessible elements found\n"
 
 
-async def take_snapshot(
-    page, root_element=None, max_depth: int | None = None, interactive_only: bool = False
-) -> tuple[str, RefRegistry]:
-    """Take a DOM snapshot. Returns (annotated_text, registry).
+async def ai_snapshot(page, boxes: bool = False) -> str:
+    """The full page's AI snapshot, iframes included. Refreshes the page's ref map.
 
-    If root_element is provided, only snapshot the subtree under that element.
+    Callers hold the tab's snapshot lock (daemon._ai_snapshot does).
     """
     try:
-        if root_element:
-            aria_text = await root_element.aria_snapshot()
-        else:
-            aria_text = await page.locator("body").aria_snapshot()
+        return await page.aria_snapshot(mode="ai", boxes=True if boxes else None)
     except Exception:
-        aria_text = ""
+        return ""
 
-    if not aria_text or not aria_text.strip():
-        return "# Empty page - no accessible elements found\n", RefRegistry()
 
-    registry = RefRegistry(root=root_element)
-    annotated = registry.parse(aria_text, max_depth=max_depth, interactive_only=interactive_only)
-    return annotated + "\n", registry
+async def probe_ref(locator) -> str | None:
+    """The ref of the one element `locator` matches, read from a depth-0 AI snapshot of it.
+
+    This replaces the element's frame ref map with a one-node map, so the caller
+    must take a full ai_snapshot() afterwards (daemon._refs_of does, in a finally).
+    """
+    try:
+        head = (await locator.aria_snapshot(mode="ai", depth=0, timeout=2000)).splitlines()[0]
+    except Exception:
+        return None
+    match = REF_TAG.search(head)
+    return match.group(1) if match else None
 
 
 def save_snapshot(snapshot_text: str, cwd: str | None = None) -> str:

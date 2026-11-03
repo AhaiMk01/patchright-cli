@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Controls</title><script src="common.js"></script></head>
+<body>
+  <h1>Controls</h1>
+  <section aria-label="Form">
+    <label>Name <input id="name" type="text"></label>
+    <label>Bio <textarea id="bio"></textarea></label>
+    <label><input id="agree" type="checkbox"> I agree</label>
+    <label><input id="r1" type="radio" name="size" value="s"> Small</label>
+    <label><input id="r2" type="radio" name="size" value="l"> Large</label>
+    <label>Color
+      <select id="color"><option value="red">Red</option><option value="green">Green</option><option value="blue">Blue</option></select>
+    </label>
+    <label>Avatar <input id="avatar" type="file"></label>
+    <button id="go" type="button" onclick="log('go')">Go</button>
+    <button id="dbl" type="button" ondblclick="log('dbl')">Double me</button>
+    <button id="hov" type="button" onmouseenter="log('hover')">Hover me</button>
+    <a id="anchor" href="#section-two">Jump to two</a>
+    <button id="star" type="button" aria-label="">&#9733;</button>
+    <button id="say" type="button">Say "hi"</button>
+  </section>
+  <section aria-label="Duplicates">
+    <h2>Duplicates</h2>
+    <ul>
+      <li><button id="save1" type="button">Save</button></li>
+      <li><button id="save2" type="button">Save</button></li>
+      <li><button id="save3" type="button">Save</button></li>
+    </ul>
+    <a id="dup-link-1" href="#a">More</a> <a id="dup-link-2" href="#b">More</a>
+  </section>
+  <section aria-label="Drag">
+    <h2 id="section-two">Drag</h2>
+    <div id="src" draggable="true" role="button" aria-label="Drag source"
+         ondragstart="event.dataTransfer.setData('text/plain','src')">Drag source</div>
+    <div id="dst" role="region" aria-label="Drop target" style="width:200px;height:60px;border:1px solid #888"
+         ondragover="event.preventDefault()"
+         ondrop="event.preventDefault(); log('drop:' + event.dataTransfer.getData('text/plain') + ':' + Array.from(event.dataTransfer.files).map(f => f.name).join(','))">Drop here</div>
+  </section>
+  <section aria-label="Pick">
+    <button type="button">Pick me</button>
+    <button type="button">Pick me</button>
+  </section>
+  <p id="para">Plain paragraph text for find --all.</p>
+</body>
+</html>

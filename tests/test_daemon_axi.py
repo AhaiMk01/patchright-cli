@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from patchright_cli.daemon import DaemonState, Session, handle_command
+from tests.ref_helpers import use_refs
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ def mock_session():
     session.name = "default"
     session.pages = []
     session.current_tab = 0
-    session.ref_registry = None
+    session.last_raw = None
     session.context = MagicMock()
     session.context.cookies = AsyncMock(return_value=[])
     session.context.clear_cookies = AsyncMock()
@@ -227,8 +228,7 @@ async def test_highlight_hide_on_unhighlighted_ref_is_a_noop(mock_state, mock_se
     mock_state.sessions = {"default": mock_session}
     locator = MagicMock()
     locator.hide_highlight = AsyncMock()
-    mock_session.ref_registry = MagicMock()
-    mock_session.ref_registry.resolve.return_value = locator
+    use_refs(mock_session, locator)
     _assert_noop(await _run(mock_state, "highlight", ["e3"], hide=True))
     locator.hide_highlight.assert_not_awaited()
 
@@ -447,33 +447,22 @@ async def test_network_data_and_total(mock_state, mock_session):
     assert response["total"] == 55
 
 
-@pytest.fixture
-def find_session(mock_session):
-    from patchright_cli.ref_registry import RefRegistry
-
-    registry = RefRegistry()
-    registry.parse('- banner:\n  - link "Sign in"\n  - link "Sign up"\n')
-    mock_session.ref_registry = registry
-    return mock_session
+FIND_RAW = '- banner [ref=e1]:\n  - link "Sign in" [ref=e2]\n  - link "Sign up" [ref=e3]\n'
 
 
 @pytest.mark.asyncio
-async def test_find_data_and_total(mock_state, find_session):
-    mock_state.sessions = {"default": find_session}
-    registry = find_session.ref_registry
-    with patch("patchright_cli.daemon.take_snapshot", AsyncMock(return_value=("ignored", registry))):
+async def test_find_data_and_total(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    with patch("patchright_cli.daemon.ai_snapshot", AsyncMock(return_value=FIND_RAW)):
         response = await _run(mock_state, "find", ["Sign"], limit="1")
     assert response["data"] == [{"ref": "e2", "role": "link", "name": "Sign in"}]
     assert response["total"] == 2
 
 
 @pytest.mark.asyncio
-async def test_find_empty_page(mock_state, find_session):
-    from patchright_cli.ref_registry import RefRegistry
-
-    mock_state.sessions = {"default": find_session}
-    empty = RefRegistry()
-    with patch("patchright_cli.daemon.take_snapshot", AsyncMock(return_value=("", empty))):
+async def test_find_empty_page(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    with patch("patchright_cli.daemon.ai_snapshot", AsyncMock(return_value="")):
         response = await _run(mock_state, "find", ["x"])
     assert response["success"] is True
     assert "0 accessible elements" in response["output"]

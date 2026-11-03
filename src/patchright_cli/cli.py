@@ -2208,7 +2208,8 @@ def _main():
                 click.echo(output)
 
     if not success:
-        sys.exit(1)
+        # The daemon marks usage errors (a malformed ref) with exit_code 2.
+        sys.exit(2 if response.get("exit_code") == 2 else 1)
 
 
 if __name__ == "__main__":

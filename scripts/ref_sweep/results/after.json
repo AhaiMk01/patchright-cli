@@ -1,0 +1,3920 @@
+{
+ "port": 9341,
+ "seconds": 107,
+ "steps": [
+  {
+   "id": "open",
+   "argv": [
+    "--headless",
+    "open",
+    "http://127.0.0.1:42170/controls.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 2785
+  },
+  {
+   "id": "controls:goto",
+   "argv": [
+    "goto",
+    "http://127.0.0.1:42170/controls.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 265,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 280,
+   "snapshot": "- heading \"Controls\" [level=1] [ref=f1e2]\n- region \"Form\" [ref=f1e3]:\n  - text: Name\n  - textbox \"Name\" [ref=f1e5]\n  - text: Bio\n  - textbox \"Bio\" [ref=f1e7]\n  - checkbox \"I agree\" [ref=f1e9]\n  - text: I agree\n  - radio \"Small\" [ref=f1e11]\n  - text: Small\n  - radio \"Large\" [ref=f1e13]\n  - text: Large\n  - text: Color\n  - combobox \"Color\" [ref=f1e15]:\n    - option \"Red\" [selected]\n    - option \"Green\"\n    - option \"Blue\"\n  - text: Avatar\n  - button \"Avatar\" [ref=f1e17]\n  - button \"Go\" [ref=f1e18]\n  - button \"Double me\" [ref=f1e19]\n  - button \"Hover me\" [ref=f1e20]\n  - link \"Jump to two\" [ref=f1e21]:\n    - /url: \"#section-two\"\n  - button \"★\" [ref=f1e22]\n  - button \"Say \\\"hi\\\"\" [ref=f1e23]\n- region \"Duplicates\" [ref=f1e24]:\n  - heading \"Duplicates\" [level=2] [ref=f1e25]\n  - list [ref=f1e26]:\n    - listitem [ref=f1e27]:\n      - button \"Save\" [ref=f1e28]\n    - listitem [ref=f1e29]:\n      - button \"Save\" [ref=f1e30]\n    - listitem [ref=f1e31]:\n      - button \"Save\" [ref=f1e32]\n  - link \"More\" [ref=f1e33]:\n    - /url: \"#a\"\n  - link \"More\" [ref=f1e34]:\n    - /url: \"#b\"\n- region \"Drag\" [ref=f1e35]:\n  - heading \"Drag\" [level=2] [ref=f1e36]\n  - button \"Drag source\" [ref=f1e37]\n  - region \"Drop target\" [ref=f1e38]: Drop here\n- region \"Pick\" [ref=f1e39]:\n  - button \"Pick me\" [ref=f1e40]\n  - button \"Pick me\" [ref=f1e41]\n- paragraph [ref=f1e42]: Plain paragraph text for find --all.\n",
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot-i",
+   "argv": [
+    "snapshot",
+    "-i"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 238,
+   "snapshot": "- region \"Form\" [ref=f1e3]:\n  - textbox \"Name\" [ref=f1e5]\n  - textbox \"Bio\" [ref=f1e7]\n  - checkbox \"I agree\" [ref=f1e9]\n  - radio \"Small\" [ref=f1e11]\n  - radio \"Large\" [ref=f1e13]\n  - combobox \"Color\" [ref=f1e15]:\n    - option \"Red\" [selected]\n    - option \"Green\"\n    - option \"Blue\"\n  - button \"Avatar\" [ref=f1e17]\n  - button \"Go\" [ref=f1e18]\n  - button \"Double me\" [ref=f1e19]\n  - button \"Hover me\" [ref=f1e20]\n  - link \"Jump to two\" [ref=f1e21]\n  - button \"★\" [ref=f1e22]\n  - button \"Say \\\"hi\\\"\" [ref=f1e23]\n- region \"Duplicates\" [ref=f1e24]:\n  - button \"Save\" [ref=f1e28]\n  - button \"Save\" [ref=f1e30]\n  - button \"Save\" [ref=f1e32]\n  - link \"More\" [ref=f1e33]\n  - link \"More\" [ref=f1e34]\n- region \"Drag\" [ref=f1e35]:\n  - button \"Drag source\" [ref=f1e37]\n- region \"Pick\" [ref=f1e39]:\n  - button \"Pick me\" [ref=f1e40]\n  - button \"Pick me\" [ref=f1e41]\n",
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot-depth2",
+   "argv": [
+    "snapshot",
+    "--depth=2"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 214,
+   "snapshot": "- heading \"Controls\" [level=1] [ref=f1e2]\n- region \"Form\" [ref=f1e3]:\n  - text: Name\n  - textbox \"Name\" [ref=f1e5]\n  - text: Bio\n  - textbox \"Bio\" [ref=f1e7]\n  - checkbox \"I agree\" [ref=f1e9]\n  - text: I agree\n  - radio \"Small\" [ref=f1e11]\n  - text: Small\n  - radio \"Large\" [ref=f1e13]\n  - text: Large\n  - text: Color\n  - combobox \"Color\" [ref=f1e15]:\n    - option \"Red\" [selected]\n    - option \"Green\"\n    - option \"Blue\"\n  - text: Avatar\n  - button \"Avatar\" [ref=f1e17]\n  - button \"Go\" [ref=f1e18]\n  - button \"Double me\" [ref=f1e19]\n  - button \"Hover me\" [ref=f1e20]\n  - link \"Jump to two\" [ref=f1e21]:\n    - /url: \"#section-two\"\n  - button \"★\" [ref=f1e22]\n  - button \"Say \\\"hi\\\"\" [ref=f1e23]\n- region \"Duplicates\" [ref=f1e24]:\n  - heading \"Duplicates\" [level=2] [ref=f1e25]\n  - list [ref=f1e26]:\n    - listitem [ref=f1e27]: # +1 ref\n    - listitem [ref=f1e29]: # +1 ref\n    - listitem [ref=f1e31]: # +1 ref\n  - link \"More\" [ref=f1e33]:\n    - /url: \"#a\"\n  - link \"More\" [ref=f1e34]:\n    - /url: \"#b\"\n- region \"Drag\" [ref=f1e35]:\n  - heading \"Drag\" [level=2] [ref=f1e36]\n  - button \"Drag source\" [ref=f1e37]\n  - region \"Drop target\" [ref=f1e38]: Drop here\n- region \"Pick\" [ref=f1e39]:\n  - button \"Pick me\" [ref=f1e40]\n  - button \"Pick me\" [ref=f1e41]\n- paragraph [ref=f1e42]: Plain paragraph text for find --all.\n",
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot-boxes",
+   "argv": [
+    "snapshot",
+    "--boxes"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 258,
+   "snapshot": "- heading \"Controls\" [level=1] [ref=f1e2] [box=8,21,748,37]\n- region \"Form\" [ref=f1e3] [box=8,80,748,67]:\n  - text: Name\n  - textbox \"Name\" [ref=f1e5] [box=50,101,177,21]\n  - text: Bio\n  - textbox \"Bio\" [ref=f1e7] [box=258,80,168,36]\n  - checkbox \"I agree\" [ref=f1e9] [box=434,103,13,13]\n  - text: I agree\n  - radio \"Small\" [ref=f1e11] [box=507,103,13,13]\n  - text: Small\n  - radio \"Large\" [ref=f1e13] [box=574,103,13,13]\n  - text: Large\n  - text: Color\n  - combobox \"Color\" [ref=f1e15] [box=675,102,60,19]:\n    - option \"Red\" [selected] [box=0,0,0,0]\n    - option \"Green\" [box=0,0,0,0]\n    - option \"Blue\" [box=0,0,0,0]\n  - text: Avatar\n  - button \"Avatar\" [ref=f1e17] [box=54,122,253,25]\n  - button \"Go\" [ref=f1e18] [box=311,125,34,21]\n  - button \"Double me\" [ref=f1e19] [box=349,125,80,21]\n  - button \"Hover me\" [ref=f1e20] [box=434,125,74,21]\n  - link \"Jump to two\" [ref=f1e21] [box=511,126,79,17]:\n    - /url: \"#section-two\"\n  - button \"★\" [ref=f1e22] [box=595,123,27,23]\n  - button \"Say \\\"hi\\\"\" [ref=f1e23] [box=626,125,63,21]\n- region \"Duplicates\" [ref=f1e24] [box=8,167,748,144]:\n  - heading \"Duplicates\" [level=2] [ref=f1e25] [box=8,167,748,27]\n  - list [ref=f1e26] [box=8,214,748,63]:\n    - listitem [ref=f1e27] [box=48,214,708,21]:\n      - button \"Save\" [ref=f1e28] [box=48,214,46,21]\n    - listitem [ref=f1e29] [box=48,235,708,21]:\n      - button \"Save\" [ref=f1e30] [box=48,235,46,21]\n    - listitem [ref=f1e31] [box=48,256,708,21]:\n      - button \"Save\" [ref=f1e32] [box=48,256,46,21]\n  - link \"More\" [ref=f1e33] [box=8,293,35,17]:\n    - /url: \"#a\"\n  - link \"More\" [ref=f1e34] [box=47,293,35,17]:\n    - /url: \"#b\"\n- region \"Drag\" [ref=f1e35] [box=8,331,748,127]:\n  - heading \"Drag\" [level=2] [ref=f1e36] [box=8,331,748,27]\n  - button \"Drag source\" [ref=f1e37] [box=8,378,748,18]\n  - region \"Drop target\" [ref=f1e38] [box=8,396,202,62]: Drop here\n- region \"Pick\" [ref=f1e39] [box=8,458,748,21]:\n  - button \"Pick me\" [ref=f1e40] [box=8,458,63,21]\n  - button \"Pick me\" [ref=f1e41] [box=75,458,63,21]\n- paragraph [ref=f1e42] [box=8,495,748,18]: Plain paragraph text for find --all.\n",
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot-selector",
+   "argv": [
+    "snapshot",
+    "--selector=#dst"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 240,
+   "snapshot": "- region \"Drop target\" [ref=f1e38]: Drop here\n",
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot-selector-multi",
+   "argv": [
+    "snapshot",
+    "--selector=button"
+   ],
+   "refs": [],
+   "exit": 1,
+   "out": "'button' matches 10 elements; snapshot needs exactly one. Narrow the selector, e.g. 'button' with :first-child or an id.\n",
+   "ms": 228,
+   "snapshot": "- region \"Drop target\" [ref=f1e38]: Drop here\n",
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot-selector-none",
+   "argv": [
+    "snapshot",
+    "--selector=#nope"
+   ],
+   "refs": [],
+   "exit": 1,
+   "out": "No element matches '#nope' on this page.\n",
+   "ms": 197,
+   "snapshot": "- region \"Drop target\" [ref=f1e38]: Drop here\n",
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot-filename",
+   "argv": [
+    "snapshot",
+    "--filename=sweep-controls.yml"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](sweep-controls.yml)\n",
+   "ms": 238,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot-full",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 220,
+   "snapshot": "- heading \"Controls\" [level=1] [ref=f1e2]\n- region \"Form\" [ref=f1e3]:\n  - text: Name\n  - textbox \"Name\" [ref=f1e5]\n  - text: Bio\n  - textbox \"Bio\" [ref=f1e7]\n  - checkbox \"I agree\" [ref=f1e9]\n  - text: I agree\n  - radio \"Small\" [ref=f1e11]\n  - text: Small\n  - radio \"Large\" [ref=f1e13]\n  - text: Large\n  - text: Color\n  - combobox \"Color\" [ref=f1e15]:\n    - option \"Red\" [selected]\n    - option \"Green\"\n    - option \"Blue\"\n  - text: Avatar\n  - button \"Avatar\" [ref=f1e17]\n  - button \"Go\" [ref=f1e18]\n  - button \"Double me\" [ref=f1e19]\n  - button \"Hover me\" [ref=f1e20]\n  - link \"Jump to two\" [ref=f1e21]:\n    - /url: \"#section-two\"\n  - button \"★\" [ref=f1e22]\n  - button \"Say \\\"hi\\\"\" [ref=f1e23]\n- region \"Duplicates\" [ref=f1e24]:\n  - heading \"Duplicates\" [level=2] [ref=f1e25]\n  - list [ref=f1e26]:\n    - listitem [ref=f1e27]:\n      - button \"Save\" [ref=f1e28]\n    - listitem [ref=f1e29]:\n      - button \"Save\" [ref=f1e30]\n    - listitem [ref=f1e31]:\n      - button \"Save\" [ref=f1e32]\n  - link \"More\" [ref=f1e33]:\n    - /url: \"#a\"\n  - link \"More\" [ref=f1e34]:\n    - /url: \"#b\"\n- region \"Drag\" [ref=f1e35]:\n  - heading \"Drag\" [level=2] [ref=f1e36]\n  - button \"Drag source\" [ref=f1e37]\n  - region \"Drop target\" [ref=f1e38]: Drop here\n- region \"Pick\" [ref=f1e39]:\n  - button \"Pick me\" [ref=f1e40]\n  - button \"Pick me\" [ref=f1e41]\n- paragraph [ref=f1e42]: Plain paragraph text for find --all.\n",
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot-ref-list",
+   "argv": [
+    "snapshot",
+    "<list#0>"
+   ],
+   "refs": [
+    "f1e26"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 251,
+   "snapshot": "- list [ref=f1e26]:\n  - listitem [ref=f1e27]:\n    - button \"Save\" [ref=f1e28]\n  - listitem [ref=f1e29]:\n    - button \"Save\" [ref=f1e30]\n  - listitem [ref=f1e31]:\n    - button \"Save\" [ref=f1e32]\n",
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot-ref-list-depth1",
+   "argv": [
+    "snapshot",
+    "<list#0>",
+    "--depth=1"
+   ],
+   "refs": [
+    "f1e26"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 238,
+   "snapshot": "- list [ref=f1e26]:\n  - listitem [ref=f1e27]: # +1 ref\n  - listitem [ref=f1e29]: # +1 ref\n  - listitem [ref=f1e31]: # +1 ref\n",
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:click-after-scoped",
+   "argv": [
+    "click",
+    "<button \"Save\"#0>"
+   ],
+   "refs": [
+    "e99999"
+   ],
+   "exit": 1,
+   "out": "Error: e99999 is not from a snapshot of this tab; run snapshot (refs are per tab, and a ref goes away when its element is removed or its role or name changes)\n",
+   "ms": 215,
+   "missing_targets": [
+    "<button \"Save\"#0>"
+   ],
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:snapshot-again",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 254,
+   "snapshot": "- heading \"Controls\" [level=1] [ref=f1e2]\n- region \"Form\" [ref=f1e3]:\n  - text: Name\n  - textbox \"Name\" [ref=f1e5]\n  - text: Bio\n  - textbox \"Bio\" [ref=f1e7]\n  - checkbox \"I agree\" [ref=f1e9]\n  - text: I agree\n  - radio \"Small\" [ref=f1e11]\n  - text: Small\n  - radio \"Large\" [ref=f1e13]\n  - text: Large\n  - text: Color\n  - combobox \"Color\" [ref=f1e15]:\n    - option \"Red\" [selected]\n    - option \"Green\"\n    - option \"Blue\"\n  - text: Avatar\n  - button \"Avatar\" [ref=f1e17]\n  - button \"Go\" [ref=f1e18]\n  - button \"Double me\" [ref=f1e19]\n  - button \"Hover me\" [ref=f1e20]\n  - link \"Jump to two\" [ref=f1e21]:\n    - /url: \"#section-two\"\n  - button \"★\" [ref=f1e22]\n  - button \"Say \\\"hi\\\"\" [ref=f1e23]\n- region \"Duplicates\" [ref=f1e24]:\n  - heading \"Duplicates\" [level=2] [ref=f1e25]\n  - list [ref=f1e26]:\n    - listitem [ref=f1e27]:\n      - button \"Save\" [ref=f1e28]\n    - listitem [ref=f1e29]:\n      - button \"Save\" [ref=f1e30]\n    - listitem [ref=f1e31]:\n      - button \"Save\" [ref=f1e32]\n  - link \"More\" [ref=f1e33]:\n    - /url: \"#a\"\n  - link \"More\" [ref=f1e34]:\n    - /url: \"#b\"\n- region \"Drag\" [ref=f1e35]:\n  - heading \"Drag\" [level=2] [ref=f1e36]\n  - button \"Drag source\" [ref=f1e37]\n  - region \"Drop target\" [ref=f1e38]: Drop here\n- region \"Pick\" [ref=f1e39]:\n  - button \"Pick me\" [ref=f1e40]\n  - button \"Pick me\" [ref=f1e41]\n- paragraph [ref=f1e42]: Plain paragraph text for find --all.\n",
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:fill-name",
+   "argv": [
+    "fill",
+    "<textbox \"Name\"#0>",
+    "Alice"
+   ],
+   "refs": [
+    "f1e5"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 247,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Alice",
+     "bio": "",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:fill-bio",
+   "argv": [
+    "fill",
+    "<textbox \"Bio\"#0>",
+    "line one"
+   ],
+   "refs": [
+    "f1e7"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 229,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Alice",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:fill-submit",
+   "argv": [
+    "fill",
+    "<textbox \"Name\"#0>",
+    "Bob",
+    "--submit"
+   ],
+   "refs": [
+    "f1e5"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 240,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:click-name",
+   "argv": [
+    "click",
+    "<textbox \"Name\"#0>"
+   ],
+   "refs": [
+    "f1e5"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 258,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "click:name",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:type",
+   "argv": [
+    "type",
+    " Jr"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 233,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "click:name",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:click-go",
+   "argv": [
+    "click",
+    "<button \"Go\"#0>"
+   ],
+   "refs": [
+    "f1e18"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 260,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "click:name click:go go",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:click-go-right",
+   "argv": [
+    "click",
+    "<button \"Go\"#0>",
+    "right"
+   ],
+   "refs": [
+    "f1e18"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 280,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "click:name click:go go",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:click-go-mod",
+   "argv": [
+    "click",
+    "<button \"Go\"#0>",
+    "--modifiers=Shift"
+   ],
+   "refs": [
+    "f1e18"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 234,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "click:name click:go go click:go go",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:dblclick",
+   "argv": [
+    "dblclick",
+    "<button \"Double me\"#0>"
+   ],
+   "refs": [
+    "f1e19"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 255,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:hover",
+   "argv": [
+    "hover",
+    "<button \"Hover me\"#0>"
+   ],
+   "refs": [
+    "f1e20"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 231,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:check",
+   "argv": [
+    "check",
+    "<checkbox \"I agree\"#0>"
+   ],
+   "refs": [
+    "f1e9"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 242,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": true,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:uncheck",
+   "argv": [
+    "uncheck",
+    "<checkbox \"I agree\"#0>"
+   ],
+   "refs": [
+    "f1e9"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 230,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": false,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:check-radio",
+   "argv": [
+    "check",
+    "<radio \"Large\"#0>"
+   ],
+   "refs": [
+    "f1e13"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 219,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "red",
+     "avatar": ""
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:select",
+   "argv": [
+    "select",
+    "<combobox \"Color\"#0>",
+    "blue"
+   ],
+   "refs": [
+    "f1e15"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 212,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "blue",
+     "avatar": ""
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:select-label",
+   "argv": [
+    "select",
+    "<combobox \"Color\"#0>",
+    "Green"
+   ],
+   "refs": [
+    "f1e15"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 218,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": ""
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:select-ref-as-option",
+   "argv": [
+    "select",
+    "<combobox \"Color\"#0>",
+    "<button \"Go\"#0>"
+   ],
+   "refs": [
+    "f1e15",
+    "f1e18"
+   ],
+   "exit": 1,
+   "out": "select takes the option label shown under the combobox, e.g. select f1e15 Green\n",
+   "ms": 219,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": ""
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:select-missing-option",
+   "argv": [
+    "select",
+    "<combobox \"Color\"#0>",
+    "Purple",
+    "--timeout-action=2000"
+   ],
+   "refs": [
+    "f1e15"
+   ],
+   "exit": 1,
+   "out": "Error: Locator.select_option: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator(\"aria-ref=f1e15\")\n    - locator resolved to <select id=\"color\">…</select>\n  - attempting select option action\n    2 × waiting for element to be visible and enabled\n      - did not find some options\n    - retrying select option action\n    - waiting 20ms\n    2 × waiting for element to be visible and enabled\n      - did not find some options\n    - retrying select option action\n      - waiting 100ms\n    4 × waiting for element to be visible and enabled\n      - did not find some options\n    - retrying select option action\n      - waiting 500ms\n\nOptions:\n- option \"Red\"\n- option \"Green\" [selected]\n- option \"Blue\"\n",
+   "ms": 2232,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": ""
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:upload",
+   "argv": [
+    "upload",
+    "C:\\Users\\zhuha\\AppData\\Local\\Temp\\snaprefs-sweep-8u8cz1k2\\upload.txt",
+    "<button \"Avatar\"#0>"
+   ],
+   "refs": [
+    "f1e17"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 241,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:upload-default",
+   "argv": [
+    "upload",
+    "C:\\Users\\zhuha\\AppData\\Local\\Temp\\snaprefs-sweep-8u8cz1k2\\upload.txt"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 235,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:click-save-1",
+   "argv": [
+    "click",
+    "<button \"Save\"#1>"
+   ],
+   "refs": [
+    "f1e30"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 238,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:click-save-2",
+   "argv": [
+    "click",
+    "<button \"Save\"#2>"
+   ],
+   "refs": [
+    "f1e32"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 266,
+   "state": {
+    "url": "/controls.html",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:click-more-1",
+   "argv": [
+    "click",
+    "<link \"More\"#1>"
+   ],
+   "refs": [
+    "f1e34"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#b\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 231,
+   "state": {
+    "url": "/controls.html#b",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "controls:click-anchor",
+   "argv": [
+    "click",
+    "<link \"Jump to two\"#0>"
+   ],
+   "refs": [
+    "f1e21"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 231,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:click-star",
+   "argv": [
+    "click",
+    "<button \"★\"#0>"
+   ],
+   "refs": [
+    "f1e22"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 237,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:click-quoted",
+   "argv": [
+    "click",
+    "<button \"Say \"hi\"\"#0>"
+   ],
+   "refs": [
+    "f1e23"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 246,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:drag",
+   "argv": [
+    "drag",
+    "<button \"Drag source\"#0>",
+    "<region \"Drop target\"#0>"
+   ],
+   "refs": [
+    "f1e37",
+    "f1e38"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 262,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src:",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:drop-data",
+   "argv": [
+    "drop",
+    "<region \"Drop target\"#0>",
+    "--data=text/plain=hello"
+   ],
+   "refs": [
+    "f1e38"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 218,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello:",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:drop-file",
+   "argv": [
+    "drop",
+    "<region \"Drop target\"#0>",
+    "--path=C:\\Users\\zhuha\\AppData\\Local\\Temp\\snaprefs-sweep-8u8cz1k2\\upload.txt"
+   ],
+   "refs": [
+    "f1e38"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 286,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:highlight",
+   "argv": [
+    "highlight",
+    "<button \"Go\"#0>"
+   ],
+   "refs": [
+    "f1e18"
+   ],
+   "exit": 0,
+   "out": "Highlighted f1e18.\n",
+   "ms": 211
+  },
+  {
+   "id": "controls:highlight-style",
+   "argv": [
+    "highlight",
+    "<button \"Hover me\"#0>",
+    "--style=outline: 2px solid red"
+   ],
+   "refs": [
+    "f1e20"
+   ],
+   "exit": 0,
+   "out": "Highlighted f1e20.\n",
+   "ms": 202
+  },
+  {
+   "id": "controls:highlight-hide-ref",
+   "argv": [
+    "highlight",
+    "<button \"Go\"#0>",
+    "--hide"
+   ],
+   "refs": [
+    "f1e18"
+   ],
+   "exit": 0,
+   "out": "Hid highlight on f1e18.\n",
+   "ms": 203
+  },
+  {
+   "id": "controls:highlight-hide-all",
+   "argv": [
+    "highlight",
+    "--hide"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "All highlights cleared.\n",
+   "ms": 193
+  },
+  {
+   "id": "controls:screenshot-ref",
+   "argv": [
+    "screenshot",
+    "<button \"Go\"#0>"
+   ],
+   "refs": [
+    "f1e18"
+   ],
+   "exit": 0,
+   "out": "Screenshot saved to <element.png>\n",
+   "ms": 236
+  },
+  {
+   "id": "controls:eval-ref",
+   "argv": [
+    "eval",
+    "el => el.id",
+    "<button \"Save\"#2>"
+   ],
+   "refs": [
+    "f1e32"
+   ],
+   "exit": 0,
+   "out": "\"save3\"\n",
+   "ms": 231
+  },
+  {
+   "id": "controls:eval-ref-tag",
+   "argv": [
+    "eval",
+    "el => el.tagName + ':' + el.textContent",
+    "<link \"More\"#0>"
+   ],
+   "refs": [
+    "f1e33"
+   ],
+   "exit": 0,
+   "out": "\"A:More\"\n",
+   "ms": 211
+  },
+  {
+   "id": "controls:text-ref",
+   "argv": [
+    "text",
+    "<button \"Say \"hi\"\"#0>"
+   ],
+   "refs": [
+    "f1e23"
+   ],
+   "exit": 0,
+   "out": "Say \"hi\"\n",
+   "ms": 206
+  },
+  {
+   "id": "controls:text-selector",
+   "argv": [
+    "text",
+    "#para"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Plain paragraph text for find --all.\n",
+   "ms": 229
+  },
+  {
+   "id": "controls:scroll-to",
+   "argv": [
+    "scroll-to",
+    "<region \"Drop target\"#0>"
+   ],
+   "refs": [
+    "f1e38"
+   ],
+   "exit": 0,
+   "out": "Scrolled element into view\n",
+   "ms": 215
+  },
+  {
+   "id": "controls:wait-for",
+   "argv": [
+    "wait-for",
+    "<button \"Go\"#0>"
+   ],
+   "refs": [
+    "f1e18"
+   ],
+   "exit": 0,
+   "out": "Element is visible\n",
+   "ms": 210
+  },
+  {
+   "id": "controls:generate-locator-0",
+   "argv": [
+    "generate-locator",
+    "<button \"Go\"#0>"
+   ],
+   "refs": [
+    "f1e18"
+   ],
+   "exit": 0,
+   "out": "getByRole('button', { name: 'Go', exact: true })\n",
+   "ms": 222
+  },
+  {
+   "id": "controls:generate-locator-1",
+   "argv": [
+    "generate-locator",
+    "<button \"Save\"#2>"
+   ],
+   "refs": [
+    "f1e32"
+   ],
+   "exit": 0,
+   "out": "getByRole('button', { name: 'Save', exact: true }).nth(2)\n",
+   "ms": 230
+  },
+  {
+   "id": "controls:generate-locator-2",
+   "argv": [
+    "generate-locator",
+    "<button \"Say \"hi\"\"#0>"
+   ],
+   "refs": [
+    "f1e23"
+   ],
+   "exit": 0,
+   "out": "getByRole('button', { name: 'Say \"hi\"', exact: true })\n",
+   "ms": 224
+  },
+  {
+   "id": "controls:generate-locator-3",
+   "argv": [
+    "generate-locator",
+    "<link \"More\"#1>"
+   ],
+   "refs": [
+    "f1e34"
+   ],
+   "exit": 0,
+   "out": "getByRole('link', { name: 'More', exact: true }).nth(1)\n",
+   "ms": 218
+  },
+  {
+   "id": "controls:generate-locator-4",
+   "argv": [
+    "generate-locator",
+    "<button \"★\"#0>"
+   ],
+   "refs": [
+    "f1e22"
+   ],
+   "exit": 0,
+   "out": "getByRole('button', { name: '★', exact: true })\n",
+   "ms": 212
+  },
+  {
+   "id": "controls:generate-locator-5",
+   "argv": [
+    "generate-locator",
+    "<checkbox \"I agree\"#0>"
+   ],
+   "refs": [
+    "f1e9"
+   ],
+   "exit": 0,
+   "out": "getByRole('checkbox', { name: 'I agree', exact: true })\n",
+   "ms": 217
+  },
+  {
+   "id": "controls:generate-locator-6",
+   "argv": [
+    "generate-locator",
+    "<textbox \"Name\"#0>"
+   ],
+   "refs": [
+    "f1e5"
+   ],
+   "exit": 0,
+   "out": "getByRole('textbox', { name: 'Name', exact: true })\n",
+   "ms": 200
+  },
+  {
+   "id": "controls:find-save",
+   "argv": [
+    "find",
+    "Save"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 3 matches for \"Save\".\n\n  # region \"Duplicates\" > list > listitem\n- button \"Save\" [ref=f1e28]\n\n  # region \"Duplicates\" > list > listitem\n- button \"Save\" [ref=f1e30]\n\n  # region \"Duplicates\" > list > listitem\n- button \"Save\" [ref=f1e32]\n\n",
+   "ms": 197
+  },
+  {
+   "id": "controls:find-limit",
+   "argv": [
+    "find",
+    "Save",
+    "--limit=2"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 2 of 3 matches for \"Save\". Narrow the query to reduce ambiguity.\n\n  # region \"Duplicates\" > list > listitem\n- button \"Save\" [ref=f1e28]\n\n  # region \"Duplicates\" > list > listitem\n- button \"Save\" [ref=f1e30]\n\n",
+   "ms": 199
+  },
+  {
+   "id": "controls:find-regex",
+   "argv": [
+    "find",
+    "--regex=/^(Go|Save)$/"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 4 matches for \"/^(Go|Save)$/\".\n\n  # region \"Form\"\n- button \"Go\" [ref=f1e18]\n\n  # region \"Duplicates\" > list > listitem\n- button \"Save\" [ref=f1e28]\n\n  # region \"Duplicates\" > list > listitem\n- button \"Save\" [ref=f1e30]\n\n  # region \"Duplicates\" > list > listitem\n- button \"Save\" [ref=f1e32]\n\n",
+   "ms": 218
+  },
+  {
+   "id": "controls:find-regex-flag",
+   "argv": [
+    "find",
+    "dr.g",
+    "--regex"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 2 matches for \"dr.g\".\n\n  # region \"Drag\"\n- heading \"Drag\" [level=2] [ref=f1e36]\n\n  # region \"Drag\"\n- button \"Drag source\" [ref=f1e37]\n\n",
+   "ms": 206
+  },
+  {
+   "id": "controls:find-all",
+   "argv": [
+    "find",
+    "paragraph",
+    "--all"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 1 match for \"paragraph\".\n\n- paragraph [ref=f1e42]: Plain paragraph text for find --all.\n\n",
+   "ms": 204
+  },
+  {
+   "id": "controls:find-none",
+   "argv": [
+    "find",
+    "zzz-nothing"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "0 matches for \"zzz-nothing\".\nTry --all to search non-interactive nodes (text, paragraphs), or --regex for a pattern.\n",
+   "ms": 228
+  },
+  {
+   "id": "controls:find-role-save",
+   "argv": [
+    "find",
+    "--role=button",
+    "--name=Save"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 3 matches for role=button name=\"Save\".\n\n- button \"Save\" [ref=f1e28]\n- button \"Save\" [ref=f1e30]\n- button \"Save\" [ref=f1e32]\n\n",
+   "ms": 226
+  },
+  {
+   "id": "controls:find-role-regex",
+   "argv": [
+    "find",
+    "--role=button",
+    "--name=/sav/i",
+    "--limit=2"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 2 of 3 matches for role=button name=\"/sav/i\". Narrow the filters to reduce ambiguity.\n\n- button \"Save\" [ref=f1e28]\n- button \"Save\" [ref=f1e30]\n\n",
+   "ms": 245
+  },
+  {
+   "id": "controls:find-role-link",
+   "argv": [
+    "find",
+    "--role=link"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 3 matches for role=link.\n\n- link \"Jump to two\" [ref=f1e21]\n- link \"More\" [ref=f1e33]\n- link \"More\" [ref=f1e34]\n\n",
+   "ms": 231
+  },
+  {
+   "id": "controls:find-role-exact",
+   "argv": [
+    "find",
+    "--role=textbox",
+    "--name=Name",
+    "--exact"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 1 match for role=textbox name=\"Name\" exact.\n\n- textbox \"Name\" [ref=f1e5]\n\n",
+   "ms": 225
+  },
+  {
+   "id": "controls:find-role-none",
+   "argv": [
+    "find",
+    "--role=slider"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "0 matches for role=slider.\nDrop a filter, or use /pattern/i for a looser --name/--description.\n",
+   "ms": 197
+  },
+  {
+   "id": "controls:find-role-then-click",
+   "argv": [
+    "click",
+    "<button \"Save\"#1>"
+   ],
+   "refs": [
+    "f1e30"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 216,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:snapshot-full-for-heal",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 207
+  },
+  {
+   "id": "controls:snapshot-selector-scope",
+   "argv": [
+    "snapshot",
+    "--selector=#dst"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 227,
+   "snapshot": "- region \"Drop target\" [ref=f1e38]: Drop here\n"
+  },
+  {
+   "id": "controls:outside-ref-after-selector",
+   "argv": [
+    "click",
+    "<stale go>"
+   ],
+   "refs": [
+    "f1e18"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 248,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:snapshot-ref-scope",
+   "argv": [
+    "snapshot",
+    "<region \"Drop target\"#0>"
+   ],
+   "refs": [
+    "f1e38"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 208,
+   "snapshot": "- region \"Drop target\" [ref=f1e38]: Drop here\n"
+  },
+  {
+   "id": "controls:outside-ref-after-ref-scope",
+   "argv": [
+    "click",
+    "<stale save0>"
+   ],
+   "refs": [
+    "f1e28"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 214,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go click:save1",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:snapshot-depth-markers",
+   "argv": [
+    "snapshot",
+    "--depth=1"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 205,
+   "snapshot": "- heading \"Controls\" [level=1] [ref=f1e2]\n- region \"Form\" [ref=f1e3]:\n  - text: Name\n  - textbox \"Name\" [ref=f1e5]: Bob Jr\n  - text: Bio\n  - textbox \"Bio\" [ref=f1e7]: line one\n  - checkbox \"I agree\" [ref=f1e9]\n  - text: I agree\n  - radio \"Small\" [ref=f1e11]\n  - text: Small\n  - radio \"Large\" [checked] [ref=f1e13]\n  - text: Large\n  - text: Color\n  - combobox \"Color\" [ref=f1e15]: # +more\n  - text: Avatar\n  - button \"Avatar\" [ref=f1e17]\n  - button \"Go\" [ref=f1e18]\n  - button \"Double me\" [ref=f1e19]\n  - button \"Hover me\" [ref=f1e20]\n  - link \"Jump to two\" [ref=f1e21]: # +more\n  - button \"★\" [ref=f1e22]\n  - button \"Say \\\"hi\\\"\" [ref=f1e23]\n- region \"Duplicates\" [ref=f1e24]:\n  - heading \"Duplicates\" [level=2] [ref=f1e25]\n  - list [ref=f1e26]: # +6 refs\n  - link \"More\" [ref=f1e33]: # +more\n  - link \"More\" [ref=f1e34]: # +more\n- region \"Drag\" [ref=f1e35]:\n  - heading \"Drag\" [level=2] [ref=f1e36]\n  - button \"Drag source\" [ref=f1e37]\n  - region \"Drop target\" [ref=f1e38]: Drop here\n- region \"Pick\" [ref=f1e39]:\n  - button \"Pick me\" [ref=f1e40]\n  - button \"Pick me\" [ref=f1e41]\n- paragraph [ref=f1e42]: Plain paragraph text for find --all.\n"
+  },
+  {
+   "id": "controls:deep-ref-after-depth",
+   "argv": [
+    "click",
+    "<stale go>"
+   ],
+   "refs": [
+    "f1e18"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 220,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go click:save1 click:go go",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:snapshot-i-again",
+   "argv": [
+    "snapshot",
+    "-i"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 201,
+   "snapshot": "- region \"Form\" [ref=f1e3]:\n  - textbox \"Name\" [ref=f1e5]: Bob Jr\n  - textbox \"Bio\" [ref=f1e7]: line one\n  - checkbox \"I agree\" [ref=f1e9]\n  - radio \"Small\" [ref=f1e11]\n  - radio \"Large\" [checked] [ref=f1e13]\n  - combobox \"Color\" [ref=f1e15]:\n    - option \"Red\"\n    - option \"Green\" [selected]\n    - option \"Blue\"\n  - button \"Avatar\" [ref=f1e17]\n  - button \"Go\" [active] [ref=f1e18]\n  - button \"Double me\" [ref=f1e19]\n  - button \"Hover me\" [ref=f1e20]\n  - link \"Jump to two\" [ref=f1e21]\n  - button \"★\" [ref=f1e22]\n  - button \"Say \\\"hi\\\"\" [ref=f1e23]\n- region \"Duplicates\" [ref=f1e24]:\n  - button \"Save\" [ref=f1e28]\n  - button \"Save\" [ref=f1e30]\n  - button \"Save\" [ref=f1e32]\n  - link \"More\" [ref=f1e33]\n  - link \"More\" [ref=f1e34]\n- region \"Drag\" [ref=f1e35]:\n  - button \"Drag source\" [ref=f1e37]\n- region \"Pick\" [ref=f1e39]:\n  - button \"Pick me\" [ref=f1e40]\n  - button \"Pick me\" [ref=f1e41]\n"
+  },
+  {
+   "id": "controls:ref-after-i",
+   "argv": [
+    "click",
+    "<stale save0>"
+   ],
+   "refs": [
+    "f1e28"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 224,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go click:save1 click:go go click:save1",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:reattach-save1",
+   "argv": [
+    "eval",
+    "(() => { const b = document.getElementById('save1'); const p = b.parentNode; p.removeChild(b); p.appendChild(b); })()"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "null\n",
+   "ms": 200
+  },
+  {
+   "id": "controls:ref-after-reattach",
+   "argv": [
+    "click",
+    "<stale save0>"
+   ],
+   "refs": [
+    "f1e28"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 219,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go click:save1 click:go go click:save1 click:save1",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:html-ref",
+   "argv": [
+    "html",
+    "<button \"Go\"#0>"
+   ],
+   "refs": [
+    "f1e18"
+   ],
+   "exit": 0,
+   "out": "<button id=\"go\" type=\"button\" onclick=\"log('go')\">Go</button>\n",
+   "ms": 225
+  },
+  {
+   "id": "controls:html-ref-list",
+   "argv": [
+    "html",
+    "<list#0>"
+   ],
+   "refs": [
+    "f1e26"
+   ],
+   "exit": 0,
+   "out": "<ul>\n      <li><button id=\"save1\" type=\"button\">Save</button></li>\n      <li><button id=\"save2\" type=\"button\">Save</button></li>\n      <li><button id=\"save3\" type=\"button\">Save</button></li>\n    </ul>\n",
+   "ms": 217
+  },
+  {
+   "id": "controls:html-selector",
+   "argv": [
+    "html",
+    "--selector=#go"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "<button id=\"go\" type=\"button\" onclick=\"log('go')\">Go</button>\n",
+   "ms": 213
+  },
+  {
+   "id": "controls:html-bad-ref",
+   "argv": [
+    "html",
+    "e99999"
+   ],
+   "refs": [],
+   "exit": 1,
+   "out": "Error: e99999 is not from a snapshot of this tab; run snapshot (refs are per tab, and a ref goes away when its element is removed or its role or name changes)\n",
+   "ms": 192
+  },
+  {
+   "id": "controls:find-then-click",
+   "argv": [
+    "click",
+    "<button \"Save\"#0>"
+   ],
+   "refs": [
+    "f1e28"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 223,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go click:save1 click:go go click:save1 click:save1 click:save1",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:snapshot-pre-pick",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/controls.html#section-two\n- Page Title: Controls\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 206
+  },
+  {
+   "id": "controls:pick-save2",
+   "argv": [
+    "pick-locator",
+    "<click #save2>"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "#save2\n### Ref\n- f1e30 (in the last snapshot; use it with click, fill, ...)\n",
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go click:save1 click:go go click:save1 click:save1 click:save1 click:save2",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:pick-name",
+   "argv": [
+    "pick-locator",
+    "<click #name>"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "internal:role=textbox[name=\"Name\"i]\n### Ref\n- f1e5 (in the last snapshot; use it with click, fill, ...)\n",
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go click:save1 click:go go click:save1 click:save1 click:save1 click:save2 click:name",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:pick-dup-1",
+   "argv": [
+    "pick-locator",
+    "<click section[aria-label=Pick] button:nth-of-type(2)>"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "internal:role=button[name=\"Pick me\"i] >> nth=1\n### Ref\n- f1e41 (in the last snapshot; use it with click, fill, ...)\n",
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go click:save1 click:go go click:save1 click:save1 click:save1 click:save2 click:name click:BUTTON",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:pick-dup-0",
+   "argv": [
+    "pick-locator",
+    "<click section[aria-label=Pick] button:nth-of-type(1)>"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "internal:role=button[name=\"Pick me\"i] >> nth=0\n### Ref\n- f1e40 (in the last snapshot; use it with click, fill, ...)\n",
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go click:save1 click:go go click:save1 click:save1 click:save1 click:save2 click:name click:BUTTON click:BUTTON",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:bad-ref-num",
+   "argv": [
+    "click",
+    "e99999"
+   ],
+   "refs": [],
+   "exit": 1,
+   "out": "Error: e99999 is not from a snapshot of this tab; run snapshot (refs are per tab, and a ref goes away when its element is removed or its role or name changes)\n",
+   "ms": 218,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go click:save1 click:go go click:save1 click:save1 click:save1 click:save2 click:name click:BUTTON click:BUTTON",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:bad-ref-word",
+   "argv": [
+    "click",
+    "nonsense"
+   ],
+   "refs": [],
+   "exit": 2,
+   "out": "Error: \"nonsense\" is not a ref (refs look like e5 or f3e5, from snapshot)\n",
+   "ms": 218,
+   "state": {
+    "url": "/controls.html#section-two",
+    "fields": {
+     "name": "Bob Jr",
+     "bio": "line one",
+     "agree": false,
+     "r1": false,
+     "r2": true,
+     "color": "green",
+     "avatar": "upload.txt"
+    },
+    "log": "click:name click:go go click:go go click:dbl click:dbl dblclick:dbl dbl hover click:agree click:agree click:r2 click:save2 click:save3 click:star click:say drop:src: drop:hello: drop::upload.txt click:save2 click:go go click:save1 click:go go click:save1 click:save1 click:save1 click:save2 click:name click:BUTTON click:BUTTON",
+    "dialog": null,
+    "scrollY": 44
+   }
+  },
+  {
+   "id": "controls:bad-ref-at",
+   "argv": [
+    "click",
+    "@e1"
+   ],
+   "refs": [],
+   "exit": 1,
+   "out": "Error: e1 is not from a snapshot of this tab; run snapshot (refs are per tab, and a ref goes away when its element is removed or its role or name changes)\n",
+   "ms": 200
+  },
+  {
+   "id": "controls:generate-locator-bad",
+   "argv": [
+    "generate-locator",
+    "e99999"
+   ],
+   "refs": [],
+   "exit": 1,
+   "out": "Error: e99999 is not from a snapshot of this tab; run snapshot (refs are per tab, and a ref goes away when its element is removed or its role or name changes)\n",
+   "ms": 198
+  },
+  {
+   "id": "controls:highlight-bad",
+   "argv": [
+    "highlight",
+    "e99999"
+   ],
+   "refs": [],
+   "exit": 1,
+   "out": "Error: e99999 is not from a snapshot of this tab; run snapshot (refs are per tab, and a ref goes away when its element is removed or its role or name changes)\n",
+   "ms": 202
+  },
+  {
+   "id": "nested:goto",
+   "argv": [
+    "goto",
+    "http://127.0.0.1:42170/nested.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nested.html\n- Page Title: Nested\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 293,
+   "state": {
+    "url": "/nested.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nested:snapshot",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nested.html\n- Page Title: Nested\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 524,
+   "snapshot": "- navigation \"Main\" [ref=f2e2]:\n  - list [ref=f2e3]:\n    - listitem [ref=f2e4]:\n      - link \"Fruit\" [ref=f2e5]:\n        - /url: \"#fruit\"\n      - list [ref=f2e6]:\n        - listitem [ref=f2e7]:\n          - link \"Apple\" [ref=f2e8]:\n            - /url: \"#apple\"\n          - list [ref=f2e9]:\n            - listitem [ref=f2e10]:\n              - link \"Green\" [ref=f2e11]:\n                - /url: \"#green\"\n            - listitem [ref=f2e12]:\n              - link \"Red\" [ref=f2e13]:\n                - /url: \"#red\"\n        - listitem [ref=f2e14]:\n          - link \"Pear\" [ref=f2e15]:\n            - /url: \"#pear\"\n          - list [ref=f2e16]:\n            - listitem [ref=f2e17]:\n              - link \"Green\" [ref=f2e18]:\n                - /url: \"#green-pear\"\n    - listitem [ref=f2e19]:\n      - link \"Vegetables\" [ref=f2e20]:\n        - /url: \"#veg\"\n",
+   "state": {
+    "url": "/nested.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nested:snapshot-depth1",
+   "argv": [
+    "snapshot",
+    "--depth=1"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nested.html\n- Page Title: Nested\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 215,
+   "snapshot": "- navigation \"Main\" [ref=f2e2]:\n  - list [ref=f2e3]: # +17 refs\n",
+   "state": {
+    "url": "/nested.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nested:snapshot-depth3-i",
+   "argv": [
+    "snapshot",
+    "--depth=3",
+    "-i"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nested.html\n- Page Title: Nested\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 232,
+   "snapshot": "- navigation \"Main\" [ref=f2e2]:\n  - link \"Fruit\" [ref=f2e5]\n  - link \"Apple\" [ref=f2e8]\n  - link \"Green\" [ref=f2e11]\n  - link \"Red\" [ref=f2e13]\n  - link \"Pear\" [ref=f2e15]\n  - link \"Green\" [ref=f2e18]\n  - link \"Vegetables\" [ref=f2e20]\n",
+   "state": {
+    "url": "/nested.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nested:snapshot",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nested.html\n- Page Title: Nested\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 217
+  },
+  {
+   "id": "nested:click-green-1",
+   "argv": [
+    "click",
+    "<link \"Green\"#1>"
+   ],
+   "refs": [
+    "f2e18"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nested.html#green-pear\n- Page Title: Nested\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 264,
+   "state": {
+    "url": "/nested.html#green-pear",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nested:find-green",
+   "argv": [
+    "find",
+    "Green"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 2 matches for \"Green\".\n\n  # listitem > list > listitem\n- link \"Green\" [ref=f2e11]:\n  - /url: \"#green\"\n\n  # listitem > list > listitem\n- link \"Green\" [ref=f2e18]:\n  - /url: \"#green-pear\"\n\n",
+   "ms": 215
+  },
+  {
+   "id": "nested:generate-locator-green-1",
+   "argv": [
+    "generate-locator",
+    "<link \"Green\"#1>"
+   ],
+   "refs": [
+    "f2e18"
+   ],
+   "exit": 0,
+   "out": "getByRole('link', { name: 'Green', exact: true }).nth(1)\n",
+   "ms": 237
+  },
+  {
+   "id": "nested:snapshot-sub",
+   "argv": [
+    "snapshot",
+    "<listitem#1>"
+   ],
+   "refs": [
+    "f2e7"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nested.html#green-pear\n- Page Title: Nested\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 203,
+   "snapshot": "- listitem [ref=f2e7]:\n  - link \"Apple\" [ref=f2e8]:\n    - /url: \"#apple\"\n  - list [ref=f2e9]:\n    - listitem [ref=f2e10]:\n      - link \"Green\" [ref=f2e11]:\n        - /url: \"#green\"\n    - listitem [ref=f2e12]:\n      - link \"Red\" [ref=f2e13]:\n        - /url: \"#red\"\n"
+  },
+  {
+   "id": "nested:click-green-0-after-sub",
+   "argv": [
+    "click",
+    "<link \"Green\"#0>"
+   ],
+   "refs": [
+    "f2e11"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nested.html#green\n- Page Title: Nested\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 222,
+   "state": {
+    "url": "/nested.html#green",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "iframe:goto",
+   "argv": [
+    "goto",
+    "http://127.0.0.1:42170/iframe.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 278,
+   "state": {
+    "url": "/iframe.html",
+    "fields": {
+     "inner": "",
+     "inner-check": false
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "iframe:wait",
+   "argv": [
+    "wait",
+    "500"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Waited 500ms\n",
+   "ms": 703
+  },
+  {
+   "id": "iframe:snapshot",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 229,
+   "snapshot": "- heading \"Iframe host\" [level=1] [ref=f3e2]\n- button \"Submit\" [ref=f3e3]\n- iframe [ref=f3e4]:\n  - text: Inner field\n  - textbox \"Inner field\" [ref=f4e3]\n  - button \"Submit\" [ref=f4e4]\n  - checkbox \"Inner check\" [ref=f4e6]\n  - text: Inner check\n",
+   "state": {
+    "url": "/iframe.html",
+    "fields": {
+     "inner": "",
+     "inner-check": false
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "iframe:snapshot-i",
+   "argv": [
+    "snapshot",
+    "-i"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 261,
+   "snapshot": "- button \"Submit\" [ref=f3e3]\n- iframe [ref=f3e4]:\n  - textbox \"Inner field\" [ref=f4e3]\n  - button \"Submit\" [ref=f4e4]\n  - checkbox \"Inner check\" [ref=f4e6]\n",
+   "state": {
+    "url": "/iframe.html",
+    "fields": {
+     "inner": "",
+     "inner-check": false
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "iframe:snapshot",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 245
+  },
+  {
+   "id": "iframe:click-outer",
+   "argv": [
+    "click",
+    "<button \"Submit\"#0>"
+   ],
+   "refs": [
+    "f3e3"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 264,
+   "state": {
+    "url": "/iframe.html",
+    "fields": {
+     "inner": "",
+     "inner-check": false
+    },
+    "log": "click:outer-submit outer-submit",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "iframe:click-inner",
+   "argv": [
+    "click",
+    "<button \"Submit\"#1>"
+   ],
+   "refs": [
+    "f4e4"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 259,
+   "state": {
+    "url": "/iframe.html",
+    "fields": {
+     "inner": "",
+     "inner-check": false
+    },
+    "log": "click:outer-submit outer-submit inner-submit",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "iframe:fill-inner",
+   "argv": [
+    "fill",
+    "<textbox \"Inner field\"#0>",
+    "deep"
+   ],
+   "refs": [
+    "f4e3"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 235,
+   "state": {
+    "url": "/iframe.html",
+    "fields": {
+     "inner": "deep",
+     "inner-check": false
+    },
+    "log": "click:outer-submit outer-submit inner-submit",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "iframe:check-inner",
+   "argv": [
+    "check",
+    "<checkbox \"Inner check\"#0>"
+   ],
+   "refs": [
+    "f4e6"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 237,
+   "state": {
+    "url": "/iframe.html",
+    "fields": {
+     "inner": "deep",
+     "inner-check": true
+    },
+    "log": "click:outer-submit outer-submit inner-submit",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "iframe:eval-inner",
+   "argv": [
+    "eval",
+    "el => el.id",
+    "<textbox \"Inner field\"#0>"
+   ],
+   "refs": [
+    "f4e3"
+   ],
+   "exit": 0,
+   "out": "\"inner\"\n",
+   "ms": 228
+  },
+  {
+   "id": "iframe:text-inner",
+   "argv": [
+    "text",
+    "<button \"Submit\"#1>"
+   ],
+   "refs": [
+    "f4e4"
+   ],
+   "exit": 0,
+   "out": "Submit\n",
+   "ms": 207
+  },
+  {
+   "id": "iframe:highlight-inner",
+   "argv": [
+    "highlight",
+    "<button \"Submit\"#1>"
+   ],
+   "refs": [
+    "f4e4"
+   ],
+   "exit": 0,
+   "out": "Highlighted f4e4.\n",
+   "ms": 207
+  },
+  {
+   "id": "iframe:screenshot-inner",
+   "argv": [
+    "screenshot",
+    "<button \"Submit\"#1>"
+   ],
+   "refs": [
+    "f4e4"
+   ],
+   "exit": 0,
+   "out": "Screenshot saved to <element.png>\n",
+   "ms": 229
+  },
+  {
+   "id": "iframe:generate-locator-inner",
+   "argv": [
+    "generate-locator",
+    "<button \"Submit\"#1>"
+   ],
+   "refs": [
+    "f4e4"
+   ],
+   "exit": 0,
+   "out": "frameLocator('iframe[title=\"Child frame\"]').getByRole('button', { name: 'Submit', exact: true })\n",
+   "ms": 230
+  },
+  {
+   "id": "iframe:find-submit",
+   "argv": [
+    "find",
+    "Submit"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 2 matches for \"Submit\".\n\n- button \"Submit\" [ref=f3e3]\n\n  # iframe\n- button \"Submit\" [ref=f4e4]\n\n",
+   "ms": 227
+  },
+  {
+   "id": "iframe:find-role-submit",
+   "argv": [
+    "find",
+    "--role=button",
+    "--name=Submit"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 1 match for role=button name=\"Submit\".\n\n- button \"Submit\" [ref=f3e3]\n\n",
+   "ms": 234
+  },
+  {
+   "id": "iframe:html-inner",
+   "argv": [
+    "html",
+    "<button \"Submit\"#1>"
+   ],
+   "refs": [
+    "f4e4"
+   ],
+   "exit": 0,
+   "out": "<button id=\"inner-submit\" type=\"button\" onclick=\"parent.log('inner-submit')\">Submit</button>\n",
+   "ms": 231
+  },
+  {
+   "id": "iframe:snapshot-pre-pick",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 252
+  },
+  {
+   "id": "iframe:pick-outer",
+   "argv": [
+    "pick-locator",
+    "<click #outer-submit>"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "internal:role=button[name=\"Submit\"i]\n### Ref\n- f3e3 (in the last snapshot; use it with click, fill, ...)\n",
+   "state": {
+    "url": "/iframe.html",
+    "fields": {
+     "inner": "deep",
+     "inner-check": true
+    },
+    "log": "click:outer-submit outer-submit inner-submit click:outer-submit",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "iframe:snapshot-pre-pick-inner",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 230
+  },
+  {
+   "id": "iframe:pick-inner",
+   "argv": [
+    "pick-locator",
+    "<click #inner-submit>"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "iframe[title=\"Child frame\"] >> internal:control=enter-frame >> internal:role=button[name=\"Submit\"i]\n### Ref\n- f4e4 (in the last snapshot; use it with click, fill, ...)\n",
+   "state": {
+    "url": "/iframe.html",
+    "fields": {
+     "inner": "deep",
+     "inner-check": true
+    },
+    "log": "click:outer-submit outer-submit inner-submit click:outer-submit",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "iframe:snapshot-boxes",
+   "argv": [
+    "snapshot",
+    "--boxes"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 242,
+   "snapshot": "- heading \"Iframe host\" [level=1] [ref=f3e2] [cursor=pointer] [box=8,21,748,37]\n- button \"Submit\" [ref=f3e3] [box=8,269,58,21]\n- iframe [active] [ref=f3e4] [cursor=pointer] [box=70,80,404,204]:\n  - generic [ref=f4e2] [cursor=pointer] [box=80,92,248,17]:\n    - text: Inner field\n    - textbox \"Inner field\" [ref=f4e3] [box=151,91,177,21]: deep\n  - button \"Submit\" [ref=f4e4] [box=332,91,58,21]\n  - generic [ref=f4e5] [cursor=pointer] [box=80,92,371,37]:\n    - checkbox \"Inner check\" [checked] [active] [ref=f4e6] [box=398,93,13,13]\n    - text: Inner check\n"
+  },
+  {
+   "id": "iframe:inner-submit-page-box",
+   "argv": [
+    "eval",
+    "(() => { const f = document.getElementById('child'); const fr = f.getBoundingClientRect(); const r = f.contentDocument.getElementById('inner-submit').getBoundingClientRect(); return [Math.round(fr.x + f.clientLeft + r.x), Math.round(fr.y + f.clientTop + r.y), Math.round(r.width), Math.round(r.height)]; })()"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "[\n  332,\n  91,\n  58,\n  21\n]\n",
+   "ms": 233
+  },
+  {
+   "id": "iframe:snapshot-i",
+   "argv": [
+    "snapshot",
+    "-i"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 218,
+   "snapshot": "- button \"Submit\" [ref=f3e3]\n- iframe [active] [ref=f3e4] [cursor=pointer]:\n  - generic [ref=f4e2] [cursor=pointer]:\n    - textbox \"Inner field\" [ref=f4e3]: deep\n  - button \"Submit\" [ref=f4e4]\n  - generic [ref=f4e5] [cursor=pointer]:\n    - checkbox \"Inner check\" [checked] [active] [ref=f4e6]\n"
+  },
+  {
+   "id": "iframe:find-inner-check",
+   "argv": [
+    "find",
+    "Inner"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 2 matches for \"Inner\".\n\n  # iframe > generic\n- textbox \"Inner field\" [ref=f4e3]: deep\n\n  # iframe > generic\n- checkbox \"Inner check\" [checked] [active] [ref=f4e6]\n\n",
+   "ms": 228
+  },
+  {
+   "id": "iframe:snapshot-iframe-ref",
+   "argv": [
+    "snapshot",
+    "<iframe#0>"
+   ],
+   "refs": [
+    "f3e4"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/iframe.html\n- Page Title: Iframe host\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 226,
+   "snapshot": "- iframe [active] [ref=f3e4] [cursor=pointer]:\n  - generic [ref=f4e2] [cursor=pointer]:\n    - text: Inner field\n    - textbox \"Inner field\" [ref=f4e3]: deep\n  - button \"Submit\" [ref=f4e4]\n  - generic [ref=f4e5] [cursor=pointer]:\n    - checkbox \"Inner check\" [checked] [active] [ref=f4e6]\n    - text: Inner check\n"
+  },
+  {
+   "id": "shadow:goto",
+   "argv": [
+    "goto",
+    "http://127.0.0.1:42170/shadow.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/shadow.html\n- Page Title: Shadow\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 254,
+   "state": {
+    "url": "/shadow.html",
+    "fields": {
+     "shadow-input": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "shadow:snapshot",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/shadow.html\n- Page Title: Shadow\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 207,
+   "snapshot": "- heading \"Shadow\" [level=1] [ref=f5e2]\n- text: Shadow field\n- textbox \"Shadow field\" [ref=f5e5]\n- button \"Shadow button\" [ref=f5e6]\n- button \"Deep button\" [ref=f5e8]\n",
+   "state": {
+    "url": "/shadow.html",
+    "fields": {
+     "shadow-input": ""
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "shadow:fill",
+   "argv": [
+    "fill",
+    "<textbox \"Shadow field\"#0>",
+    "ghost"
+   ],
+   "refs": [
+    "f5e5"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/shadow.html\n- Page Title: Shadow\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 220,
+   "state": {
+    "url": "/shadow.html",
+    "fields": {
+     "shadow-input": "ghost"
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "shadow:click",
+   "argv": [
+    "click",
+    "<button \"Shadow button\"#0>"
+   ],
+   "refs": [
+    "f5e6"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/shadow.html\n- Page Title: Shadow\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 239,
+   "state": {
+    "url": "/shadow.html",
+    "fields": {
+     "shadow-input": "ghost"
+    },
+    "log": "click:host shadow-btn",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "shadow:click-deep",
+   "argv": [
+    "click",
+    "<button \"Deep button\"#0>"
+   ],
+   "refs": [
+    "f5e8"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/shadow.html\n- Page Title: Shadow\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 244,
+   "state": {
+    "url": "/shadow.html",
+    "fields": {
+     "shadow-input": "ghost"
+    },
+    "log": "click:host shadow-btn click:host deep-btn",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "shadow:find-deep",
+   "argv": [
+    "find",
+    "Deep"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 1 match for \"Deep\".\n\n- button \"Deep button\" [ref=f5e8]\n\n",
+   "ms": 201
+  },
+  {
+   "id": "shadow:generate-locator-deep",
+   "argv": [
+    "generate-locator",
+    "<button \"Deep button\"#0>"
+   ],
+   "refs": [
+    "f5e8"
+   ],
+   "exit": 0,
+   "out": "getByRole('button', { name: 'Deep button', exact: true })\n",
+   "ms": 209
+  },
+  {
+   "id": "shadow:eval-deep",
+   "argv": [
+    "eval",
+    "el => el.id",
+    "<button \"Deep button\"#0>"
+   ],
+   "refs": [
+    "f5e8"
+   ],
+   "exit": 0,
+   "out": "\"deep-btn\"\n",
+   "ms": 214
+  },
+  {
+   "id": "shadow:find-role",
+   "argv": [
+    "find",
+    "--role=button"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 2 matches for role=button.\n\n- button \"Shadow button\" [ref=f5e6]\n- button \"Deep button\" [ref=f5e8]\n\n",
+   "ms": 230
+  },
+  {
+   "id": "shadow:html-deep",
+   "argv": [
+    "html",
+    "<button \"Deep button\"#0>"
+   ],
+   "refs": [
+    "f5e8"
+   ],
+   "exit": 0,
+   "out": "<button id=\"deep-btn\" type=\"button\">Deep button</button>\n",
+   "ms": 200
+  },
+  {
+   "id": "shadow:html-shadow",
+   "argv": [
+    "html",
+    "--selector=#host",
+    "--include-shadow"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "<div id=\"host\"><template shadowrootmode=\"open\"><label>Shadow field <input id=\"shadow-input\" type=\"text\"></label><button id=\"shadow-btn\" type=\"button\">Shadow button</button><div id=\"inner-host\"><template shadowrootmode=\"open\"><button id=\"deep-btn\" type=\"button\">Deep button</button></template></div></template></div>\n",
+   "ms": 206
+  },
+  {
+   "id": "dialog:goto",
+   "argv": [
+    "goto",
+    "http://127.0.0.1:42170/dialog.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/dialog.html\n- Page Title: Dialog\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 258,
+   "state": {
+    "url": "/dialog.html",
+    "fields": {
+     "reason": ""
+    },
+    "log": "",
+    "dialog": false,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "dialog:snapshot-closed",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/dialog.html\n- Page Title: Dialog\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 203,
+   "snapshot": "- heading \"Dialog\" [level=1] [ref=f6e2]\n- button \"Open dialog\" [ref=f6e3]\n",
+   "state": {
+    "url": "/dialog.html",
+    "fields": {
+     "reason": ""
+    },
+    "log": "",
+    "dialog": false,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "dialog:open",
+   "argv": [
+    "click",
+    "<button \"Open dialog\"#0>"
+   ],
+   "refs": [
+    "f6e3"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/dialog.html\n- Page Title: Dialog\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 266,
+   "state": {
+    "url": "/dialog.html",
+    "fields": {
+     "reason": ""
+    },
+    "log": "click:open",
+    "dialog": true,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "dialog:snapshot-open",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/dialog.html\n- Page Title: Dialog\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 238,
+   "snapshot": "- heading \"Dialog\" [level=1] [ref=f6e2]\n- button \"Open dialog\" [ref=f6e3]\n- dialog \"Confirm action\" [ref=f6e4]:\n  - text: Reason\n  - textbox \"Reason\" [active] [ref=f6e6]\n  - button \"Confirm\" [ref=f6e7]\n",
+   "state": {
+    "url": "/dialog.html",
+    "fields": {
+     "reason": ""
+    },
+    "log": "click:open",
+    "dialog": true,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "dialog:fill",
+   "argv": [
+    "fill",
+    "<textbox \"Reason\"#0>",
+    "because"
+   ],
+   "refs": [
+    "f6e6"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/dialog.html\n- Page Title: Dialog\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 260,
+   "state": {
+    "url": "/dialog.html",
+    "fields": {
+     "reason": "because"
+    },
+    "log": "click:open",
+    "dialog": true,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "dialog:click-behind",
+   "argv": [
+    "click",
+    "<button \"Open dialog\"#0>",
+    "--scroll=none"
+   ],
+   "refs": [
+    "f6e3"
+   ],
+   "exit": 1,
+   "out": "Error: Locator.click: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator(\"aria-ref=f6e3\")\n    - locator resolved to <button id=\"open\" type=\"button\" onclick=\"document.getElementById('dlg').showModal()\">Open dialog</button>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - <dialog open=\"\" id=\"dlg\" aria-label=\"Confirm action\">…</dialog> intercepts pointer events\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - <dialog open=\"\" id=\"dlg\" aria-label=\"Confirm action\">…</dialog> intercepts pointer events\n    - retrying click action\n      - waiting 100ms\n    4 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - <dialog open=\"\" id=\"dlg\" aria-label=\"Confirm action\">…</dialog> intercepts pointer events\n    - retrying click action\n      - waiting 500ms\n\n",
+   "ms": 2238,
+   "state": {
+    "url": "/dialog.html",
+    "fields": {
+     "reason": "because"
+    },
+    "log": "click:open",
+    "dialog": true,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "dialog:confirm",
+   "argv": [
+    "click",
+    "<button \"Confirm\"#0>"
+   ],
+   "refs": [
+    "f6e7"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/dialog.html\n- Page Title: Dialog\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 245,
+   "state": {
+    "url": "/dialog.html",
+    "fields": {
+     "reason": "because"
+    },
+    "log": "click:open click:confirm confirm",
+    "dialog": false,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "dialog:snapshot-after",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/dialog.html\n- Page Title: Dialog\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 233,
+   "snapshot": "- heading \"Dialog\" [level=1] [ref=f6e2]\n- button \"Open dialog\" [active] [ref=f6e3]\n",
+   "state": {
+    "url": "/dialog.html",
+    "fields": {
+     "reason": "because"
+    },
+    "log": "click:open click:confirm confirm",
+    "dialog": false,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "delayed:goto",
+   "argv": [
+    "goto",
+    "http://127.0.0.1:42170/delayed.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/delayed.html\n- Page Title: Delayed\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 256,
+   "state": {
+    "url": "/delayed.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "delayed:snapshot-early",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/delayed.html\n- Page Title: Delayed\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 225,
+   "snapshot": "- heading \"Delayed\" [level=1] [ref=f7e2]\n- button \"Vanishing\" [ref=f7e3]\n",
+   "state": {
+    "url": "/delayed.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "delayed:find-late-early",
+   "argv": [
+    "find",
+    "Late"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "0 matches for \"Late\".\nTry --all to search non-interactive nodes (text, paragraphs), or --regex for a pattern.\n",
+   "ms": 236
+  },
+  {
+   "id": "delayed:wait",
+   "argv": [
+    "wait",
+    "2000"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Waited 2000ms\n",
+   "ms": 2232
+  },
+  {
+   "id": "delayed:snapshot-late",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/delayed.html\n- Page Title: Delayed\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 224,
+   "snapshot": "- heading \"Delayed\" [level=1] [ref=f7e2]\n- button \"Vanishing\" [ref=f7e3]\n- button \"Late button\" [ref=f7e5]\n",
+   "state": {
+    "url": "/delayed.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "delayed:click-late",
+   "argv": [
+    "click",
+    "<button \"Late button\"#0>"
+   ],
+   "refs": [
+    "f7e5"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/delayed.html\n- Page Title: Delayed\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 252,
+   "state": {
+    "url": "/delayed.html",
+    "fields": {},
+    "log": "click:late late",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "delayed:wait-for-hidden",
+   "argv": [
+    "wait-for",
+    "<button \"Vanishing\"#0>",
+    "--state=hidden"
+   ],
+   "refs": [
+    "f7e3"
+   ],
+   "exit": 0,
+   "out": "Element is hidden\n",
+   "ms": 973
+  },
+  {
+   "id": "delayed:snapshot-gone",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/delayed.html\n- Page Title: Delayed\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 214,
+   "snapshot": "- heading \"Delayed\" [level=1] [ref=f7e2]\n- button \"Late button\" [active] [ref=f7e5]\n",
+   "state": {
+    "url": "/delayed.html",
+    "fields": {},
+    "log": "click:late late",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "offscreen:goto",
+   "argv": [
+    "goto",
+    "http://127.0.0.1:42170/offscreen.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/offscreen.html\n- Page Title: Offscreen\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 240,
+   "state": {
+    "url": "/offscreen.html",
+    "fields": {
+     "far-check": false
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "offscreen:snapshot",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/offscreen.html\n- Page Title: Offscreen\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 209,
+   "snapshot": "- heading \"Offscreen\" [level=1] [ref=f8e2]\n- generic [ref=f8e3]: spacer\n- button \"Far button\" [ref=f8e4]\n- checkbox \"Far check\" [ref=f8e6]\n- text: Far check\n",
+   "state": {
+    "url": "/offscreen.html",
+    "fields": {
+     "far-check": false
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "offscreen:snapshot-boxes",
+   "argv": [
+    "snapshot",
+    "--boxes"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/offscreen.html\n- Page Title: Offscreen\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 207,
+   "snapshot": "- heading \"Offscreen\" [level=1] [ref=f8e2] [box=8,21,748,37]\n- generic [ref=f8e3] [box=8,80,748,3000]: spacer\n- button \"Far button\" [ref=f8e4] [box=8,3081,77,21]\n- checkbox \"Far check\" [ref=f8e6] [box=93,3083,13,13]\n- text: Far check\n",
+   "state": {
+    "url": "/offscreen.html",
+    "fields": {
+     "far-check": false
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "offscreen:click-none",
+   "argv": [
+    "click",
+    "<button \"Far button\"#0>",
+    "--scroll=none"
+   ],
+   "refs": [
+    "f8e4"
+   ],
+   "exit": 1,
+   "out": "Error: Locator.click: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator(\"aria-ref=f8e4\")\n    - locator resolved to <button id=\"far\" type=\"button\" onclick=\"log('far')\">Far button</button>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n      - waiting 100ms\n    4 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n      - waiting 500ms\n\nhelp: the element is off-screen; drop --scroll=none or scroll first\n",
+   "ms": 2230,
+   "state": {
+    "url": "/offscreen.html",
+    "fields": {
+     "far-check": false
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "offscreen:hover-none",
+   "argv": [
+    "hover",
+    "<button \"Far button\"#0>",
+    "--scroll=none"
+   ],
+   "refs": [
+    "f8e4"
+   ],
+   "exit": 1,
+   "out": "Error: Locator.hover: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator(\"aria-ref=f8e4\")\n    - locator resolved to <button id=\"far\" type=\"button\" onclick=\"log('far')\">Far button</button>\n  - attempting hover action\n    2 × waiting for element to be visible and stable\n      - element is visible and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying hover action\n    - waiting 20ms\n    2 × waiting for element to be visible and stable\n      - element is visible and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying hover action\n      - waiting 100ms\n    4 × waiting for element to be visible and stable\n      - element is visible and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying hover action\n      - waiting 500ms\n\nhelp: the element is off-screen; drop --scroll=none or scroll first\n",
+   "ms": 2225,
+   "state": {
+    "url": "/offscreen.html",
+    "fields": {
+     "far-check": false
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "offscreen:check-none",
+   "argv": [
+    "check",
+    "<checkbox \"Far check\"#0>",
+    "--scroll=none"
+   ],
+   "refs": [
+    "f8e6"
+   ],
+   "exit": 1,
+   "out": "Error: Locator.check: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator(\"aria-ref=f8e6\")\n    - locator resolved to <input id=\"far-check\" type=\"checkbox\"/>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n      - waiting 100ms\n    4 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n      - waiting 500ms\n\nhelp: the element is off-screen; drop --scroll=none or scroll first\n",
+   "ms": 2223,
+   "state": {
+    "url": "/offscreen.html",
+    "fields": {
+     "far-check": false
+    },
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "offscreen:click",
+   "argv": [
+    "click",
+    "<button \"Far button\"#0>"
+   ],
+   "refs": [
+    "f8e4"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/offscreen.html\n- Page Title: Offscreen\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 224,
+   "state": {
+    "url": "/offscreen.html",
+    "fields": {
+     "far-check": false
+    },
+    "log": "click:far far",
+    "dialog": null,
+    "scrollY": 2625
+   }
+  },
+  {
+   "id": "offscreen:screenshot",
+   "argv": [
+    "screenshot",
+    "<checkbox \"Far check\"#0>"
+   ],
+   "refs": [
+    "f8e6"
+   ],
+   "exit": 0,
+   "out": "Screenshot saved to <element.png>\n",
+   "ms": 249
+  },
+  {
+   "id": "offscreen:scroll-to",
+   "argv": [
+    "scroll-to",
+    "<heading \"Offscreen\"#0>"
+   ],
+   "refs": [
+    "f8e2"
+   ],
+   "exit": 0,
+   "out": "Scrolled element into view\n",
+   "ms": 207
+  },
+  {
+   "id": "offscreen:snapshot-boxes-2",
+   "argv": [
+    "snapshot",
+    "--boxes"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/offscreen.html\n- Page Title: Offscreen\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 203,
+   "snapshot": "- heading \"Offscreen\" [level=1] [ref=f8e2] [box=8,21,748,37]\n- generic [ref=f8e3] [box=8,80,748,3000]: spacer\n- button \"Far button\" [active] [ref=f8e4] [box=8,3081,77,21]\n- checkbox \"Far check\" [ref=f8e6] [box=93,3083,13,13]\n- text: Far check\n",
+   "state": {
+    "url": "/offscreen.html",
+    "fields": {
+     "far-check": false
+    },
+    "log": "click:far far",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "large:goto",
+   "argv": [
+    "goto",
+    "http://127.0.0.1:42170/large.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/large.html\n- Page Title: Large\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 293,
+   "state": {
+    "url": "/large.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "large:snapshot",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/large.html\n- Page Title: Large\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 236,
+   "snapshot": "- heading \"Large\" [level=1] [ref=f9e2]\n- main [ref=f9e3]:\n  - list [ref=f9e4]:\n    - listitem [ref=f9e5]:\n      - link \"Item 1\" [ref=f9e6]:\n        - /url: \"#item-1\"\n      - button \"Buy 1\" [ref=f9e7]\n    - listitem [ref=f9e8]:\n      - link \"Item 2\" [ref=f9e9]:\n        - /url: \"#item-2\"\n      - button \"Buy 2\" [ref=f9e10]\n    - listitem [ref=f9e11]:\n      - link \"Item 3\" [ref=f9e12]:\n        - /url: \"#item-3\"\n      - button \"Buy 3\" [ref=f9e13]\n    - listitem [ref=f9e14]:\n      - link \"Item 4\" [ref=f9e15]:\n        - /url: \"#item-4\"\n      - button \"Buy 4\" [ref=f9e16]\n    - listitem [ref=f9e17]:\n      - link \"Item 5\" [ref=f9e18]:\n        - /url: \"#item-5\"\n      - button \"Buy 5\" [ref=f9e19]\n    - listitem [ref=f9e20]:\n      - link \"Item 6\" [ref=f9e21]:\n        - /url: \"#item-6\"\n      - button \"Buy 6\" [ref=f9e22]\n    - listitem [ref=f9e23]:\n      - link \"Item 7\" [ref=f9e24]:\n        - /url: \"#item-7\"\n      - button \"Buy 7\" [ref=f9e25]\n    - listitem [ref=f9e26]:\n      - link \"Item 8\" [ref=f9e27]:\n        - /url: \"#item-8\"\n      - button \"Buy 8\" [ref=f9e28]\n    - listitem [ref=f9e29]:\n      - link \"Item 9\" [ref=f9e30]:\n        - /url: \"#item-9\"\n      - button \"Buy 9\" [ref=f9e31]\n    - listitem [ref=f9e32]:\n      - link \"Item 10\" [ref=f9e33]:\n        - /url: \"#item-10\"\n      - button \"Buy 10\" [ref=f9e34]\n    - listitem [ref=f9e35]:\n      - link \"Item 11\" [ref=f9e36]:\n        - /url: \"#item-11\"\n      - button \"Buy 11\" [ref=f9e37]\n    - listitem [ref=f9e38]:\n      - link \"Item 12\" [ref=f9e39]:\n        - /url: \"#item-12\"\n      - button \"Buy 12\" [ref=f9e40]\n    - listitem [ref=f9e41]:\n      - link \"Item 13\" [ref=f9e42]:\n        - /url: \"#item-13\"\n      - button \"Buy 13\" [ref=f9e43]\n    - listitem [ref=f9e44]:\n      - link \"Item 14\" [ref=f9e45]:\n        - /url: \"#item-14\"\n      - button \"Buy 14\" [ref=f9e46]\n    - listitem [ref=f9e47]:\n      - link \"Item 15\" [ref=f9e48]:\n        - /url: \"#item-15\"\n      - button \"Buy 15\" [ref=f9e49]\n    - listitem [ref=f9e50]:\n      - link \"Item 16\" [ref=f9e51]:\n        - /url: \"#item-16\"\n      - button \"Buy 16\" [ref=f9e52]\n    - listitem [ref=f9e53]:\n      - link \"Item 17\" [ref=f9e54]:\n        - /url: \"#item-17\"\n      - button \"Buy 17\" [ref=f9e55]\n    - listitem [ref=f9e56]:\n      - link \"Item 18\" [ref=f9e57]:\n        - /url: \"#item-18\"\n      - button \"Buy 18\" [ref=f9e58]\n    - listitem [ref=f9e59]:\n      - link \"Item 19\" [ref=f9e60]:\n        - /url: \"#item-19\"\n      - button \"Buy 19\" [ref=f9e61]\n    - listitem [ref=f9e62]:\n      - link \"Item 20\" [ref=f9e63]:\n        - /url: \"#item-20\"\n      - button \"Buy 20\" [ref=f9e64]\n    - listitem [ref=f9e65]:\n      - link \"Item 21\" [ref=f9e66]:\n        - /url: \"#item-21\"\n      - button \"Buy 21\" [ref=f9e67]\n    - listitem [ref=f9e68]:\n      - link \"Item 22\" [ref=f9e69]:\n        - /url: \"#item-22\"\n      - button \"Buy 22\" [ref=f9e70]\n    - listitem [ref=f9e71]:\n      - link \"Item 23\" [ref=f9e72]:\n        - /url: \"#item-23\"\n      - button \"Buy 23\" [ref=f9e73]\n    - listitem [ref=f9e74]:\n      - link \"Item 24\" [ref=f9e75]:\n        - /url: \"#item-24\"\n      - button \"Buy 24\" [ref=f9e76]\n    - listitem [ref=f9e77]:\n      - link \"Item 25\" [ref=f9e78]:\n        - /url: \"#item-25\"\n      - button \"Buy 25\" [ref=f9e79]\n    - listitem [ref=f9e80]:\n      - link \"Item 26\" [ref=f9e81]:\n        - /url: \"#item-26\"\n      - button \"Buy 26\" [ref=f9e82]\n    - listitem [ref=f9e83]:\n      - link \"Item 27\" [ref=f9e84]:\n        - /url: \"#item-27\"\n      - button \"Buy 27\" [ref=f9e85]\n    - listitem [ref=f9e86]:\n      - link \"Item 28\" [ref=f9e87]:\n        - /url: \"#item-28\"\n      - button \"Buy 28\" [ref=f9e88]\n    - listitem [ref=f9e89]:\n      - link \"Item 29\" [ref=f9e90]:\n        - /url: \"#item-29\"\n      - button \"Buy 29\" [ref=f9e91]\n    - listitem [ref=f9e92]:\n      - link \"Item 30\" [ref=f9e93]:\n        - /url: \"#item-30\"\n      - button \"Buy 30\" [ref=f9e94]\n    - listitem [ref=f9e95]:\n      - link \"Item 31\" [ref=f9e96]:\n        - /url: \"#item-31\"\n      - button \"Buy 31\" [ref=f9e97]\n    - listitem [ref=f9e98]:\n      - link \"Item 32\" [ref=f9e99]:\n        - /url: \"#item-32\"\n      - button \"Buy 32\" [ref=f9e100]\n    - listitem [ref=f9e101]:\n      - link \"Item 33\" [ref=f9e102]:\n        - /url: \"#item-33\"\n      - button \"Buy 33\" [ref=f9e103]\n    - listitem [ref=f9e104]:\n      - link \"Item 34\" [ref=f9e105]:\n        - /url: \"#item-34\"\n      - button \"Buy 34\" [ref=f9e106]\n    - listitem [ref=f9e107]:\n      - link \"Item 35\" [ref=f9e108]:\n        - /url: \"#item-35\"\n      - button \"Buy 35\" [ref=f9e109]\n    - listitem [ref=f9e110]:\n      - link \"Item 36\" [ref=f9e111]:\n        - /url: \"#item-36\"\n      - button \"Buy 36\" [ref=f9e112]\n    - listitem [ref=f9e113]:\n      - link \"Item 37\" [ref=f9e114]:\n        - /url: \"#item-37\"\n      - button \"Buy 37\" [ref=f9e115]\n    - listitem [ref=f9e116]:\n      - link \"Item 38\" [ref=f9e117]:\n        - /url: \"#item-38\"\n      - button \"Buy 38\" [ref=f9e118]\n    - listitem [ref=f9e119]:\n      - link \"Item 39\" [ref=f9e120]:\n        - /url: \"#item-39\"\n      - button \"Buy 39\" [ref=f9e121]\n    - listitem [ref=f9e122]:\n      - link \"Item 40\" [ref=f9e123]:\n        - /url: \"#item-40\"\n      - button \"Buy 40\" [ref=f9e124]\n    - listitem [ref=f9e125]:\n      - link \"Item 41\" [ref=f9e126]:\n        - /url: \"#item-41\"\n      - button \"Buy 41\" [ref=f9e127]\n    - listitem [ref=f9e128]:\n      - link \"Item 42\" [ref=f9e129]:\n        - /url: \"#item-42\"\n      - button \"Buy 42\" [ref=f9e130]\n    - listitem [ref=f9e131]:\n      - link \"Item 43\" [ref=f9e132]:\n        - /url: \"#item-43\"\n      - button \"Buy 43\" [ref=f9e133]\n    - listitem [ref=f9e134]:\n      - link \"Item 44\" [ref=f9e135]:\n        - /url: \"#item-44\"\n      - button \"Buy 44\" [ref=f9e136]\n    - listitem [ref=f9e137]:\n      - link \"Item 45\" [ref=f9e138]:\n        - /url: \"#item-45\"\n      - button \"Buy 45\" [ref=f9e139]\n    - listitem [ref=f9e140]:\n      - link \"Item 46\" [ref=f9e141]:\n        - /url: \"#item-46\"\n      - button \"Buy 46\" [ref=f9e142]\n    - listitem [ref=f9e143]:\n      - link \"Item 47\" [ref=f9e144]:\n        - /url: \"#item-47\"\n      - button \"Buy 47\" [ref=f9e145]\n    - listitem [ref=f9e146]:\n      - link \"Item 48\" [ref=f9e147]:\n        - /url: \"#item-48\"\n      - button \"Buy 48\" [ref=f9e148]\n    - listitem [ref=f9e149]:\n      - link \"Item 49\" [ref=f9e150]:\n        - /url: \"#item-49\"\n      - button \"Buy 49\" [ref=f9e151]\n    - listitem [ref=f9e152]:\n      - link \"Item 50\" [ref=f9e153]:\n        - /url: \"#item-50\"\n      - button \"Buy 50\" [ref=f9e154]\n    - listitem [ref=f9e155]:\n      - link \"Item 51\" [ref=f9e156]:\n        - /url: \"#item-51\"\n      - button \"Buy 51\" [ref=f9e157]\n    - listitem [ref=f9e158]:\n      - link \"Item 52\" [ref=f9e159]:\n        - /url: \"#item-52\"\n      - button \"Buy 52\" [ref=f9e160]\n    - listitem [ref=f9e161]:\n      - link \"Item 53\" [ref=f9e162]:\n        - /url: \"#item-53\"\n      - button \"Buy 53\" [ref=f9e163]\n    - listitem [ref=f9e164]:\n      - link \"Item 54\" [ref=f9e165]:\n        - /url: \"#item-54\"\n      - button \"Buy 54\" [ref=f9e166]\n    - listitem [ref=f9e167]:\n      - link \"Item 55\" [ref=f9e168]:\n        - /url: \"#item-55\"\n      - button \"Buy 55\" [ref=f9e169]\n    - listitem [ref=f9e170]:\n      - link \"Item 56\" [ref=f9e171]:\n        - /url: \"#item-56\"\n      - button \"Buy 56\" [ref=f9e172]\n    - listitem [ref=f9e173]:\n      - link \"Item 57\" [ref=f9e174]:\n        - /url: \"#item-57\"\n      - button \"Buy 57\" [ref=f9e175]\n    - listitem [ref=f9e176]:\n      - link \"Item 58\" [ref=f9e177]:\n        - /url: \"#item-58\"\n      - button \"Buy 58\" [ref=f9e178]\n    - listitem [ref=f9e179]:\n      - link \"Item 59\" [ref=f9e180]:\n        - /url: \"#item-59\"\n      - button \"Buy 59\" [ref=f9e181]\n    - listitem [ref=f9e182]:\n      - link \"Item 60\" [ref=f9e183]:\n        - /url: \"#item-60\"\n      - button \"Buy 60\" [ref=f9e184]\n    - listitem [ref=f9e185]:\n      - link \"Item 61\" [ref=f9e186]:\n        - /url: \"#item-61\"\n      - button \"Buy 61\" [ref=f9e187]\n    - listitem [ref=f9e188]:\n      - link \"Item 62\" [ref=f9e189]:\n        - /url: \"#item-62\"\n      - button \"Buy 62\" [ref=f9e190]\n    - listitem [ref=f9e191]:\n      - link \"Item 63\" [ref=f9e192]:\n        - /url: \"#item-63\"\n      - button \"Buy 63\" [ref=f9e193]\n    - listitem [ref=f9e194]:\n      - link \"Item 64\" [ref=f9e195]:\n        - /url: \"#item-64\"\n      - button \"Buy 64\" [ref=f9e196]\n    - listitem [ref=f9e197]:\n      - link \"Item 65\" [ref=f9e198]:\n        - /url: \"#item-65\"\n      - button \"Buy 65\" [ref=f9e199]\n    - listitem [ref=f9e200]:\n      - link \"Item 66\" [ref=f9e201]:\n        - /url: \"#item-66\"\n      - button \"Buy 66\" [ref=f9e202]\n    - listitem [ref=f9e203]:\n      - link \"Item 67\" [ref=f9e204]:\n        - /url: \"#item-67\"\n      - button \"Buy 67\" [ref=f9e205]\n    - listitem [ref=f9e206]:\n      - link \"Item 68\" [ref=f9e207]:\n        - /url: \"#item-68\"\n      - button \"Buy 68\" [ref=f9e208]\n    - listitem [ref=f9e209]:\n      - link \"Item 69\" [ref=f9e210]:\n        - /url: \"#item-69\"\n      - button \"Buy 69\" [ref=f9e211]\n    - listitem [ref=f9e212]:\n      - link \"Item 70\" [ref=f9e213]:\n        - /url: \"#item-70\"\n      - button \"Buy 70\" [ref=f9e214]\n    - listitem [ref=f9e215]:\n      - link \"Item 71\" [ref=f9e216]:\n        - /url: \"#item-71\"\n      - button \"Buy 71\" [ref=f9e217]\n    - listitem [ref=f9e218]:\n      - link \"Item 72\" [ref=f9e219]:\n        - /url: \"#item-72\"\n      - button \"Buy 72\" [ref=f9e220]\n    - listitem [ref=f9e221]:\n      - link \"Item 73\" [ref=f9e222]:\n        - /url: \"#item-73\"\n      - button \"Buy 73\" [ref=f9e223]\n    - listitem [ref=f9e224]:\n      - link \"Item 74\" [ref=f9e225]:\n        - /url: \"#item-74\"\n      - button \"Buy 74\" [ref=f9e226]\n    - listitem [ref=f9e227]:\n      - link \"Item 75\" [ref=f9e228]:\n        - /url: \"#item-75\"\n      - button \"Buy 75\" [ref=f9e229]\n    - listitem [ref=f9e230]:\n      - link \"Item 76\" [ref=f9e231]:\n        - /url: \"#item-76\"\n      - button \"Buy 76\" [ref=f9e232]\n    - listitem [ref=f9e233]:\n      - link \"Item 77\" [ref=f9e234]:\n        - /url: \"#item-77\"\n      - button \"Buy 77\" [ref=f9e235]\n    - listitem [ref=f9e236]:\n      - link \"Item 78\" [ref=f9e237]:\n        - /url: \"#item-78\"\n      - button \"Buy 78\" [ref=f9e238]\n    - listitem [ref=f9e239]:\n      - link \"Item 79\" [ref=f9e240]:\n        - /url: \"#item-79\"\n      - button \"Buy 79\" [ref=f9e241]\n    - listitem [ref=f9e242]:\n      - link \"Item 80\" [ref=f9e243]:\n        - /url: \"#item-80\"\n      - button \"Buy 80\" [ref=f9e244]\n    - listitem [ref=f9e245]:\n      - link \"Item 81\" [ref=f9e246]:\n        - /url: \"#item-81\"\n      - button \"Buy 81\" [ref=f9e247]\n    - listitem [ref=f9e248]:\n      - link \"Item 82\" [ref=f9e249]:\n        - /url: \"#item-82\"\n      - button \"Buy 82\" [ref=f9e250]\n    - listitem [ref=f9e251]:\n      - link \"Item 83\" [ref=f9e252]:\n        - /url: \"#item-83\"\n      - button \"Buy 83\" [ref=f9e253]\n    - listitem [ref=f9e254]:\n      - link \"Item 84\" [ref=f9e255]:\n        - /url: \"#item-84\"\n      - button \"Buy 84\" [ref=f9e256]\n    - listitem [ref=f9e257]:\n      - link \"Item 85\" [ref=f9e258]:\n        - /url: \"#item-85\"\n      - button \"Buy 85\" [ref=f9e259]\n    - listitem [ref=f9e260]:\n      - link \"Item 86\" [ref=f9e261]:\n        - /url: \"#item-86\"\n      - button \"Buy 86\" [ref=f9e262]\n    - listitem [ref=f9e263]:\n      - link \"Item 87\" [ref=f9e264]:\n        - /url: \"#item-87\"\n      - button \"Buy 87\" [ref=f9e265]\n    - listitem [ref=f9e266]:\n      - link \"Item 88\" [ref=f9e267]:\n        - /url: \"#item-88\"\n      - button \"Buy 88\" [ref=f9e268]\n    - listitem [ref=f9e269]:\n      - link \"Item 89\" [ref=f9e270]:\n        - /url: \"#item-89\"\n      - button \"Buy 89\" [ref=f9e271]\n    - listitem [ref=f9e272]:\n      - link \"Item 90\" [ref=f9e273]:\n        - /url: \"#item-90\"\n      - button \"Buy 90\" [ref=f9e274]\n    - listitem [ref=f9e275]:\n      - link \"Item 91\" [ref=f9e276]:\n        - /url: \"#item-91\"\n      - button \"Buy 91\" [ref=f9e277]\n    - listitem [ref=f9e278]:\n      - link \"Item 92\" [ref=f9e279]:\n        - /url: \"#item-92\"\n      - button \"Buy 92\" [ref=f9e280]\n    - listitem [ref=f9e281]:\n      - link \"Item 93\" [ref=f9e282]:\n        - /url: \"#item-93\"\n      - button \"Buy 93\" [ref=f9e283]\n    - listitem [ref=f9e284]:\n      - link \"Item 94\" [ref=f9e285]:\n        - /url: \"#item-94\"\n      - button \"Buy 94\" [ref=f9e286]\n    - listitem [ref=f9e287]:\n      - link \"Item 95\" [ref=f9e288]:\n        - /url: \"#item-95\"\n      - button \"Buy 95\" [ref=f9e289]\n    - listitem [ref=f9e290]:\n      - link \"Item 96\" [ref=f9e291]:\n        - /url: \"#item-96\"\n      - button \"Buy 96\" [ref=f9e292]\n    - listitem [ref=f9e293]:\n      - link \"Item 97\" [ref=f9e294]:\n        - /url: \"#item-97\"\n      - button \"Buy 97\" [ref=f9e295]\n    - listitem [ref=f9e296]:\n      - link \"Item 98\" [ref=f9e297]:\n        - /url: \"#item-98\"\n      - button \"Buy 98\" [ref=f9e298]\n    - listitem [ref=f9e299]:\n      - link \"Item 99\" [ref=f9e300]:\n        - /url: \"#item-99\"\n      - button \"Buy 99\" [ref=f9e301]\n    - listitem [ref=f9e302]:\n      - link \"Item 100\" [ref=f9e303]:\n        - /url: \"#item-100\"\n      - button \"Buy 100\" [ref=f9e304]\n    - listitem [ref=f9e305]:\n      - link \"Item 101\" [ref=f9e306]:\n        - /url: \"#item-101\"\n      - button \"Buy 101\" [ref=f9e307]\n    - listitem [ref=f9e308]:\n      - link \"Item 102\" [ref=f9e309]:\n        - /url: \"#item-102\"\n      - button \"Buy 102\" [ref=f9e310]\n    - listitem [ref=f9e311]:\n      - link \"Item 103\" [ref=f9e312]:\n        - /url: \"#item-103\"\n      - button \"Buy 103\" [ref=f9e313]\n    - listitem [ref=f9e314]:\n      - link \"Item 104\" [ref=f9e315]:\n        - /url: \"#item-104\"\n      - button \"Buy 104\" [ref=f9e316]\n    - listitem [ref=f9e317]:\n      - link \"Item 105\" [ref=f9e318]:\n        - /url: \"#item-105\"\n      - button \"Buy 105\" [ref=f9e319]\n    - listitem [ref=f9e320]:\n      - link \"Item 106\" [ref=f9e321]:\n        - /url: \"#item-106\"\n      - button \"Buy 106\" [ref=f9e322]\n    - listitem [ref=f9e323]:\n      - link \"Item 107\" [ref=f9e324]:\n        - /url: \"#item-107\"\n      - button \"Buy 107\" [ref=f9e325]\n    - listitem [ref=f9e326]:\n      - link \"Item 108\" [ref=f9e327]:\n        - /url: \"#item-108\"\n      - button \"Buy 108\" [ref=f9e328]\n    - listitem [ref=f9e329]:\n      - link \"Item 109\" [ref=f9e330]:\n        - /url: \"#item-109\"\n      - button \"Buy 109\" [ref=f9e331]\n    - listitem [ref=f9e332]:\n      - link \"Item 110\" [ref=f9e333]:\n        - /url: \"#item-110\"\n      - button \"Buy 110\" [ref=f9e334]\n    - listitem [ref=f9e335]:\n      - link \"Item 111\" [ref=f9e336]:\n        - /url: \"#item-111\"\n      - button \"Buy 111\" [ref=f9e337]\n    - listitem [ref=f9e338]:\n      - link \"Item 112\" [ref=f9e339]:\n        - /url: \"#item-112\"\n      - button \"Buy 112\" [ref=f9e340]\n    - listitem [ref=f9e341]:\n      - link \"Item 113\" [ref=f9e342]:\n        - /url: \"#item-113\"\n      - button \"Buy 113\" [ref=f9e343]\n    - listitem [ref=f9e344]:\n      - link \"Item 114\" [ref=f9e345]:\n        - /url: \"#item-114\"\n      - button \"Buy 114\" [ref=f9e346]\n    - listitem [ref=f9e347]:\n      - link \"Item 115\" [ref=f9e348]:\n        - /url: \"#item-115\"\n      - button \"Buy 115\" [ref=f9e349]\n    - listitem [ref=f9e350]:\n      - link \"Item 116\" [ref=f9e351]:\n        - /url: \"#item-116\"\n      - button \"Buy 116\" [ref=f9e352]\n    - listitem [ref=f9e353]:\n      - link \"Item 117\" [ref=f9e354]:\n        - /url: \"#item-117\"\n      - button \"Buy 117\" [ref=f9e355]\n    - listitem [ref=f9e356]:\n      - link \"Item 118\" [ref=f9e357]:\n        - /url: \"#item-118\"\n      - button \"Buy 118\" [ref=f9e358]\n    - listitem [ref=f9e359]:\n      - link \"Item 119\" [ref=f9e360]:\n        - /url: \"#item-119\"\n      - button \"Buy 119\" [ref=f9e361]\n    - listitem [ref=f9e362]:\n      - link \"Item 120\" [ref=f9e363]:\n        - /url: \"#item-120\"\n      - button \"Buy 120\" [ref=f9e364]\n    - listitem [ref=f9e365]:\n      - link \"Item 121\" [ref=f9e366]:\n        - /url: \"#item-121\"\n      - button \"Buy 121\" [ref=f9e367]\n    - listitem [ref=f9e368]:\n      - link \"Item 122\" [ref=f9e369]:\n        - /url: \"#item-122\"\n      - button \"Buy 122\" [ref=f9e370]\n    - listitem [ref=f9e371]:\n      - link \"Item 123\" [ref=f9e372]:\n        - /url: \"#item-123\"\n      - button \"Buy 123\" [ref=f9e373]\n    - listitem [ref=f9e374]:\n      - link \"Item 124\" [ref=f9e375]:\n        - /url: \"#item-124\"\n      - button \"Buy 124\" [ref=f9e376]\n    - listitem [ref=f9e377]:\n      - link \"Item 125\" [ref=f9e378]:\n        - /url: \"#item-125\"\n      - button \"Buy 125\" [ref=f9e379]\n    - listitem [ref=f9e380]:\n      - link \"Item 126\" [ref=f9e381]:\n        - /url: \"#item-126\"\n      - button \"Buy 126\" [ref=f9e382]\n    - listitem [ref=f9e383]:\n      - link \"Item 127\" [ref=f9e384]:\n        - /url: \"#item-127\"\n      - button \"Buy 127\" [ref=f9e385]\n    - listitem [ref=f9e386]:\n      - link \"Item 128\" [ref=f9e387]:\n        - /url: \"#item-128\"\n      - button \"Buy 128\" [ref=f9e388]\n    - listitem [ref=f9e389]:\n      - link \"Item 129\" [ref=f9e390]:\n        - /url: \"#item-129\"\n      - button \"Buy 129\" [ref=f9e391]\n    - listitem [ref=f9e392]:\n      - link \"Item 130\" [ref=f9e393]:\n        - /url: \"#item-130\"\n      - button \"Buy 130\" [ref=f9e394]\n    - listitem [ref=f9e395]:\n      - link \"Item 131\" [ref=f9e396]:\n        - /url: \"#item-131\"\n      - button \"Buy 131\" [ref=f9e397]\n    - listitem [ref=f9e398]:\n      - link \"Item 132\" [ref=f9e399]:\n        - /url: \"#item-132\"\n      - button \"Buy 132\" [ref=f9e400]\n    - listitem [ref=f9e401]:\n      - link \"Item 133\" [ref=f9e402]:\n        - /url: \"#item-133\"\n      - button \"Buy 133\" [ref=f9e403]\n    - listitem [ref=f9e404]:\n      - link \"Item 134\" [ref=f9e405]:\n        - /url: \"#item-134\"\n      - button \"Buy 134\" [ref=f9e406]\n    - listitem [ref=f9e407]:\n      - link \"Item 135\" [ref=f9e408]:\n        - /url: \"#item-135\"\n      - button \"Buy 135\" [ref=f9e409]\n    - listitem [ref=f9e410]:\n      - link \"Item 136\" [ref=f9e411]:\n        - /url: \"#item-136\"\n      - button \"Buy 136\" [ref=f9e412]\n    - listitem [ref=f9e413]:\n      - link \"Item 137\" [ref=f9e414]:\n        - /url: \"#item-137\"\n      - button \"Buy 137\" [ref=f9e415]\n    - listitem [ref=f9e416]:\n      - link \"Item 138\" [ref=f9e417]:\n        - /url: \"#item-138\"\n      - button \"Buy 138\" [ref=f9e418]\n    - listitem [ref=f9e419]:\n      - link \"Item 139\" [ref=f9e420]:\n        - /url: \"#item-139\"\n      - button \"Buy 139\" [ref=f9e421]\n    - listitem [ref=f9e422]:\n      - link \"Item 140\" [ref=f9e423]:\n        - /url: \"#item-140\"\n      - button \"Buy 140\" [ref=f9e424]\n    - listitem [ref=f9e425]:\n      - link \"Item 141\" [ref=f9e426]:\n        - /url: \"#item-141\"\n      - button \"Buy 141\" [ref=f9e427]\n    - listitem [ref=f9e428]:\n      - link \"Item 142\" [ref=f9e429]:\n        - /url: \"#item-142\"\n      - button \"Buy 142\" [ref=f9e430]\n    - listitem [ref=f9e431]:\n      - link \"Item 143\" [ref=f9e432]:\n        - /url: \"#item-143\"\n      - button \"Buy 143\" [ref=f9e433]\n    - listitem [ref=f9e434]:\n      - link \"Item 144\" [ref=f9e435]:\n        - /url: \"#item-144\"\n      - button \"Buy 144\" [ref=f9e436]\n    - listitem [ref=f9e437]:\n      - link \"Item 145\" [ref=f9e438]:\n        - /url: \"#item-145\"\n      - button \"Buy 145\" [ref=f9e439]\n    - listitem [ref=f9e440]:\n      - link \"Item 146\" [ref=f9e441]:\n        - /url: \"#item-146\"\n      - button \"Buy 146\" [ref=f9e442]\n    - listitem [ref=f9e443]:\n      - link \"Item 147\" [ref=f9e444]:\n        - /url: \"#item-147\"\n      - button \"Buy 147\" [ref=f9e445]\n    - listitem [ref=f9e446]:\n      - link \"Item 148\" [ref=f9e447]:\n        - /url: \"#item-148\"\n      - button \"Buy 148\" [ref=f9e448]\n    - listitem [ref=f9e449]:\n      - link \"Item 149\" [ref=f9e450]:\n        - /url: \"#item-149\"\n      - button \"Buy 149\" [ref=f9e451]\n    - listitem [ref=f9e452]:\n      - link \"Item 150\" [ref=f9e453]:\n        - /url: \"#item-150\"\n      - button \"Buy 150\" [ref=f9e454]\n"
+  },
+  {
+   "id": "large:snapshot-i",
+   "argv": [
+    "snapshot",
+    "-i"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/large.html\n- Page Title: Large\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 226,
+   "snapshot": "- link \"Item 1\" [ref=f9e6]\n- button \"Buy 1\" [ref=f9e7]\n- link \"Item 2\" [ref=f9e9]\n- button \"Buy 2\" [ref=f9e10]\n- link \"Item 3\" [ref=f9e12]\n- button \"Buy 3\" [ref=f9e13]\n- link \"Item 4\" [ref=f9e15]\n- button \"Buy 4\" [ref=f9e16]\n- link \"Item 5\" [ref=f9e18]\n- button \"Buy 5\" [ref=f9e19]\n- link \"Item 6\" [ref=f9e21]\n- button \"Buy 6\" [ref=f9e22]\n- link \"Item 7\" [ref=f9e24]\n- button \"Buy 7\" [ref=f9e25]\n- link \"Item 8\" [ref=f9e27]\n- button \"Buy 8\" [ref=f9e28]\n- link \"Item 9\" [ref=f9e30]\n- button \"Buy 9\" [ref=f9e31]\n- link \"Item 10\" [ref=f9e33]\n- button \"Buy 10\" [ref=f9e34]\n- link \"Item 11\" [ref=f9e36]\n- button \"Buy 11\" [ref=f9e37]\n- link \"Item 12\" [ref=f9e39]\n- button \"Buy 12\" [ref=f9e40]\n- link \"Item 13\" [ref=f9e42]\n- button \"Buy 13\" [ref=f9e43]\n- link \"Item 14\" [ref=f9e45]\n- button \"Buy 14\" [ref=f9e46]\n- link \"Item 15\" [ref=f9e48]\n- button \"Buy 15\" [ref=f9e49]\n- link \"Item 16\" [ref=f9e51]\n- button \"Buy 16\" [ref=f9e52]\n- link \"Item 17\" [ref=f9e54]\n- button \"Buy 17\" [ref=f9e55]\n- link \"Item 18\" [ref=f9e57]\n- button \"Buy 18\" [ref=f9e58]\n- link \"Item 19\" [ref=f9e60]\n- button \"Buy 19\" [ref=f9e61]\n- link \"Item 20\" [ref=f9e63]\n- button \"Buy 20\" [ref=f9e64]\n- link \"Item 21\" [ref=f9e66]\n- button \"Buy 21\" [ref=f9e67]\n- link \"Item 22\" [ref=f9e69]\n- button \"Buy 22\" [ref=f9e70]\n- link \"Item 23\" [ref=f9e72]\n- button \"Buy 23\" [ref=f9e73]\n- link \"Item 24\" [ref=f9e75]\n- button \"Buy 24\" [ref=f9e76]\n- link \"Item 25\" [ref=f9e78]\n- button \"Buy 25\" [ref=f9e79]\n- link \"Item 26\" [ref=f9e81]\n- button \"Buy 26\" [ref=f9e82]\n- link \"Item 27\" [ref=f9e84]\n- button \"Buy 27\" [ref=f9e85]\n- link \"Item 28\" [ref=f9e87]\n- button \"Buy 28\" [ref=f9e88]\n- link \"Item 29\" [ref=f9e90]\n- button \"Buy 29\" [ref=f9e91]\n- link \"Item 30\" [ref=f9e93]\n- button \"Buy 30\" [ref=f9e94]\n- link \"Item 31\" [ref=f9e96]\n- button \"Buy 31\" [ref=f9e97]\n- link \"Item 32\" [ref=f9e99]\n- button \"Buy 32\" [ref=f9e100]\n- link \"Item 33\" [ref=f9e102]\n- button \"Buy 33\" [ref=f9e103]\n- link \"Item 34\" [ref=f9e105]\n- button \"Buy 34\" [ref=f9e106]\n- link \"Item 35\" [ref=f9e108]\n- button \"Buy 35\" [ref=f9e109]\n- link \"Item 36\" [ref=f9e111]\n- button \"Buy 36\" [ref=f9e112]\n- link \"Item 37\" [ref=f9e114]\n- button \"Buy 37\" [ref=f9e115]\n- link \"Item 38\" [ref=f9e117]\n- button \"Buy 38\" [ref=f9e118]\n- link \"Item 39\" [ref=f9e120]\n- button \"Buy 39\" [ref=f9e121]\n- link \"Item 40\" [ref=f9e123]\n- button \"Buy 40\" [ref=f9e124]\n- link \"Item 41\" [ref=f9e126]\n- button \"Buy 41\" [ref=f9e127]\n- link \"Item 42\" [ref=f9e129]\n- button \"Buy 42\" [ref=f9e130]\n- link \"Item 43\" [ref=f9e132]\n- button \"Buy 43\" [ref=f9e133]\n- link \"Item 44\" [ref=f9e135]\n- button \"Buy 44\" [ref=f9e136]\n- link \"Item 45\" [ref=f9e138]\n- button \"Buy 45\" [ref=f9e139]\n- link \"Item 46\" [ref=f9e141]\n- button \"Buy 46\" [ref=f9e142]\n- link \"Item 47\" [ref=f9e144]\n- button \"Buy 47\" [ref=f9e145]\n- link \"Item 48\" [ref=f9e147]\n- button \"Buy 48\" [ref=f9e148]\n- link \"Item 49\" [ref=f9e150]\n- button \"Buy 49\" [ref=f9e151]\n- link \"Item 50\" [ref=f9e153]\n- button \"Buy 50\" [ref=f9e154]\n- link \"Item 51\" [ref=f9e156]\n- button \"Buy 51\" [ref=f9e157]\n- link \"Item 52\" [ref=f9e159]\n- button \"Buy 52\" [ref=f9e160]\n- link \"Item 53\" [ref=f9e162]\n- button \"Buy 53\" [ref=f9e163]\n- link \"Item 54\" [ref=f9e165]\n- button \"Buy 54\" [ref=f9e166]\n- link \"Item 55\" [ref=f9e168]\n- button \"Buy 55\" [ref=f9e169]\n- link \"Item 56\" [ref=f9e171]\n- button \"Buy 56\" [ref=f9e172]\n- link \"Item 57\" [ref=f9e174]\n- button \"Buy 57\" [ref=f9e175]\n- link \"Item 58\" [ref=f9e177]\n- button \"Buy 58\" [ref=f9e178]\n- link \"Item 59\" [ref=f9e180]\n- button \"Buy 59\" [ref=f9e181]\n- link \"Item 60\" [ref=f9e183]\n- button \"Buy 60\" [ref=f9e184]\n- link \"Item 61\" [ref=f9e186]\n- button \"Buy 61\" [ref=f9e187]\n- link \"Item 62\" [ref=f9e189]\n- button \"Buy 62\" [ref=f9e190]\n- link \"Item 63\" [ref=f9e192]\n- button \"Buy 63\" [ref=f9e193]\n- link \"Item 64\" [ref=f9e195]\n- button \"Buy 64\" [ref=f9e196]\n- link \"Item 65\" [ref=f9e198]\n- button \"Buy 65\" [ref=f9e199]\n- link \"Item 66\" [ref=f9e201]\n- button \"Buy 66\" [ref=f9e202]\n- link \"Item 67\" [ref=f9e204]\n- button \"Buy 67\" [ref=f9e205]\n- link \"Item 68\" [ref=f9e207]\n- button \"Buy 68\" [ref=f9e208]\n- link \"Item 69\" [ref=f9e210]\n- button \"Buy 69\" [ref=f9e211]\n- link \"Item 70\" [ref=f9e213]\n- button \"Buy 70\" [ref=f9e214]\n- link \"Item 71\" [ref=f9e216]\n- button \"Buy 71\" [ref=f9e217]\n- link \"Item 72\" [ref=f9e219]\n- button \"Buy 72\" [ref=f9e220]\n- link \"Item 73\" [ref=f9e222]\n- button \"Buy 73\" [ref=f9e223]\n- link \"Item 74\" [ref=f9e225]\n- button \"Buy 74\" [ref=f9e226]\n- link \"Item 75\" [ref=f9e228]\n- button \"Buy 75\" [ref=f9e229]\n- link \"Item 76\" [ref=f9e231]\n- button \"Buy 76\" [ref=f9e232]\n- link \"Item 77\" [ref=f9e234]\n- button \"Buy 77\" [ref=f9e235]\n- link \"Item 78\" [ref=f9e237]\n- button \"Buy 78\" [ref=f9e238]\n- link \"Item 79\" [ref=f9e240]\n- button \"Buy 79\" [ref=f9e241]\n- link \"Item 80\" [ref=f9e243]\n- button \"Buy 80\" [ref=f9e244]\n- link \"Item 81\" [ref=f9e246]\n- button \"Buy 81\" [ref=f9e247]\n- link \"Item 82\" [ref=f9e249]\n- button \"Buy 82\" [ref=f9e250]\n- link \"Item 83\" [ref=f9e252]\n- button \"Buy 83\" [ref=f9e253]\n- link \"Item 84\" [ref=f9e255]\n- button \"Buy 84\" [ref=f9e256]\n- link \"Item 85\" [ref=f9e258]\n- button \"Buy 85\" [ref=f9e259]\n- link \"Item 86\" [ref=f9e261]\n- button \"Buy 86\" [ref=f9e262]\n- link \"Item 87\" [ref=f9e264]\n- button \"Buy 87\" [ref=f9e265]\n- link \"Item 88\" [ref=f9e267]\n- button \"Buy 88\" [ref=f9e268]\n- link \"Item 89\" [ref=f9e270]\n- button \"Buy 89\" [ref=f9e271]\n- link \"Item 90\" [ref=f9e273]\n- button \"Buy 90\" [ref=f9e274]\n- link \"Item 91\" [ref=f9e276]\n- button \"Buy 91\" [ref=f9e277]\n- link \"Item 92\" [ref=f9e279]\n- button \"Buy 92\" [ref=f9e280]\n- link \"Item 93\" [ref=f9e282]\n- button \"Buy 93\" [ref=f9e283]\n- link \"Item 94\" [ref=f9e285]\n- button \"Buy 94\" [ref=f9e286]\n- link \"Item 95\" [ref=f9e288]\n- button \"Buy 95\" [ref=f9e289]\n- link \"Item 96\" [ref=f9e291]\n- button \"Buy 96\" [ref=f9e292]\n- link \"Item 97\" [ref=f9e294]\n- button \"Buy 97\" [ref=f9e295]\n- link \"Item 98\" [ref=f9e297]\n- button \"Buy 98\" [ref=f9e298]\n- link \"Item 99\" [ref=f9e300]\n- button \"Buy 99\" [ref=f9e301]\n- link \"Item 100\" [ref=f9e303]\n- button \"Buy 100\" [ref=f9e304]\n- link \"Item 101\" [ref=f9e306]\n- button \"Buy 101\" [ref=f9e307]\n- link \"Item 102\" [ref=f9e309]\n- button \"Buy 102\" [ref=f9e310]\n- link \"Item 103\" [ref=f9e312]\n- button \"Buy 103\" [ref=f9e313]\n- link \"Item 104\" [ref=f9e315]\n- button \"Buy 104\" [ref=f9e316]\n- link \"Item 105\" [ref=f9e318]\n- button \"Buy 105\" [ref=f9e319]\n- link \"Item 106\" [ref=f9e321]\n- button \"Buy 106\" [ref=f9e322]\n- link \"Item 107\" [ref=f9e324]\n- button \"Buy 107\" [ref=f9e325]\n- link \"Item 108\" [ref=f9e327]\n- button \"Buy 108\" [ref=f9e328]\n- link \"Item 109\" [ref=f9e330]\n- button \"Buy 109\" [ref=f9e331]\n- link \"Item 110\" [ref=f9e333]\n- button \"Buy 110\" [ref=f9e334]\n- link \"Item 111\" [ref=f9e336]\n- button \"Buy 111\" [ref=f9e337]\n- link \"Item 112\" [ref=f9e339]\n- button \"Buy 112\" [ref=f9e340]\n- link \"Item 113\" [ref=f9e342]\n- button \"Buy 113\" [ref=f9e343]\n- link \"Item 114\" [ref=f9e345]\n- button \"Buy 114\" [ref=f9e346]\n- link \"Item 115\" [ref=f9e348]\n- button \"Buy 115\" [ref=f9e349]\n- link \"Item 116\" [ref=f9e351]\n- button \"Buy 116\" [ref=f9e352]\n- link \"Item 117\" [ref=f9e354]\n- button \"Buy 117\" [ref=f9e355]\n- link \"Item 118\" [ref=f9e357]\n- button \"Buy 118\" [ref=f9e358]\n- link \"Item 119\" [ref=f9e360]\n- button \"Buy 119\" [ref=f9e361]\n- link \"Item 120\" [ref=f9e363]\n- button \"Buy 120\" [ref=f9e364]\n- link \"Item 121\" [ref=f9e366]\n- button \"Buy 121\" [ref=f9e367]\n- link \"Item 122\" [ref=f9e369]\n- button \"Buy 122\" [ref=f9e370]\n- link \"Item 123\" [ref=f9e372]\n- button \"Buy 123\" [ref=f9e373]\n- link \"Item 124\" [ref=f9e375]\n- button \"Buy 124\" [ref=f9e376]\n- link \"Item 125\" [ref=f9e378]\n- button \"Buy 125\" [ref=f9e379]\n- link \"Item 126\" [ref=f9e381]\n- button \"Buy 126\" [ref=f9e382]\n- link \"Item 127\" [ref=f9e384]\n- button \"Buy 127\" [ref=f9e385]\n- link \"Item 128\" [ref=f9e387]\n- button \"Buy 128\" [ref=f9e388]\n- link \"Item 129\" [ref=f9e390]\n- button \"Buy 129\" [ref=f9e391]\n- link \"Item 130\" [ref=f9e393]\n- button \"Buy 130\" [ref=f9e394]\n- link \"Item 131\" [ref=f9e396]\n- button \"Buy 131\" [ref=f9e397]\n- link \"Item 132\" [ref=f9e399]\n- button \"Buy 132\" [ref=f9e400]\n- link \"Item 133\" [ref=f9e402]\n- button \"Buy 133\" [ref=f9e403]\n- link \"Item 134\" [ref=f9e405]\n- button \"Buy 134\" [ref=f9e406]\n- link \"Item 135\" [ref=f9e408]\n- button \"Buy 135\" [ref=f9e409]\n- link \"Item 136\" [ref=f9e411]\n- button \"Buy 136\" [ref=f9e412]\n- link \"Item 137\" [ref=f9e414]\n- button \"Buy 137\" [ref=f9e415]\n- link \"Item 138\" [ref=f9e417]\n- button \"Buy 138\" [ref=f9e418]\n- link \"Item 139\" [ref=f9e420]\n- button \"Buy 139\" [ref=f9e421]\n- link \"Item 140\" [ref=f9e423]\n- button \"Buy 140\" [ref=f9e424]\n- link \"Item 141\" [ref=f9e426]\n- button \"Buy 141\" [ref=f9e427]\n- link \"Item 142\" [ref=f9e429]\n- button \"Buy 142\" [ref=f9e430]\n- link \"Item 143\" [ref=f9e432]\n- button \"Buy 143\" [ref=f9e433]\n- link \"Item 144\" [ref=f9e435]\n- button \"Buy 144\" [ref=f9e436]\n- link \"Item 145\" [ref=f9e438]\n- button \"Buy 145\" [ref=f9e439]\n- link \"Item 146\" [ref=f9e441]\n- button \"Buy 146\" [ref=f9e442]\n- link \"Item 147\" [ref=f9e444]\n- button \"Buy 147\" [ref=f9e445]\n- link \"Item 148\" [ref=f9e447]\n- button \"Buy 148\" [ref=f9e448]\n- link \"Item 149\" [ref=f9e450]\n- button \"Buy 149\" [ref=f9e451]\n- link \"Item 150\" [ref=f9e453]\n- button \"Buy 150\" [ref=f9e454]\n"
+  },
+  {
+   "id": "large:snapshot-boxes",
+   "argv": [
+    "snapshot",
+    "--boxes"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/large.html\n- Page Title: Large\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 245,
+   "snapshot": "- heading \"Large\" [level=1] [ref=f9e2] [box=8,21,748,37]\n- main [ref=f9e3] [box=8,80,748,3150]:\n  - list [ref=f9e4] [box=8,80,748,3150]:\n    - listitem [ref=f9e5] [box=48,80,708,21]:\n      - link \"Item 1\" [ref=f9e6] [box=48,81,41,17]:\n        - /url: \"#item-1\"\n      - button \"Buy 1\" [ref=f9e7] [box=93,80,50,21]\n    - listitem [ref=f9e8] [box=48,101,708,21]:\n      - link \"Item 2\" [ref=f9e9] [box=48,102,41,17]:\n        - /url: \"#item-2\"\n      - button \"Buy 2\" [ref=f9e10] [box=93,101,50,21]\n    - listitem [ref=f9e11] [box=48,122,708,21]:\n      - link \"Item 3\" [ref=f9e12] [box=48,123,41,17]:\n        - /url: \"#item-3\"\n      - button \"Buy 3\" [ref=f9e13] [box=93,122,50,21]\n    - listitem [ref=f9e14] [box=48,143,708,21]:\n      - link \"Item 4\" [ref=f9e15] [box=48,144,41,17]:\n        - /url: \"#item-4\"\n      - button \"Buy 4\" [ref=f9e16] [box=93,143,50,21]\n    - listitem [ref=f9e17] [box=48,164,708,21]:\n      - link \"Item 5\" [ref=f9e18] [box=48,165,41,17]:\n        - /url: \"#item-5\"\n      - button \"Buy 5\" [ref=f9e19] [box=93,164,50,21]\n    - listitem [ref=f9e20] [box=48,185,708,21]:\n      - link \"Item 6\" [ref=f9e21] [box=48,186,41,17]:\n        - /url: \"#item-6\"\n      - button \"Buy 6\" [ref=f9e22] [box=93,185,50,21]\n    - listitem [ref=f9e23] [box=48,206,708,21]:\n      - link \"Item 7\" [ref=f9e24] [box=48,207,41,17]:\n        - /url: \"#item-7\"\n      - button \"Buy 7\" [ref=f9e25] [box=93,206,50,21]\n    - listitem [ref=f9e26] [box=48,227,708,21]:\n      - link \"Item 8\" [ref=f9e27] [box=48,228,41,17]:\n        - /url: \"#item-8\"\n      - button \"Buy 8\" [ref=f9e28] [box=93,227,50,21]\n    - listitem [ref=f9e29] [box=48,248,708,21]:\n      - link \"Item 9\" [ref=f9e30] [box=48,249,41,17]:\n        - /url: \"#item-9\"\n      - button \"Buy 9\" [ref=f9e31] [box=93,248,50,21]\n    - listitem [ref=f9e32] [box=48,269,708,21]:\n      - link \"Item 10\" [ref=f9e33] [box=48,270,49,17]:\n        - /url: \"#item-10\"\n      - button \"Buy 10\" [ref=f9e34] [box=101,269,58,21]\n    - listitem [ref=f9e35] [box=48,290,708,21]:\n      - link \"Item 11\" [ref=f9e36] [box=48,291,49,17]:\n        - /url: \"#item-11\"\n      - button \"Buy 11\" [ref=f9e37] [box=101,290,57,21]\n    - listitem [ref=f9e38] [box=48,311,708,21]:\n      - link \"Item 12\" [ref=f9e39] [box=48,312,49,17]:\n        - /url: \"#item-12\"\n      - button \"Buy 12\" [ref=f9e40] [box=101,311,58,21]\n    - listitem [ref=f9e41] [box=48,332,708,21]:\n      - link \"Item 13\" [ref=f9e42] [box=48,333,49,17]:\n        - /url: \"#item-13\"\n      - button \"Buy 13\" [ref=f9e43] [box=101,332,58,21]\n    - listitem [ref=f9e44] [box=48,353,708,21]:\n      - link \"Item 14\" [ref=f9e45] [box=48,354,49,17]:\n        - /url: \"#item-14\"\n      - button \"Buy 14\" [ref=f9e46] [box=101,353,58,21]\n    - listitem [ref=f9e47] [box=48,374,708,21]:\n      - link \"Item 15\" [ref=f9e48] [box=48,375,49,17]:\n        - /url: \"#item-15\"\n      - button \"Buy 15\" [ref=f9e49] [box=101,374,58,21]\n    - listitem [ref=f9e50] [box=48,395,708,21]:\n      - link \"Item 16\" [ref=f9e51] [box=48,396,49,17]:\n        - /url: \"#item-16\"\n      - button \"Buy 16\" [ref=f9e52] [box=101,395,58,21]\n    - listitem [ref=f9e53] [box=48,416,708,21]:\n      - link \"Item 17\" [ref=f9e54] [box=48,417,49,17]:\n        - /url: \"#item-17\"\n      - button \"Buy 17\" [ref=f9e55] [box=101,416,58,21]\n    - listitem [ref=f9e56] [box=48,437,708,21]:\n      - link \"Item 18\" [ref=f9e57] [box=48,438,49,17]:\n        - /url: \"#item-18\"\n      - button \"Buy 18\" [ref=f9e58] [box=101,437,58,21]\n    - listitem [ref=f9e59] [box=48,458,708,21]:\n      - link \"Item 19\" [ref=f9e60] [box=48,459,49,17]:\n        - /url: \"#item-19\"\n      - button \"Buy 19\" [ref=f9e61] [box=101,458,58,21]\n    - listitem [ref=f9e62] [box=48,479,708,21]:\n      - link \"Item 20\" [ref=f9e63] [box=48,480,49,17]:\n        - /url: \"#item-20\"\n      - button \"Buy 20\" [ref=f9e64] [box=101,479,58,21]\n    - listitem [ref=f9e65] [box=48,500,708,21]:\n      - link \"Item 21\" [ref=f9e66] [box=48,501,49,17]:\n        - /url: \"#item-21\"\n      - button \"Buy 21\" [ref=f9e67] [box=101,500,58,21]\n    - listitem [ref=f9e68] [box=48,521,708,21]:\n      - link \"Item 22\" [ref=f9e69] [box=48,522,49,17]:\n        - /url: \"#item-22\"\n      - button \"Buy 22\" [ref=f9e70] [box=101,521,58,21]\n    - listitem [ref=f9e71] [box=48,542,708,21]:\n      - link \"Item 23\" [ref=f9e72] [box=48,543,49,17]:\n        - /url: \"#item-23\"\n      - button \"Buy 23\" [ref=f9e73] [box=101,542,58,21]\n    - listitem [ref=f9e74] [box=48,563,708,21]:\n      - link \"Item 24\" [ref=f9e75] [box=48,564,49,17]:\n        - /url: \"#item-24\"\n      - button \"Buy 24\" [ref=f9e76] [box=101,563,58,21]\n    - listitem [ref=f9e77] [box=48,584,708,21]:\n      - link \"Item 25\" [ref=f9e78] [box=48,585,49,17]:\n        - /url: \"#item-25\"\n      - button \"Buy 25\" [ref=f9e79] [box=101,584,58,21]\n    - listitem [ref=f9e80] [box=48,605,708,21]:\n      - link \"Item 26\" [ref=f9e81] [box=48,606,49,17]:\n        - /url: \"#item-26\"\n      - button \"Buy 26\" [ref=f9e82] [box=101,605,58,21]\n    - listitem [ref=f9e83] [box=48,626,708,21]:\n      - link \"Item 27\" [ref=f9e84] [box=48,627,49,17]:\n        - /url: \"#item-27\"\n      - button \"Buy 27\" [ref=f9e85] [box=101,626,58,21]\n    - listitem [ref=f9e86] [box=48,647,708,21]:\n      - link \"Item 28\" [ref=f9e87] [box=48,648,49,17]:\n        - /url: \"#item-28\"\n      - button \"Buy 28\" [ref=f9e88] [box=101,647,58,21]\n    - listitem [ref=f9e89] [box=48,668,708,21]:\n      - link \"Item 29\" [ref=f9e90] [box=48,669,49,17]:\n        - /url: \"#item-29\"\n      - button \"Buy 29\" [ref=f9e91] [box=101,668,58,21]\n    - listitem [ref=f9e92] [box=48,689,708,21]:\n      - link \"Item 30\" [ref=f9e93] [box=48,690,49,17]:\n        - /url: \"#item-30\"\n      - button \"Buy 30\" [ref=f9e94] [box=101,689,58,21]\n    - listitem [ref=f9e95] [box=48,710,708,21]:\n      - link \"Item 31\" [ref=f9e96] [box=48,711,49,17]:\n        - /url: \"#item-31\"\n      - button \"Buy 31\" [ref=f9e97] [box=101,710,58,21]\n    - listitem [ref=f9e98] [box=48,731,708,21]:\n      - link \"Item 32\" [ref=f9e99] [box=48,732,49,17]:\n        - /url: \"#item-32\"\n      - button \"Buy 32\" [ref=f9e100] [box=101,731,58,21]\n    - listitem [ref=f9e101] [box=48,752,708,21]:\n      - link \"Item 33\" [ref=f9e102] [box=48,753,49,17]:\n        - /url: \"#item-33\"\n      - button \"Buy 33\" [ref=f9e103] [box=101,752,58,21]\n    - listitem [ref=f9e104] [box=48,773,708,21]:\n      - link \"Item 34\" [ref=f9e105] [box=48,774,49,17]:\n        - /url: \"#item-34\"\n      - button \"Buy 34\" [ref=f9e106] [box=101,773,58,21]\n    - listitem [ref=f9e107] [box=48,794,708,21]:\n      - link \"Item 35\" [ref=f9e108] [box=48,795,49,17]:\n        - /url: \"#item-35\"\n      - button \"Buy 35\" [ref=f9e109] [box=101,794,58,21]\n    - listitem [ref=f9e110] [box=48,815,708,21]:\n      - link \"Item 36\" [ref=f9e111] [box=48,816,49,17]:\n        - /url: \"#item-36\"\n      - button \"Buy 36\" [ref=f9e112] [box=101,815,58,21]\n    - listitem [ref=f9e113] [box=48,836,708,21]:\n      - link \"Item 37\" [ref=f9e114] [box=48,837,49,17]:\n        - /url: \"#item-37\"\n      - button \"Buy 37\" [ref=f9e115] [box=101,836,58,21]\n    - listitem [ref=f9e116] [box=48,857,708,21]:\n      - link \"Item 38\" [ref=f9e117] [box=48,858,49,17]:\n        - /url: \"#item-38\"\n      - button \"Buy 38\" [ref=f9e118] [box=101,857,58,21]\n    - listitem [ref=f9e119] [box=48,878,708,21]:\n      - link \"Item 39\" [ref=f9e120] [box=48,879,49,17]:\n        - /url: \"#item-39\"\n      - button \"Buy 39\" [ref=f9e121] [box=101,878,58,21]\n    - listitem [ref=f9e122] [box=48,899,708,21]:\n      - link \"Item 40\" [ref=f9e123] [box=48,900,49,17]:\n        - /url: \"#item-40\"\n      - button \"Buy 40\" [ref=f9e124] [box=101,899,58,21]\n    - listitem [ref=f9e125] [box=48,920,708,21]:\n      - link \"Item 41\" [ref=f9e126] [box=48,921,49,17]:\n        - /url: \"#item-41\"\n      - button \"Buy 41\" [ref=f9e127] [box=101,920,58,21]\n    - listitem [ref=f9e128] [box=48,941,708,21]:\n      - link \"Item 42\" [ref=f9e129] [box=48,942,49,17]:\n        - /url: \"#item-42\"\n      - button \"Buy 42\" [ref=f9e130] [box=101,941,58,21]\n    - listitem [ref=f9e131] [box=48,962,708,21]:\n      - link \"Item 43\" [ref=f9e132] [box=48,963,49,17]:\n        - /url: \"#item-43\"\n      - button \"Buy 43\" [ref=f9e133] [box=101,962,58,21]\n    - listitem [ref=f9e134] [box=48,983,708,21]:\n      - link \"Item 44\" [ref=f9e135] [box=48,984,49,17]:\n        - /url: \"#item-44\"\n      - button \"Buy 44\" [ref=f9e136] [box=101,983,58,21]\n    - listitem [ref=f9e137] [box=48,1004,708,21]:\n      - link \"Item 45\" [ref=f9e138] [box=48,1005,49,17]:\n        - /url: \"#item-45\"\n      - button \"Buy 45\" [ref=f9e139] [box=101,1004,58,21]\n    - listitem [ref=f9e140] [box=48,1025,708,21]:\n      - link \"Item 46\" [ref=f9e141] [box=48,1026,49,17]:\n        - /url: \"#item-46\"\n      - button \"Buy 46\" [ref=f9e142] [box=101,1025,58,21]\n    - listitem [ref=f9e143] [box=48,1046,708,21]:\n      - link \"Item 47\" [ref=f9e144] [box=48,1047,49,17]:\n        - /url: \"#item-47\"\n      - button \"Buy 47\" [ref=f9e145] [box=101,1046,58,21]\n    - listitem [ref=f9e146] [box=48,1067,708,21]:\n      - link \"Item 48\" [ref=f9e147] [box=48,1068,49,17]:\n        - /url: \"#item-48\"\n      - button \"Buy 48\" [ref=f9e148] [box=101,1067,58,21]\n    - listitem [ref=f9e149] [box=48,1088,708,21]:\n      - link \"Item 49\" [ref=f9e150] [box=48,1089,49,17]:\n        - /url: \"#item-49\"\n      - button \"Buy 49\" [ref=f9e151] [box=101,1088,58,21]\n    - listitem [ref=f9e152] [box=48,1109,708,21]:\n      - link \"Item 50\" [ref=f9e153] [box=48,1110,49,17]:\n        - /url: \"#item-50\"\n      - button \"Buy 50\" [ref=f9e154] [box=101,1109,58,21]\n    - listitem [ref=f9e155] [box=48,1130,708,21]:\n      - link \"Item 51\" [ref=f9e156] [box=48,1131,49,17]:\n        - /url: \"#item-51\"\n      - button \"Buy 51\" [ref=f9e157] [box=101,1130,58,21]\n    - listitem [ref=f9e158] [box=48,1151,708,21]:\n      - link \"Item 52\" [ref=f9e159] [box=48,1152,49,17]:\n        - /url: \"#item-52\"\n      - button \"Buy 52\" [ref=f9e160] [box=101,1151,58,21]\n    - listitem [ref=f9e161] [box=48,1172,708,21]:\n      - link \"Item 53\" [ref=f9e162] [box=48,1173,49,17]:\n        - /url: \"#item-53\"\n      - button \"Buy 53\" [ref=f9e163] [box=101,1172,58,21]\n    - listitem [ref=f9e164] [box=48,1193,708,21]:\n      - link \"Item 54\" [ref=f9e165] [box=48,1194,49,17]:\n        - /url: \"#item-54\"\n      - button \"Buy 54\" [ref=f9e166] [box=101,1193,58,21]\n    - listitem [ref=f9e167] [box=48,1214,708,21]:\n      - link \"Item 55\" [ref=f9e168] [box=48,1215,49,17]:\n        - /url: \"#item-55\"\n      - button \"Buy 55\" [ref=f9e169] [box=101,1214,58,21]\n    - listitem [ref=f9e170] [box=48,1235,708,21]:\n      - link \"Item 56\" [ref=f9e171] [box=48,1236,49,17]:\n        - /url: \"#item-56\"\n      - button \"Buy 56\" [ref=f9e172] [box=101,1235,58,21]\n    - listitem [ref=f9e173] [box=48,1256,708,21]:\n      - link \"Item 57\" [ref=f9e174] [box=48,1257,49,17]:\n        - /url: \"#item-57\"\n      - button \"Buy 57\" [ref=f9e175] [box=101,1256,58,21]\n    - listitem [ref=f9e176] [box=48,1277,708,21]:\n      - link \"Item 58\" [ref=f9e177] [box=48,1278,49,17]:\n        - /url: \"#item-58\"\n      - button \"Buy 58\" [ref=f9e178] [box=101,1277,58,21]\n    - listitem [ref=f9e179] [box=48,1298,708,21]:\n      - link \"Item 59\" [ref=f9e180] [box=48,1299,49,17]:\n        - /url: \"#item-59\"\n      - button \"Buy 59\" [ref=f9e181] [box=101,1298,58,21]\n    - listitem [ref=f9e182] [box=48,1319,708,21]:\n      - link \"Item 60\" [ref=f9e183] [box=48,1320,49,17]:\n        - /url: \"#item-60\"\n      - button \"Buy 60\" [ref=f9e184] [box=101,1319,58,21]\n    - listitem [ref=f9e185] [box=48,1340,708,21]:\n      - link \"Item 61\" [ref=f9e186] [box=48,1341,49,17]:\n        - /url: \"#item-61\"\n      - button \"Buy 61\" [ref=f9e187] [box=101,1340,58,21]\n    - listitem [ref=f9e188] [box=48,1361,708,21]:\n      - link \"Item 62\" [ref=f9e189] [box=48,1362,49,17]:\n        - /url: \"#item-62\"\n      - button \"Buy 62\" [ref=f9e190] [box=101,1361,58,21]\n    - listitem [ref=f9e191] [box=48,1382,708,21]:\n      - link \"Item 63\" [ref=f9e192] [box=48,1383,49,17]:\n        - /url: \"#item-63\"\n      - button \"Buy 63\" [ref=f9e193] [box=101,1382,58,21]\n    - listitem [ref=f9e194] [box=48,1403,708,21]:\n      - link \"Item 64\" [ref=f9e195] [box=48,1404,49,17]:\n        - /url: \"#item-64\"\n      - button \"Buy 64\" [ref=f9e196] [box=101,1403,58,21]\n    - listitem [ref=f9e197] [box=48,1424,708,21]:\n      - link \"Item 65\" [ref=f9e198] [box=48,1425,49,17]:\n        - /url: \"#item-65\"\n      - button \"Buy 65\" [ref=f9e199] [box=101,1424,58,21]\n    - listitem [ref=f9e200] [box=48,1445,708,21]:\n      - link \"Item 66\" [ref=f9e201] [box=48,1446,49,17]:\n        - /url: \"#item-66\"\n      - button \"Buy 66\" [ref=f9e202] [box=101,1445,58,21]\n    - listitem [ref=f9e203] [box=48,1466,708,21]:\n      - link \"Item 67\" [ref=f9e204] [box=48,1467,49,17]:\n        - /url: \"#item-67\"\n      - button \"Buy 67\" [ref=f9e205] [box=101,1466,58,21]\n    - listitem [ref=f9e206] [box=48,1487,708,21]:\n      - link \"Item 68\" [ref=f9e207] [box=48,1488,49,17]:\n        - /url: \"#item-68\"\n      - button \"Buy 68\" [ref=f9e208] [box=101,1487,58,21]\n    - listitem [ref=f9e209] [box=48,1508,708,21]:\n      - link \"Item 69\" [ref=f9e210] [box=48,1509,49,17]:\n        - /url: \"#item-69\"\n      - button \"Buy 69\" [ref=f9e211] [box=101,1508,58,21]\n    - listitem [ref=f9e212] [box=48,1529,708,21]:\n      - link \"Item 70\" [ref=f9e213] [box=48,1530,49,17]:\n        - /url: \"#item-70\"\n      - button \"Buy 70\" [ref=f9e214] [box=101,1529,58,21]\n    - listitem [ref=f9e215] [box=48,1550,708,21]:\n      - link \"Item 71\" [ref=f9e216] [box=48,1551,49,17]:\n        - /url: \"#item-71\"\n      - button \"Buy 71\" [ref=f9e217] [box=101,1550,58,21]\n    - listitem [ref=f9e218] [box=48,1571,708,21]:\n      - link \"Item 72\" [ref=f9e219] [box=48,1572,49,17]:\n        - /url: \"#item-72\"\n      - button \"Buy 72\" [ref=f9e220] [box=101,1571,58,21]\n    - listitem [ref=f9e221] [box=48,1592,708,21]:\n      - link \"Item 73\" [ref=f9e222] [box=48,1593,49,17]:\n        - /url: \"#item-73\"\n      - button \"Buy 73\" [ref=f9e223] [box=101,1592,58,21]\n    - listitem [ref=f9e224] [box=48,1613,708,21]:\n      - link \"Item 74\" [ref=f9e225] [box=48,1614,49,17]:\n        - /url: \"#item-74\"\n      - button \"Buy 74\" [ref=f9e226] [box=101,1613,58,21]\n    - listitem [ref=f9e227] [box=48,1634,708,21]:\n      - link \"Item 75\" [ref=f9e228] [box=48,1635,49,17]:\n        - /url: \"#item-75\"\n      - button \"Buy 75\" [ref=f9e229] [box=101,1634,58,21]\n    - listitem [ref=f9e230] [box=48,1655,708,21]:\n      - link \"Item 76\" [ref=f9e231] [box=48,1656,49,17]:\n        - /url: \"#item-76\"\n      - button \"Buy 76\" [ref=f9e232] [box=101,1655,58,21]\n    - listitem [ref=f9e233] [box=48,1676,708,21]:\n      - link \"Item 77\" [ref=f9e234] [box=48,1677,49,17]:\n        - /url: \"#item-77\"\n      - button \"Buy 77\" [ref=f9e235] [box=101,1676,58,21]\n    - listitem [ref=f9e236] [box=48,1697,708,21]:\n      - link \"Item 78\" [ref=f9e237] [box=48,1698,49,17]:\n        - /url: \"#item-78\"\n      - button \"Buy 78\" [ref=f9e238] [box=101,1697,58,21]\n    - listitem [ref=f9e239] [box=48,1718,708,21]:\n      - link \"Item 79\" [ref=f9e240] [box=48,1719,49,17]:\n        - /url: \"#item-79\"\n      - button \"Buy 79\" [ref=f9e241] [box=101,1718,58,21]\n    - listitem [ref=f9e242] [box=48,1739,708,21]:\n      - link \"Item 80\" [ref=f9e243] [box=48,1740,49,17]:\n        - /url: \"#item-80\"\n      - button \"Buy 80\" [ref=f9e244] [box=101,1739,58,21]\n    - listitem [ref=f9e245] [box=48,1760,708,21]:\n      - link \"Item 81\" [ref=f9e246] [box=48,1761,49,17]:\n        - /url: \"#item-81\"\n      - button \"Buy 81\" [ref=f9e247] [box=101,1760,58,21]\n    - listitem [ref=f9e248] [box=48,1781,708,21]:\n      - link \"Item 82\" [ref=f9e249] [box=48,1782,49,17]:\n        - /url: \"#item-82\"\n      - button \"Buy 82\" [ref=f9e250] [box=101,1781,58,21]\n    - listitem [ref=f9e251] [box=48,1802,708,21]:\n      - link \"Item 83\" [ref=f9e252] [box=48,1803,49,17]:\n        - /url: \"#item-83\"\n      - button \"Buy 83\" [ref=f9e253] [box=101,1802,58,21]\n    - listitem [ref=f9e254] [box=48,1823,708,21]:\n      - link \"Item 84\" [ref=f9e255] [box=48,1824,49,17]:\n        - /url: \"#item-84\"\n      - button \"Buy 84\" [ref=f9e256] [box=101,1823,58,21]\n    - listitem [ref=f9e257] [box=48,1844,708,21]:\n      - link \"Item 85\" [ref=f9e258] [box=48,1845,49,17]:\n        - /url: \"#item-85\"\n      - button \"Buy 85\" [ref=f9e259] [box=101,1844,58,21]\n    - listitem [ref=f9e260] [box=48,1865,708,21]:\n      - link \"Item 86\" [ref=f9e261] [box=48,1866,49,17]:\n        - /url: \"#item-86\"\n      - button \"Buy 86\" [ref=f9e262] [box=101,1865,58,21]\n    - listitem [ref=f9e263] [box=48,1886,708,21]:\n      - link \"Item 87\" [ref=f9e264] [box=48,1887,49,17]:\n        - /url: \"#item-87\"\n      - button \"Buy 87\" [ref=f9e265] [box=101,1886,58,21]\n    - listitem [ref=f9e266] [box=48,1907,708,21]:\n      - link \"Item 88\" [ref=f9e267] [box=48,1908,49,17]:\n        - /url: \"#item-88\"\n      - button \"Buy 88\" [ref=f9e268] [box=101,1907,58,21]\n    - listitem [ref=f9e269] [box=48,1928,708,21]:\n      - link \"Item 89\" [ref=f9e270] [box=48,1929,49,17]:\n        - /url: \"#item-89\"\n      - button \"Buy 89\" [ref=f9e271] [box=101,1928,58,21]\n    - listitem [ref=f9e272] [box=48,1949,708,21]:\n      - link \"Item 90\" [ref=f9e273] [box=48,1950,49,17]:\n        - /url: \"#item-90\"\n      - button \"Buy 90\" [ref=f9e274] [box=101,1949,58,21]\n    - listitem [ref=f9e275] [box=48,1970,708,21]:\n      - link \"Item 91\" [ref=f9e276] [box=48,1971,49,17]:\n        - /url: \"#item-91\"\n      - button \"Buy 91\" [ref=f9e277] [box=101,1970,58,21]\n    - listitem [ref=f9e278] [box=48,1991,708,21]:\n      - link \"Item 92\" [ref=f9e279] [box=48,1992,49,17]:\n        - /url: \"#item-92\"\n      - button \"Buy 92\" [ref=f9e280] [box=101,1991,58,21]\n    - listitem [ref=f9e281] [box=48,2012,708,21]:\n      - link \"Item 93\" [ref=f9e282] [box=48,2013,49,17]:\n        - /url: \"#item-93\"\n      - button \"Buy 93\" [ref=f9e283] [box=101,2012,58,21]\n    - listitem [ref=f9e284] [box=48,2033,708,21]:\n      - link \"Item 94\" [ref=f9e285] [box=48,2034,49,17]:\n        - /url: \"#item-94\"\n      - button \"Buy 94\" [ref=f9e286] [box=101,2033,58,21]\n    - listitem [ref=f9e287] [box=48,2054,708,21]:\n      - link \"Item 95\" [ref=f9e288] [box=48,2055,49,17]:\n        - /url: \"#item-95\"\n      - button \"Buy 95\" [ref=f9e289] [box=101,2054,58,21]\n    - listitem [ref=f9e290] [box=48,2075,708,21]:\n      - link \"Item 96\" [ref=f9e291] [box=48,2076,49,17]:\n        - /url: \"#item-96\"\n      - button \"Buy 96\" [ref=f9e292] [box=101,2075,58,21]\n    - listitem [ref=f9e293] [box=48,2096,708,21]:\n      - link \"Item 97\" [ref=f9e294] [box=48,2097,49,17]:\n        - /url: \"#item-97\"\n      - button \"Buy 97\" [ref=f9e295] [box=101,2096,58,21]\n    - listitem [ref=f9e296] [box=48,2117,708,21]:\n      - link \"Item 98\" [ref=f9e297] [box=48,2118,49,17]:\n        - /url: \"#item-98\"\n      - button \"Buy 98\" [ref=f9e298] [box=101,2117,58,21]\n    - listitem [ref=f9e299] [box=48,2138,708,21]:\n      - link \"Item 99\" [ref=f9e300] [box=48,2139,49,17]:\n        - /url: \"#item-99\"\n      - button \"Buy 99\" [ref=f9e301] [box=101,2138,58,21]\n    - listitem [ref=f9e302] [box=48,2159,708,21]:\n      - link \"Item 100\" [ref=f9e303] [box=48,2160,57,17]:\n        - /url: \"#item-100\"\n      - button \"Buy 100\" [ref=f9e304] [box=109,2159,65,21]\n    - listitem [ref=f9e305] [box=48,2180,708,21]:\n      - link \"Item 101\" [ref=f9e306] [box=48,2181,57,17]:\n        - /url: \"#item-101\"\n      - button \"Buy 101\" [ref=f9e307] [box=109,2180,65,21]\n    - listitem [ref=f9e308] [box=48,2201,708,21]:\n      - link \"Item 102\" [ref=f9e309] [box=48,2202,57,17]:\n        - /url: \"#item-102\"\n      - button \"Buy 102\" [ref=f9e310] [box=109,2201,65,21]\n    - listitem [ref=f9e311] [box=48,2222,708,21]:\n      - link \"Item 103\" [ref=f9e312] [box=48,2223,57,17]:\n        - /url: \"#item-103\"\n      - button \"Buy 103\" [ref=f9e313] [box=109,2222,65,21]\n    - listitem [ref=f9e314] [box=48,2243,708,21]:\n      - link \"Item 104\" [ref=f9e315] [box=48,2244,57,17]:\n        - /url: \"#item-104\"\n      - button \"Buy 104\" [ref=f9e316] [box=109,2243,65,21]\n    - listitem [ref=f9e317] [box=48,2264,708,21]:\n      - link \"Item 105\" [ref=f9e318] [box=48,2265,57,17]:\n        - /url: \"#item-105\"\n      - button \"Buy 105\" [ref=f9e319] [box=109,2264,65,21]\n    - listitem [ref=f9e320] [box=48,2285,708,21]:\n      - link \"Item 106\" [ref=f9e321] [box=48,2286,57,17]:\n        - /url: \"#item-106\"\n      - button \"Buy 106\" [ref=f9e322] [box=109,2285,65,21]\n    - listitem [ref=f9e323] [box=48,2306,708,21]:\n      - link \"Item 107\" [ref=f9e324] [box=48,2307,57,17]:\n        - /url: \"#item-107\"\n      - button \"Buy 107\" [ref=f9e325] [box=109,2306,65,21]\n    - listitem [ref=f9e326] [box=48,2327,708,21]:\n      - link \"Item 108\" [ref=f9e327] [box=48,2328,57,17]:\n        - /url: \"#item-108\"\n      - button \"Buy 108\" [ref=f9e328] [box=109,2327,65,21]\n    - listitem [ref=f9e329] [box=48,2348,708,21]:\n      - link \"Item 109\" [ref=f9e330] [box=48,2349,57,17]:\n        - /url: \"#item-109\"\n      - button \"Buy 109\" [ref=f9e331] [box=109,2348,65,21]\n    - listitem [ref=f9e332] [box=48,2369,708,21]:\n      - link \"Item 110\" [ref=f9e333] [box=48,2370,57,17]:\n        - /url: \"#item-110\"\n      - button \"Buy 110\" [ref=f9e334] [box=109,2369,64,21]\n    - listitem [ref=f9e335] [box=48,2390,708,21]:\n      - link \"Item 111\" [ref=f9e336] [box=48,2391,56,17]:\n        - /url: \"#item-111\"\n      - button \"Buy 111\" [ref=f9e337] [box=108,2390,63,21]\n    - listitem [ref=f9e338] [box=48,2411,708,21]:\n      - link \"Item 112\" [ref=f9e339] [box=48,2412,57,17]:\n        - /url: \"#item-112\"\n      - button \"Buy 112\" [ref=f9e340] [box=109,2411,64,21]\n    - listitem [ref=f9e341] [box=48,2432,708,21]:\n      - link \"Item 113\" [ref=f9e342] [box=48,2433,57,17]:\n        - /url: \"#item-113\"\n      - button \"Buy 113\" [ref=f9e343] [box=109,2432,64,21]\n    - listitem [ref=f9e344] [box=48,2453,708,21]:\n      - link \"Item 114\" [ref=f9e345] [box=48,2454,57,17]:\n        - /url: \"#item-114\"\n      - button \"Buy 114\" [ref=f9e346] [box=109,2453,64,21]\n    - listitem [ref=f9e347] [box=48,2474,708,21]:\n      - link \"Item 115\" [ref=f9e348] [box=48,2475,57,17]:\n        - /url: \"#item-115\"\n      - button \"Buy 115\" [ref=f9e349] [box=109,2474,64,21]\n    - listitem [ref=f9e350] [box=48,2495,708,21]:\n      - link \"Item 116\" [ref=f9e351] [box=48,2496,57,17]:\n        - /url: \"#item-116\"\n      - button \"Buy 116\" [ref=f9e352] [box=109,2495,64,21]\n    - listitem [ref=f9e353] [box=48,2516,708,21]:\n      - link \"Item 117\" [ref=f9e354] [box=48,2517,57,17]:\n        - /url: \"#item-117\"\n      - button \"Buy 117\" [ref=f9e355] [box=109,2516,64,21]\n    - listitem [ref=f9e356] [box=48,2537,708,21]:\n      - link \"Item 118\" [ref=f9e357] [box=48,2538,57,17]:\n        - /url: \"#item-118\"\n      - button \"Buy 118\" [ref=f9e358] [box=109,2537,64,21]\n    - listitem [ref=f9e359] [box=48,2558,708,21]:\n      - link \"Item 119\" [ref=f9e360] [box=48,2559,57,17]:\n        - /url: \"#item-119\"\n      - button \"Buy 119\" [ref=f9e361] [box=109,2558,64,21]\n    - listitem [ref=f9e362] [box=48,2579,708,21]:\n      - link \"Item 120\" [ref=f9e363] [box=48,2580,57,17]:\n        - /url: \"#item-120\"\n      - button \"Buy 120\" [ref=f9e364] [box=109,2579,65,21]\n    - listitem [ref=f9e365] [box=48,2600,708,21]:\n      - link \"Item 121\" [ref=f9e366] [box=48,2601,57,17]:\n        - /url: \"#item-121\"\n      - button \"Buy 121\" [ref=f9e367] [box=109,2600,65,21]\n    - listitem [ref=f9e368] [box=48,2621,708,21]:\n      - link \"Item 122\" [ref=f9e369] [box=48,2622,57,17]:\n        - /url: \"#item-122\"\n      - button \"Buy 122\" [ref=f9e370] [box=109,2621,65,21]\n    - listitem [ref=f9e371] [box=48,2642,708,21]:\n      - link \"Item 123\" [ref=f9e372] [box=48,2643,57,17]:\n        - /url: \"#item-123\"\n      - button \"Buy 123\" [ref=f9e373] [box=109,2642,65,21]\n    - listitem [ref=f9e374] [box=48,2663,708,21]:\n      - link \"Item 124\" [ref=f9e375] [box=48,2664,57,17]:\n        - /url: \"#item-124\"\n      - button \"Buy 124\" [ref=f9e376] [box=109,2663,65,21]\n    - listitem [ref=f9e377] [box=48,2684,708,21]:\n      - link \"Item 125\" [ref=f9e378] [box=48,2685,57,17]:\n        - /url: \"#item-125\"\n      - button \"Buy 125\" [ref=f9e379] [box=109,2684,65,21]\n    - listitem [ref=f9e380] [box=48,2705,708,21]:\n      - link \"Item 126\" [ref=f9e381] [box=48,2706,57,17]:\n        - /url: \"#item-126\"\n      - button \"Buy 126\" [ref=f9e382] [box=109,2705,65,21]\n    - listitem [ref=f9e383] [box=48,2726,708,21]:\n      - link \"Item 127\" [ref=f9e384] [box=48,2727,57,17]:\n        - /url: \"#item-127\"\n      - button \"Buy 127\" [ref=f9e385] [box=109,2726,65,21]\n    - listitem [ref=f9e386] [box=48,2747,708,21]:\n      - link \"Item 128\" [ref=f9e387] [box=48,2748,57,17]:\n        - /url: \"#item-128\"\n      - button \"Buy 128\" [ref=f9e388] [box=109,2747,65,21]\n    - listitem [ref=f9e389] [box=48,2768,708,21]:\n      - link \"Item 129\" [ref=f9e390] [box=48,2769,57,17]:\n        - /url: \"#item-129\"\n      - button \"Buy 129\" [ref=f9e391] [box=109,2768,65,21]\n    - listitem [ref=f9e392] [box=48,2789,708,21]:\n      - link \"Item 130\" [ref=f9e393] [box=48,2790,57,17]:\n        - /url: \"#item-130\"\n      - button \"Buy 130\" [ref=f9e394] [box=109,2789,65,21]\n    - listitem [ref=f9e395] [box=48,2810,708,21]:\n      - link \"Item 131\" [ref=f9e396] [box=48,2811,57,17]:\n        - /url: \"#item-131\"\n      - button \"Buy 131\" [ref=f9e397] [box=109,2810,65,21]\n    - listitem [ref=f9e398] [box=48,2831,708,21]:\n      - link \"Item 132\" [ref=f9e399] [box=48,2832,57,17]:\n        - /url: \"#item-132\"\n      - button \"Buy 132\" [ref=f9e400] [box=109,2831,65,21]\n    - listitem [ref=f9e401] [box=48,2852,708,21]:\n      - link \"Item 133\" [ref=f9e402] [box=48,2853,57,17]:\n        - /url: \"#item-133\"\n      - button \"Buy 133\" [ref=f9e403] [box=109,2852,65,21]\n    - listitem [ref=f9e404] [box=48,2873,708,21]:\n      - link \"Item 134\" [ref=f9e405] [box=48,2874,57,17]:\n        - /url: \"#item-134\"\n      - button \"Buy 134\" [ref=f9e406] [box=109,2873,65,21]\n    - listitem [ref=f9e407] [box=48,2894,708,21]:\n      - link \"Item 135\" [ref=f9e408] [box=48,2895,57,17]:\n        - /url: \"#item-135\"\n      - button \"Buy 135\" [ref=f9e409] [box=109,2894,65,21]\n    - listitem [ref=f9e410] [box=48,2915,708,21]:\n      - link \"Item 136\" [ref=f9e411] [box=48,2916,57,17]:\n        - /url: \"#item-136\"\n      - button \"Buy 136\" [ref=f9e412] [box=109,2915,65,21]\n    - listitem [ref=f9e413] [box=48,2936,708,21]:\n      - link \"Item 137\" [ref=f9e414] [box=48,2937,57,17]:\n        - /url: \"#item-137\"\n      - button \"Buy 137\" [ref=f9e415] [box=109,2936,65,21]\n    - listitem [ref=f9e416] [box=48,2957,708,21]:\n      - link \"Item 138\" [ref=f9e417] [box=48,2958,57,17]:\n        - /url: \"#item-138\"\n      - button \"Buy 138\" [ref=f9e418] [box=109,2957,65,21]\n    - listitem [ref=f9e419] [box=48,2978,708,21]:\n      - link \"Item 139\" [ref=f9e420] [box=48,2979,57,17]:\n        - /url: \"#item-139\"\n      - button \"Buy 139\" [ref=f9e421] [box=109,2978,65,21]\n    - listitem [ref=f9e422] [box=48,2999,708,21]:\n      - link \"Item 140\" [ref=f9e423] [box=48,3000,57,17]:\n        - /url: \"#item-140\"\n      - button \"Buy 140\" [ref=f9e424] [box=109,2999,65,21]\n    - listitem [ref=f9e425] [box=48,3020,708,21]:\n      - link \"Item 141\" [ref=f9e426] [box=48,3021,57,17]:\n        - /url: \"#item-141\"\n      - button \"Buy 141\" [ref=f9e427] [box=109,3020,65,21]\n    - listitem [ref=f9e428] [box=48,3041,708,21]:\n      - link \"Item 142\" [ref=f9e429] [box=48,3042,57,17]:\n        - /url: \"#item-142\"\n      - button \"Buy 142\" [ref=f9e430] [box=109,3041,65,21]\n    - listitem [ref=f9e431] [box=48,3062,708,21]:\n      - link \"Item 143\" [ref=f9e432] [box=48,3063,57,17]:\n        - /url: \"#item-143\"\n      - button \"Buy 143\" [ref=f9e433] [box=109,3062,65,21]\n    - listitem [ref=f9e434] [box=48,3083,708,21]:\n      - link \"Item 144\" [ref=f9e435] [box=48,3084,57,17]:\n        - /url: \"#item-144\"\n      - button \"Buy 144\" [ref=f9e436] [box=109,3083,65,21]\n    - listitem [ref=f9e437] [box=48,3104,708,21]:\n      - link \"Item 145\" [ref=f9e438] [box=48,3105,57,17]:\n        - /url: \"#item-145\"\n      - button \"Buy 145\" [ref=f9e439] [box=109,3104,65,21]\n    - listitem [ref=f9e440] [box=48,3125,708,21]:\n      - link \"Item 146\" [ref=f9e441] [box=48,3126,57,17]:\n        - /url: \"#item-146\"\n      - button \"Buy 146\" [ref=f9e442] [box=109,3125,65,21]\n    - listitem [ref=f9e443] [box=48,3146,708,21]:\n      - link \"Item 147\" [ref=f9e444] [box=48,3147,57,17]:\n        - /url: \"#item-147\"\n      - button \"Buy 147\" [ref=f9e445] [box=109,3146,65,21]\n    - listitem [ref=f9e446] [box=48,3167,708,21]:\n      - link \"Item 148\" [ref=f9e447] [box=48,3168,57,17]:\n        - /url: \"#item-148\"\n      - button \"Buy 148\" [ref=f9e448] [box=109,3167,65,21]\n    - listitem [ref=f9e449] [box=48,3188,708,21]:\n      - link \"Item 149\" [ref=f9e450] [box=48,3189,57,17]:\n        - /url: \"#item-149\"\n      - button \"Buy 149\" [ref=f9e451] [box=109,3188,65,21]\n    - listitem [ref=f9e452] [box=48,3209,708,21]:\n      - link \"Item 150\" [ref=f9e453] [box=48,3210,57,17]:\n        - /url: \"#item-150\"\n      - button \"Buy 150\" [ref=f9e454] [box=109,3209,65,21]\n"
+  },
+  {
+   "id": "large:snapshot-plain",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/large.html\n- Page Title: Large\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 240
+  },
+  {
+   "id": "large:find-buy1",
+   "argv": [
+    "find",
+    "Buy 1"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 20 of 62 matches for \"Buy 1\". Narrow the query to reduce ambiguity.\n\n  # main > list > listitem\n- button \"Buy 1\" [ref=f9e7]\n\n  # main > list > listitem\n- button \"Buy 10\" [ref=f9e34]\n\n  # main > list > listitem\n- button \"Buy 11\" [ref=f9e37]\n\n  # main > list > listitem\n- button \"Buy 12\" [ref=f9e40]\n\n  # main > list > listitem\n- button \"Buy 13\" [ref=f9e43]\n\n  # main > list > listitem\n- button \"Buy 14\" [ref=f9e46]\n\n  # main > list > listitem\n- button \"Buy 15\" [ref=f9e49]\n\n  # main > list > listitem\n- button \"Buy 16\" [ref=f9e52]\n\n  # main > list > listitem\n- button \"Buy 17\" [ref=f9e55]\n\n  # main > list > listitem\n- button \"Buy 18\" [ref=f9e58]\n\n  # main > list > listitem\n- button \"Buy 19\" [ref=f9e61]\n\n  # main > list > listitem\n- button \"Buy 100\" [ref=f9e304]\n\n  # main > list > listitem\n- button \"Buy 101\" [ref=f9e307]\n\n  # main > list > listitem\n- button \"Buy 102\" [ref=f9e310]\n\n  # main > list > listitem\n- button \"Buy 103\" [ref=f9e313]\n\n  # main > list > listitem\n- button \"Buy 104\" [ref=f9e316]\n\n  # main > list > listitem\n- button \"Buy 105\" [ref=f9e319]\n\n  # main > list > listitem\n- button \"Buy 106\" [ref=f9e322]\n\n  # main > list > listitem\n- button \"Buy 107\" [ref=f9e325]\n\n  # main > list > listitem\n- button \"Buy 108\" [ref=f9e328]\n\n",
+   "ms": 250
+  },
+  {
+   "id": "large:find-buy1-limit5",
+   "argv": [
+    "find",
+    "Buy 1",
+    "--limit=5"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 5 of 62 matches for \"Buy 1\". Narrow the query to reduce ambiguity.\n\n  # main > list > listitem\n- button \"Buy 1\" [ref=f9e7]\n\n  # main > list > listitem\n- button \"Buy 10\" [ref=f9e34]\n\n  # main > list > listitem\n- button \"Buy 11\" [ref=f9e37]\n\n  # main > list > listitem\n- button \"Buy 12\" [ref=f9e40]\n\n  # main > list > listitem\n- button \"Buy 13\" [ref=f9e43]\n\n",
+   "ms": 217
+  },
+  {
+   "id": "large:find-regex",
+   "argv": [
+    "find",
+    "--regex=^Item 14\\d$"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Found 10 matches for \"^Item 14\\d$\".\n\n  # main > list > listitem\n- link \"Item 140\" [ref=f9e423]:\n  - /url: \"#item-140\"\n\n  # main > list > listitem\n- link \"Item 141\" [ref=f9e426]:\n  - /url: \"#item-141\"\n\n  # main > list > listitem\n- link \"Item 142\" [ref=f9e429]:\n  - /url: \"#item-142\"\n\n  # main > list > listitem\n- link \"Item 143\" [ref=f9e432]:\n  - /url: \"#item-143\"\n\n  # main > list > listitem\n- link \"Item 144\" [ref=f9e435]:\n  - /url: \"#item-144\"\n\n  # main > list > listitem\n- link \"Item 145\" [ref=f9e438]:\n  - /url: \"#item-145\"\n\n  # main > list > listitem\n- link \"Item 146\" [ref=f9e441]:\n  - /url: \"#item-146\"\n\n  # main > list > listitem\n- link \"Item 147\" [ref=f9e444]:\n  - /url: \"#item-147\"\n\n  # main > list > listitem\n- link \"Item 148\" [ref=f9e447]:\n  - /url: \"#item-148\"\n\n  # main > list > listitem\n- link \"Item 149\" [ref=f9e450]:\n  - /url: \"#item-149\"\n\n",
+   "ms": 262
+  },
+  {
+   "id": "large:click-150",
+   "argv": [
+    "click",
+    "<button \"Buy 150\"#0>"
+   ],
+   "refs": [
+    "f9e454"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/large.html\n- Page Title: Large\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 255,
+   "state": {
+    "url": "/large.html",
+    "fields": {},
+    "log": "click:BUTTON buy-150",
+    "dialog": null,
+    "scrollY": 2761
+   }
+  },
+  {
+   "id": "large:generate-locator-150",
+   "argv": [
+    "generate-locator",
+    "<button \"Buy 150\"#0>"
+   ],
+   "refs": [
+    "f9e454"
+   ],
+   "exit": 0,
+   "out": "getByRole('button', { name: 'Buy 150', exact: true })\n",
+   "ms": 212
+  },
+  {
+   "id": "large:click-link-77",
+   "argv": [
+    "click",
+    "<link \"Item 77\"#0>"
+   ],
+   "refs": [
+    "f9e234"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/large.html#item-77\n- Page Title: Large\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 268,
+   "state": {
+    "url": "/large.html#item-77",
+    "fields": {},
+    "log": "click:BUTTON buy-150",
+    "dialog": null,
+    "scrollY": 2761
+   }
+  },
+  {
+   "id": "nav:goto",
+   "argv": [
+    "goto",
+    "http://127.0.0.1:42170/nav.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav.html\n- Page Title: Nav one\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 236,
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:snapshot",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav.html\n- Page Title: Nav one\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 201,
+   "snapshot": "- heading \"Nav one\" [level=1] [ref=f10e2]\n- button \"Stay\" [ref=f10e3]\n- button \"Rerender\" [ref=f10e4]\n- list [ref=f10e5]:\n  - listitem [ref=f10e6]:\n    - button \"Item A\" [ref=f10e7]\n  - listitem [ref=f10e8]:\n    - button \"Item B\" [ref=f10e9]\n- link \"Go to page two\" [ref=f10e10]:\n  - /url: nav2.html\n",
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:dom-rerender",
+   "argv": [
+    "eval",
+    "document.getElementById('rerender').click()"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "null\n",
+   "ms": 207,
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "click:rerender rerender",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:stale-after-rerender-click",
+   "argv": [
+    "click",
+    "<stale item-a>"
+   ],
+   "refs": [
+    "f10e7"
+   ],
+   "exit": 1,
+   "out": "Error: Ref f10e7 no longer matches an element (removed or changed since the snapshot). Run snapshot.\n",
+   "ms": 234,
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "click:rerender rerender",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:snapshot-2",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav.html\n- Page Title: Nav one\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 228,
+   "snapshot": "- heading \"Nav one\" [level=1] [ref=f10e2]\n- button \"Stay\" [ref=f10e3]\n- button \"Rerender\" [ref=f10e4]\n- list [ref=f10e5]:\n  - listitem [ref=f10e11]:\n    - button \"Item B\" [ref=f10e12]\n  - listitem [ref=f10e13]:\n    - button \"Item A\" [ref=f10e14]\n- link \"Go to page two\" [ref=f10e10]:\n  - /url: nav2.html\n"
+  },
+  {
+   "id": "nav:click-rerender",
+   "argv": [
+    "click",
+    "<button \"Rerender\"#0>"
+   ],
+   "refs": [
+    "f10e4"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav.html\n- Page Title: Nav one\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 230,
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "click:rerender rerender click:rerender rerender",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:stale-after-cli-click",
+   "argv": [
+    "click",
+    "<stale item-a>"
+   ],
+   "refs": [
+    "f10e14"
+   ],
+   "exit": 1,
+   "out": "Error: f10e14 is not from a snapshot of this tab; run snapshot (refs are per tab, and a ref goes away when its element is removed or its role or name changes)\n",
+   "ms": 196,
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "click:rerender rerender click:rerender rerender",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:snapshot-3",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav.html\n- Page Title: Nav one\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 245
+  },
+  {
+   "id": "nav:js-navigate",
+   "argv": [
+    "eval",
+    "location.href = 'nav2.html'"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "\"nav2.html\"\n",
+   "ms": 212
+  },
+  {
+   "id": "nav:wait",
+   "argv": [
+    "wait",
+    "800"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Waited 800ms\n",
+   "ms": 1025
+  },
+  {
+   "id": "nav:stale-after-js-nav-click",
+   "argv": [
+    "click",
+    "<stale stay>"
+   ],
+   "refs": [
+    "f10e3"
+   ],
+   "exit": 1,
+   "out": "Error: Ref f10e3 is from a page this tab has left. Run snapshot.\n",
+   "ms": 196,
+   "state": {
+    "url": "/nav2.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:stale-after-js-nav-gen",
+   "argv": [
+    "generate-locator",
+    "<stale stay>"
+   ],
+   "refs": [
+    "f10e3"
+   ],
+   "exit": 1,
+   "out": "Error: Ref f10e3 is from a page this tab has left. Run snapshot.\n",
+   "ms": 193,
+   "state": {
+    "url": "/nav2.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:stale-after-js-nav-html",
+   "argv": [
+    "html",
+    "<stale stay>"
+   ],
+   "refs": [
+    "f10e3"
+   ],
+   "exit": 1,
+   "out": "Error: Ref f10e3 is from a page this tab has left. Run snapshot.\n",
+   "ms": 196,
+   "state": {
+    "url": "/nav2.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:stale-after-js-nav-link",
+   "argv": [
+    "click",
+    "<stale link>"
+   ],
+   "refs": [
+    "f10e10"
+   ],
+   "exit": 1,
+   "out": "Error: Ref f10e10 is from a page this tab has left. Run snapshot.\n",
+   "ms": 226,
+   "state": {
+    "url": "/nav2.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:snapshot-4",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav2.html\n- Page Title: Nav two\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 233
+  },
+  {
+   "id": "nav:cli-goto",
+   "argv": [
+    "goto",
+    "http://127.0.0.1:42170/nav.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav.html\n- Page Title: Nav one\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 236,
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:stale-after-goto",
+   "argv": [
+    "click",
+    "<stale other>"
+   ],
+   "refs": [
+    "f11e4"
+   ],
+   "exit": 1,
+   "out": "Error: f11e4 is not from a snapshot of this tab; run snapshot (refs are per tab, and a ref goes away when its element is removed or its role or name changes)\n",
+   "ms": 194,
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:go-back",
+   "argv": [
+    "go-back"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav.html\n- Page Title: Nav one\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 258,
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "nav:snapshot-5",
+   "argv": [
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav.html\n- Page Title: Nav one\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 202
+  },
+  {
+   "id": "nav:click-after-back",
+   "argv": [
+    "click",
+    "<button \"Other\"#0>"
+   ],
+   "refs": [
+    "e99999"
+   ],
+   "exit": 1,
+   "out": "Error: e99999 is not from a snapshot of this tab; run snapshot (refs are per tab, and a ref goes away when its element is removed or its role or name changes)\n",
+   "ms": 209,
+   "missing_targets": [
+    "<button \"Other\"#0>"
+   ],
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "tabs:open-a",
+   "argv": [
+    "--tab=snaprefs-a",
+    "open",
+    "http://127.0.0.1:42170/nav.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav.html\n- Page Title: Nav one\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 291
+  },
+  {
+   "id": "tabs:open-b",
+   "argv": [
+    "--tab=snaprefs-b",
+    "open",
+    "http://127.0.0.1:42170/nav2.html"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav2.html\n- Page Title: Nav two\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 281
+  },
+  {
+   "id": "tabs:snapshot-a",
+   "argv": [
+    "--tab=snaprefs-a",
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav.html\n- Page Title: Nav one\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 231,
+   "snapshot": "- heading \"Nav one\" [level=1] [ref=e2]\n- button \"Stay\" [ref=e3]\n- button \"Rerender\" [ref=e4]\n- list [ref=e5]:\n  - listitem [ref=e6]:\n    - button \"Item A\" [ref=e7]\n  - listitem [ref=e8]:\n    - button \"Item B\" [ref=e9]\n- link \"Go to page two\" [ref=e10]:\n  - /url: nav2.html\n"
+  },
+  {
+   "id": "tabs:snapshot-b",
+   "argv": [
+    "--tab=snaprefs-b",
+    "snapshot"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav2.html\n- Page Title: Nav two\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 210,
+   "snapshot": "- heading \"Nav two\" [level=1] [ref=e2]\n- button \"Stay\" [ref=e3]\n- button \"Other\" [ref=e4]\n- link \"Back to page one\" [ref=e5]:\n  - /url: nav.html\n"
+  },
+  {
+   "id": "tabs:a-ref-in-b-same-number",
+   "argv": [
+    "click",
+    "<stale a-rerender>",
+    "--tab=snaprefs-b"
+   ],
+   "refs": [
+    "e4"
+   ],
+   "exit": 0,
+   "out": "### Page\n- Page URL: <base>/nav2.html\n- Page Title: Nav two\n### Snapshot\n[Snapshot](<page.yml>)\n",
+   "ms": 226,
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "tabs:a-ref-in-b-unknown-number",
+   "argv": [
+    "click",
+    "<stale a-item-b>",
+    "--tab=snaprefs-b"
+   ],
+   "refs": [
+    "e9"
+   ],
+   "exit": 1,
+   "out": "Error: e9 is not from a snapshot of this tab; run snapshot (refs are per tab, and a ref goes away when its element is removed or its role or name changes)\n",
+   "ms": 216,
+   "state": {
+    "url": "/nav.html",
+    "fields": {},
+    "log": "",
+    "dialog": null,
+    "scrollY": 0
+   }
+  },
+  {
+   "id": "tabs:state-b",
+   "argv": [
+    "--tab=snaprefs-b",
+    "eval",
+    "(() => {\n  const fields = {};\n  const roots = [document];\n  const walk = root => root.querySelectorAll('*').forEach(el => {\n    if (el.shadowRoot) { roots.push(el.shadowRoot); walk(el.shadowRoot); }\n  });\n  walk(document);\n  document.querySelectorAll('iframe').forEach(f => { try { if (f.contentDocument) roots.push(f.contentDocument); } catch (e) {} });\n  for (const root of roots) {\n    root.querySelectorAll('input, select, textarea').forEach(el => {\n      const key = el.id || el.name || el.type;\n      if (el.type === 'checkbox' || el.type === 'radio') fields[key] = el.checked;\n      else if (el.type === 'file') fields[key] = Array.from(el.files).map(f => f.name).join(',');\n      else fields[key] = el.value;\n    });\n  }\n  const dlg = document.querySelector('dialog');\n  return JSON.stringify({\n    url: location.pathname + location.hash,\n    fields,\n    log: document.documentElement.dataset.log || '',\n    dialog: dlg ? dlg.open : null,\n    scrollY: Math.round(window.scrollY),\n  });\n})()"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "\"{\\\"url\\\":\\\"/nav2.html\\\",\\\"fields\\\":{},\\\"log\\\":\\\"click:other other\\\",\\\"dialog\\\":null,\\\"scrollY\\\":0}\"\n",
+   "ms": 214
+  },
+  {
+   "id": "tabs:close-a",
+   "argv": [
+    "--tab=snaprefs-a",
+    "close"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Tab 'snaprefs-a' closed; 2 tab(s) still open.\n",
+   "ms": 222
+  },
+  {
+   "id": "tabs:close-b",
+   "argv": [
+    "--tab=snaprefs-b",
+    "close"
+   ],
+   "refs": [],
+   "exit": 0,
+   "out": "Tab 'snaprefs-b' closed; 1 tab(s) still open.\n",
+   "ms": 214
+  }
+ ]
+}

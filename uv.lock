@@ -1447,7 +1447,7 @@ requires-dist = [
     { name = "click" },
     { name = "fastmcp", marker = "extra == 'dev'", specifier = ">=3.4.3,<5" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=3.4.3,<5" },
-    { name = "patchright" },
+    { name = "patchright", specifier = ">=1.64,<1.65" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
