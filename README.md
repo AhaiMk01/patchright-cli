@@ -48,7 +48,7 @@ curl -s https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/docs/inst
 </details>
 
 > [!IMPORTANT]
-> **Requirements:** Python 3.10+ and Google Chrome
+> **Requirements:** Python 3.12+ and Google Chrome
 
 ```bash
 # Recommended — always runs latest version, no install needed

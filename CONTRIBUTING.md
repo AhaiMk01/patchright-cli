@@ -31,7 +31,7 @@ pre-commit install
 
 ## Code Style
 
-- Python 3.10+
+- Python 3.12+
 - Formatted with [Ruff](https://github.com/astral-sh/ruff) (enforced via pre-commit)
 - Keep the daemon lightweight — avoid heavy dependencies
 

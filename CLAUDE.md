@@ -66,5 +66,5 @@ CLI (cli.py) --TCP:9321--> Daemon (daemon.py) --Patchright--> Chrome
 - Flag and positional value shapes (numbers, choices, flags that need a value) live in `src/patchright_cli/values.py` (`FLAG_KINDS`, `ARG_KINDS`); the CLI checks them before contacting the daemon (exit 2) and the daemon checks them again for clients that skip the CLI. A new numeric or enum flag needs an entry there (`tests/test_cli_audit.py` enforces it)
 - Version must be updated in `pyproject.toml`, `src/patchright_cli/__init__.py` and `.claude-plugin/marketplace.json` (then run `uv lock` to sync the lock file; `tests/test_packaging.py` checks they match)
 - `python -m patchright_cli` works via `__main__.py`
-- Uses hatchling as build backend, ruff for linting (line-length=120, target py310)
+- Uses hatchling as build backend, ruff for linting (line-length=120, target py312)
 - Ruff rules: E, F, I, W, UP, B, SIM (ignores E501, SIM105, E402)

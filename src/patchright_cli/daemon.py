@@ -3958,7 +3958,7 @@ async def cmd_show(session: Session, page, args: list, options: dict, cwd: str |
 
     try:
         payload = await asyncio.wait_for(waiter, timeout=wait_seconds)
-    except (TimeoutError, asyncio.TimeoutError):
+    except TimeoutError:
         dashboard_state.cancel_annotation(token)
         return {
             "success": False,
@@ -4809,7 +4809,7 @@ async def _handle_client(
     try:
         try:
             msg = await asyncio.wait_for(_read_message(reader), REQUEST_READ_TIMEOUT)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Closed connection from %s: request not received within %ss", addr, REQUEST_READ_TIMEOUT)
             return
         except RequestTooLarge as e:

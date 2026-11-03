@@ -1049,7 +1049,7 @@ async def _run_patchright(
 
     try:
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         process.kill()
         await process.wait()
         message = f"Patchright timed out after {timeout:g}s: {' '.join(command)}"
