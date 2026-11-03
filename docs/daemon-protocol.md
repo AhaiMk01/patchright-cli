@@ -83,7 +83,7 @@ rather than on `output`, whose wording can change in any release:
 | --- | --- |
 | `session_not_open` | The requested session is absent. |
 | `tab_not_open` | The requested named tab is absent from the session. |
-| `target_closed` | The page, context or browser closed under the command. This includes a tab or window closed outside the daemon (by a person, the page or Chrome exiting), which the session still tracks. A failed `open` or `attach` never carries it. |
+| `target_closed` | The page, context or browser closed under the command. This includes a tab or window closed outside the daemon (by a person, the page or Chrome exiting), which the session still tracks. An `open` or `attach` that fails while starting a new session never carries it. A command whose own action closes its page (a popup's "Done" button) succeeds and says the page closed. |
 | `no_page` | The session is open but every page was closed with `tab-close`. `tab-new` opens one. |
 
 Other failures carry no `code`; more codes can be added later, so treat an

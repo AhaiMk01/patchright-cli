@@ -268,19 +268,6 @@ async def test_tab_new_recovers_a_session_without_pages(mock_state):  # noqa: F8
 
 
 @pytest.mark.asyncio
-async def test_a_chrome_that_dies_while_launching_is_not_a_closed_target(tmp_path):
-    from patchright._impl._errors import TargetClosedError
-
-    state = daemon.DaemonState()
-    state.playwright = MagicMock()
-    state.playwright.chromium.launch_persistent_context = AsyncMock(side_effect=TargetClosedError())
-    reply = await handle_command(
-        state, {"command": "open", "args": [], "options": {"session": "w", "profile": str(tmp_path / "p")}}
-    )
-    assert reply["success"] is False and "code" not in reply
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("command", ["snapshot", "html"])
 async def test_a_closed_target_is_not_reported_as_a_bad_selector(mock_state, mock_session, command):  # noqa: F811
     from patchright._impl._errors import TargetClosedError
@@ -327,7 +314,7 @@ async def test_a_command_that_closes_its_own_page_still_succeeds(mock_state, moc
     mock_session.page.aria_snapshot = AsyncMock(side_effect=TargetClosedError())
     reply = await _run(mock_state, "reload")
     assert reply["success"] is True and "code" not in reply
-    assert "page closed" in reply["output"]
+    assert "page closed after the command" in reply["output"]
     mock_session.page.reload.assert_awaited_once()
 
 
@@ -352,7 +339,11 @@ async def test_a_chrome_that_closes_while_opening_is_not_a_closed_target(tmp_pat
     state = daemon.DaemonState()
     state.playwright = _closing_playwright(where)
     if where == "attach":
-        msg = {"command": "attach", "args": [], "options": {"session": "w", "cdp": "ws://127.0.0.1:1/devtools/browser/x"}}
+        msg = {
+            "command": "attach",
+            "args": [],
+            "options": {"session": "w", "cdp": "ws://127.0.0.1:1/devtools/browser/x"},
+        }
     else:
         msg = {"command": "open", "args": [], "options": {"session": "w", "profile": str(tmp_path / "p")}}
     reply = await handle_command(state, msg)

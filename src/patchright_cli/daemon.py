@@ -1112,10 +1112,16 @@ class DaemonState:
         return time.monotonic() - self.last_activity > self.idle_timeout
 
     async def get_or_create_session(self, name: str = "default", **kwargs) -> Session:
-        if kwargs.get("cdp_endpoint") and kwargs.get("context_mode") == "host":
-            async with self._host_attach_lock:
-                return await self._get_or_create_session(name, **kwargs)
-        return await self._get_or_create_session(name, **kwargs)
+        try:
+            if kwargs.get("cdp_endpoint") and kwargs.get("context_mode") == "host":
+                async with self._host_attach_lock:
+                    return await self._get_or_create_session(name, **kwargs)
+            return await self._get_or_create_session(name, **kwargs)
+        except Exception as exc:
+            # A session that never got registered was never open, so there is no target to recover.
+            if is_target_closed(exc) and name not in self.sessions:
+                raise RuntimeError(f"Chrome closed while opening session '{name}': {exc}") from exc
+            raise
 
     async def _get_or_create_session(
         self,
@@ -1356,9 +1362,6 @@ class DaemonState:
                     f"Profile '{profile.label}' is open in another Chrome outside this daemon "
                     f"({profile.directory}). Close that Chrome, or pick another profile."
                 ) from exc
-            if is_target_closed(exc):
-                # No session was open yet, so this is a launch failure, not a closed target.
-                raise RuntimeError(f"Chrome closed while launching profile '{profile.label}': {exc}") from exc
             raise
 
     def _claim_profile(self, profile: Profile, session_name: str) -> None:
@@ -1526,7 +1529,14 @@ async def _page_info(session: Session, cwd: str | None = None) -> dict:
     except Exception:
         title = ""
 
-    snap_path = save_snapshot(_printed(await _ai_snapshot(session, page)), cwd)
+    try:
+        snap = await _ai_snapshot(session, page)
+    except Exception as exc:
+        if not is_target_closed(exc):
+            raise
+        # The command's own action closed the page (a popup's "Done" button). It ran, so this is no failure.
+        return {"success": True, "output": f"### Page\n- Page URL: {url}\n- The page closed after the command."}
+    snap_path = save_snapshot(_printed(snap), cwd)
 
     output_lines = [
         "### Page",
