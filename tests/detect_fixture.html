@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<title>Detect</title>
+<script>
+  // A page's own view of automation traces. Runs in the main world and keeps
+  // its findings in a textarea's value (a property, so writing it makes no
+  // mutation), which the tests read back.
+  const mutations = [];
+  new MutationObserver((records) => {
+    for (const m of records) {
+      if (m.type === "childList") {
+        for (const n of m.addedNodes) mutations.push("+" + n.nodeName);
+        for (const n of m.removedNodes) mutations.push("-" + n.nodeName);
+      } else {
+        mutations.push("@" + m.target.nodeName + "." + m.attributeName + "=" + m.target.getAttribute(m.attributeName));
+      }
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+  setInterval(() => {
+    const log = document.getElementById("probe");
+    if (!log) return;
+    log.value = JSON.stringify({
+      glass: document.querySelectorAll("x-pw-glass").length,
+      cursor: document.body.getAttribute("data-pw-cursor"),
+      sheets: document.adoptedStyleSheets.length,
+      playwright: typeof window.playwright,
+      pwGlobals: Object.getOwnPropertyNames(window).filter((k) => k.startsWith("__pw_")).length,
+      mutations: mutations.slice(),
+    });
+  }, 50);
+</script>
+</head>
+<body>
+<button id="target" style="margin: 40px">Target</button>
+<button id="other">Other</button>
+<textarea id="probe" hidden></textarea>
+</body>
+</html>

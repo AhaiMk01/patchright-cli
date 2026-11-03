@@ -235,7 +235,7 @@ class Sweep:
         result: dict = {}
 
         def run():
-            result["value"] = self.cli("pick-locator", "--wait=20")
+            result["value"] = self.cli("pick-locator", "--detectable", "--wait=20")
 
         thread = threading.Thread(target=run)
         thread.start()

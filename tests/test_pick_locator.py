@@ -43,6 +43,7 @@ def _picked(selector: str):
 
 
 async def _run(state, **options):
+    options.setdefault("detectable", True)
     return await handle_command(state, {"command": "pick-locator", "args": [], "options": options})
 
 
@@ -55,7 +56,9 @@ async def test_pick_returns_the_locator(state_with_page):
     page.pick_locator = AsyncMock(return_value=_picked('internal:text="Item"i >> nth=1'))
     r = await _run(state)
     assert r["success"] is True
-    assert r["output"] == 'internal:text="Item"i >> nth=1'
+    lines = r["output"].splitlines()
+    assert lines[0] == 'internal:text="Item"i >> nth=1'
+    assert lines[-2:] == [daemon.PICK_TRACES_NOTE, daemon.PICK_TRACES_HELP]
     assert r["data"] == {"locator": 'internal:text="Item"i >> nth=1', "ref": None}
     assert page not in daemon._active_picks
 
@@ -110,7 +113,13 @@ async def test_pick_reports_a_cancel_from_another_call(state_with_page):
 
 @pytest.mark.parametrize(
     ("wait", "message"),
-    [(True, "Give --wait a value"), ("abc", "Invalid --wait"), ("0", "above 0"), ("-5", "above 0"), ("inf", "above 0")],
+    [
+        (True, "--wait needs a value"),
+        ("abc", "invalid --wait value `abc`"),
+        ("0", "above 0"),
+        ("-5", "above 0"),
+        ("inf", "above 0"),
+    ],
 )
 @pytest.mark.asyncio
 async def test_pick_rejects_a_bad_wait(state_with_page, wait, message):
@@ -254,11 +263,16 @@ def test_send_command_reads_in_slices_when_interruptible(monkeypatch):
 
 
 def test_mcp_pick_locator_args():
-    assert mcp_server._build_args("patchright_pick_locator", {"wait": 90, "cancel": False}) == [
+    assert mcp_server._build_args("patchright_pick_locator", {"wait": 90, "cancel": False, "detectable": True}) == [
+        "pick-locator",
+        "--wait=90",
+        "--detectable",
+    ]
+    assert mcp_server._build_args("patchright_pick_locator", {"wait": 90, "cancel": False, "detectable": False}) == [
         "pick-locator",
         "--wait=90",
     ]
-    assert mcp_server._build_args("patchright_pick_locator", {"wait": 90, "cancel": True}) == [
+    assert mcp_server._build_args("patchright_pick_locator", {"wait": 90, "cancel": True, "detectable": False}) == [
         "pick-locator",
         "--cancel",
     ]
@@ -274,3 +288,81 @@ async def test_pick_gives_no_ref_for_an_element_missing_from_the_snapshot(state_
     r = await _run(state)
     assert r["data"]["ref"] is None
     assert "### Ref" not in r["output"]
+
+
+# -- page-visible traces ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pick_without_detectable_is_refused_before_pick_mode(state_with_page):
+    state, _, page = state_with_page
+    page.pick_locator = AsyncMock()
+    r = await _run(state, detectable=False)
+    assert r["success"] is False and r["exit_code"] == 2
+    assert "window.playwright" in r["output"]
+    assert r["output"].splitlines()[-1] == "help: patchright-cli pick-locator --detectable"
+    page.pick_locator.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancel_needs_no_detectable(state_with_page):
+    state, _, _ = state_with_page
+    r = await _run(state, cancel=True, detectable=False)
+    assert r["success"] is True and "(no-op)" in r["output"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["picked", "cancelled", "timeout"])
+async def test_every_pick_end_cleans_up_in_the_isolated_world_and_says_what_stays(state_with_page, outcome):
+    state, session, page = state_with_page
+    session.highlights = {}
+    frame = MagicMock()
+    frame.evaluate = AsyncMock()
+    page.frames = [frame]
+    if outcome == "picked":
+        page.pick_locator = AsyncMock(return_value=_picked("#b"))
+        r = await _run(state)
+    elif outcome == "cancelled":
+        page.pick_locator = AsyncMock(side_effect=RuntimeError("Page.pick_locator: Locator picking was cancelled"))
+        r = await _run(state)
+    else:
+
+        async def never():
+            await asyncio.sleep(10)
+
+        page.pick_locator = never
+        r = await _run(state, wait="0.05")
+    assert r["success"] is (outcome == "picked")
+    assert r["output"].splitlines()[-2:] == [daemon.PICK_TRACES_NOTE, daemon.PICK_TRACES_HELP]
+    frame.evaluate.assert_awaited_once()
+    args, kwargs = frame.evaluate.call_args
+    assert args == (daemon._PICK_CLEANUP, True) and kwargs == {"isolated_context": True}
+
+
+@pytest.mark.asyncio
+async def test_pick_cleanup_keeps_the_glass_while_a_highlight_shows(state_with_page):
+    state, session, page = state_with_page
+    session.highlights = {id(page): {"e1"}}
+    frame = MagicMock()
+    frame.evaluate = AsyncMock()
+    page.frames = [frame]
+    page.pick_locator = AsyncMock(return_value=_picked("#b"))
+    await _run(state)
+    assert frame.evaluate.call_args.args == (daemon._PICK_CLEANUP, False)
+
+
+def test_cli_refuses_pick_locator_without_detectable(monkeypatch, capsys):
+    def boom(*a, **k):
+        raise AssertionError("contacted the daemon")
+
+    monkeypatch.setattr(cli, "ensure_daemon_running", boom)
+    monkeypatch.setattr(cli, "_send_command", boom)
+    monkeypatch.setattr(cli.sys, "argv", ["patchright-cli", "pick-locator"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith(
+        "error: pick-locator installs Playwright's recorder in every page of this session (window.playwright"
+    )
+    assert lines[1] == "help: patchright-cli pick-locator --detectable"

@@ -148,7 +148,10 @@ async def test_select_timeout_lists_the_options(state, session):
     session.page.get_by_ref = MagicMock(return_value=loc)
     response, _ = await _run(state, "select", ["e3", "Purple"])
     assert response["success"] is False
-    assert response["output"].endswith('Options:\n- option "Red"')
+    lines = response["output"].splitlines()
+    assert lines[0] == "Error: select on e3 timed out after 30s"
+    assert lines[1:3] == ["Options:", '- option "Red"']
+    assert lines[-1].startswith("help: run `snapshot` to check e3")
 
 
 async def test_snapshot_of_a_ref_slices_one_full_snapshot(state, session, tmp_path):

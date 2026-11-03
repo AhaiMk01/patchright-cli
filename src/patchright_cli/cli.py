@@ -11,6 +11,7 @@ import json
 import math
 import os
 import re
+import shlex
 import socket
 import struct
 import sys
@@ -19,7 +20,7 @@ from pathlib import Path
 
 import click
 
-from patchright_cli import __version__
+from patchright_cli import __version__, values
 from patchright_cli.daemon import (
     DEFAULT_PICK_WAIT,
     DEFAULT_PORT,
@@ -663,7 +664,9 @@ def _recv_exact(sock: socket.socket, n: int, deadline: float | None = None) -> b
 # ones its daemon handler reads -- mapped to a description that states the
 # default. Anything else after the command, beyond GLOBAL_FLAGS, is rejected
 # before the daemon is contacted. `min_args` defaults to the number of
-# `<required>` positionals in `usage`.
+# `<required>` positionals in `usage`, `max_args` to the number of `<required>`
+# and `[optional]` ones; more positionals than that exit 2 rather than being
+# dropped (`extra_args_hint` adds a command-specific help line to that error).
 COMMAND_SPECS: dict[str, dict] = {
     # Core
     "open": {
@@ -1129,6 +1132,9 @@ COMMAND_SPECS: dict[str, dict] = {
             "fps": "Frame rate of the real-time video, 1-60; each frame lasts until the next (default: 25)",
         },
         "examples": ["video-start", "video-start --fps=60"],
+        # playwright-cli takes `video-start [filename]`; here the name comes at the end.
+        "extra_args_hint": "help: video-start takes no file name; name the file when you stop: "
+        "patchright-cli video-stop --filename=<name>.webm",
     },
     "video-stop": {
         "usage": "video-stop",
@@ -1221,16 +1227,18 @@ COMMAND_SPECS: dict[str, dict] = {
     },
     "pick-locator": {
         "usage": "pick-locator",
-        "summary": "Wait for a person to click an element; print its locator",
+        "summary": "Wait for a person to click an element; print its locator (page-detectable: needs --detectable)",
         "flags": {
+            "detectable": "Required: accept that Playwright's recorder stays in every page of the session "
+            "(window.playwright, __pw_* globals, an <x-pw-glass> element) until it closes (default: refuse)",
             "wait": "Seconds to wait for the click before cancelling (default: 60)",
-            "cancel": "Cancel the pick-locator waiting on this tab (default: off)",
+            "cancel": "Cancel the pick-locator waiting on this tab; needs no --detectable (default: off)",
         },
-        "examples": ["pick-locator", "pick-locator --wait=180", "pick-locator --cancel"],
+        "examples": ["pick-locator --detectable", "pick-locator --detectable --wait=180", "pick-locator --cancel"],
     },
     "highlight": {
         "usage": "highlight <ref>",
-        "summary": "Show overlay on element",
+        "summary": "Show overlay on element (page-detectable while shown; removed on --hide)",
         "flags": {
             "style": "Extra inline CSS for the overlay, e.g. outline: 2px dashed red (default: Playwright's highlight box)",
             "hide": "Remove the overlay instead; without a ref, clear every overlay (default: off)",
@@ -1390,6 +1398,13 @@ def _min_args(spec: dict) -> int:
     return sum(1 for token in spec["usage"].split()[1:] if token.startswith("<"))
 
 
+def _max_args(spec: dict) -> int | None:
+    """Most positionals `usage` allows: one per `<x>` or `[x]`; None for no limit."""
+    if "max_args" in spec:
+        return spec["max_args"]
+    return sum(1 for token in spec["usage"].split()[1:] if token[:1] in "<[")
+
+
 def _manual_line(name: str) -> str:
     spec = COMMAND_SPECS[name]
     flags = " ".join(f"[--{f}]" for f in spec.get("flags", {}))
@@ -1475,6 +1490,14 @@ def _validate_positionals(command: str, args: list, flags: dict) -> None:
             f"help: patchright-cli {spec['usage']}",
             f"help: run `patchright-cli {command} --help` for flags and examples",
         )
+    most = _max_args(spec)
+    if most is not None and len(args) > most:
+        extras = " ".join(shlex.quote(a) if a else "''" for a in args[most:])
+        hints = [spec["extra_args_hint"]] if "extra_args_hint" in spec else []
+        if most:
+            hints.append("help: quote an argument that contains spaces, so it stays one argument")
+        hints.append(f"help: patchright-cli {spec['usage']}")
+        raise UsageError(f"`{command}` takes at most {most} argument(s), got {len(args)}: {extras}", *hints)
 
 
 def _suggest_command(command: str) -> str | None:
@@ -1791,6 +1814,7 @@ _TOON_NOUNS = {
     "profile-list": "profiles",
     "find": "matches",
     "webmcp-list": "tools",
+    "passkey-list": "passkeys",
 }
 
 # What to do when a list reply was cut short (`total` > shown).
@@ -1817,6 +1841,15 @@ def _toon_lines(command: str, response: dict) -> list[str] | None:
     total = response.get("total")
     if isinstance(total, int):
         doc["total"] = total
+    empty_helps: list[str] = []
+    if data == []:
+        # A bare `items: []` says nothing about what was looked for; carry the
+        # text reply's explicit empty state ("0 passkeys in this session") and its hints.
+        text = [line.strip() for line in str(response.get("output") or "").splitlines() if line.strip()]
+        message = next((line for line in text if line.startswith(("0 ", "# "))), None)
+        if message:
+            doc["message"] = message
+        empty_helps = [line for line in text if line.startswith("help:")]
     try:
         encoded = toon.encode(doc)
     except (TypeError, ValueError):
@@ -1827,7 +1860,7 @@ def _toon_lines(command: str, response: dict) -> list[str] | None:
     if isinstance(total, int) and isinstance(data, list) and total > len(data):
         hint = _MORE_HINTS.get(command, "narrow the request to see the rest")
         lines.append(f"help: showing {len(data)} of {total}; {hint}")
-    return lines
+    return lines + empty_helps
 
 
 def _parse_port(value: str) -> int:
@@ -1860,6 +1893,80 @@ def _parse_geolocation(value: str) -> dict:
             f"invalid --geolocation value `{value}`", "help: use LAT,LON, e.g. --geolocation=37.77,-122.42"
         ) from None
     return {"lat": lat, "lon": lon}
+
+
+# A sentence that tells the reader what to do next: printed as a `help:` line.
+_NEXT_STEP = (
+    "Run",
+    "Use",
+    "Close",
+    "Finish",
+    "Narrow",
+    "Quote",
+    "Drop",
+    "Pass",
+    "Give",
+    "Try",
+    "Open",
+    "Call",
+    "Start",
+    "Navigate",
+    "Goto",
+    "Reload",
+    "Wait",
+    "Check",
+    "Raise",
+)
+_NEXT_STEP_SPLIT = re.compile(r"(?<=[.!?])\s+(?=(?:" + "|".join(_NEXT_STEP) + r")\b)")
+_ERROR_PREFIX = re.compile(r"^(?:error|Error|ERROR)\s*:\s*")
+_USAGE_TAIL = re.compile(r"(?:^|\s)Usage: (.+)$")
+
+
+def _lower_first(text: str) -> str:
+    """`Tab 'x' is not open` -> `tab 'x' is not open`; acronyms (`WebMCP`, `URL`) stay."""
+    word = re.match(r"[A-Za-z]+", text)
+    if word and word.group()[0].isupper() and (word.group()[1:].islower() or word.group() == "A"):
+        return text[0].lower() + text[1:]
+    return text
+
+
+def _drop_period(text: str) -> str:
+    return text[:-1] if text.endswith(".") and not text.endswith("..") else text
+
+
+def _as_help(sentence: str) -> str:
+    sentence = sentence.strip()
+    if sentence.startswith("help:"):
+        return sentence
+    return f"help: {_lower_first(_drop_period(sentence))}"
+
+
+def _failure_lines(command: str, output: str) -> tuple[str, list[str], list[str]]:
+    """A failed daemon reply as (message, detail lines, help lines), whatever its wording.
+
+    The daemon's messages grew in several styles (`Error: ...`, bare sentences,
+    `Usage: ...`, a next step in the same sentence). Every failure prints the
+    same way: `error: <message>`, any detail lines, then `help:` lines.
+    """
+    lines = [line.rstrip() for line in output.strip().splitlines()]
+    if not lines or not lines[0].strip():
+        return f"`{command}` failed", [], []
+    first = _ERROR_PREFIX.sub("", lines[0].strip())
+    helps: list[str] = []
+    usage = _USAGE_TAIL.search(first)
+    if usage:
+        first = first[: usage.start()].strip() or f"`{command}` got missing or invalid arguments"
+        helps.append(f"help: patchright-cli {usage.group(1).strip()}")
+    message, *next_steps = _NEXT_STEP_SPLIT.split(first)
+    helps[:0] = [_as_help(step) for step in next_steps]
+    details: list[str] = []
+    for line in lines[1:]:
+        bare = line.strip()
+        if bare.startswith("help:") or bare.startswith(_NEXT_STEP):
+            helps.append(_as_help(bare))
+        elif bare:
+            details.append(line)
+    return _lower_first(_drop_period(message.strip())), details, helps
 
 
 def _print_error(message: str, *help_lines: str) -> None:
@@ -2114,6 +2221,10 @@ def _main():
 
     # Merge: global opts as base, command-level opts take precedence
     extra_opts = {**extra_opts, **cmd_opts}
+    try:
+        values.check_flags(command, extra_opts)
+    except values.ValueProblem as e:
+        raise UsageError(e.message, *e.help_lines) from None
 
     # For eval/run-code: support --file=<path> and stdin via "-"
     if command in ("eval", "run-code"):
@@ -2142,6 +2253,11 @@ def _main():
             )
 
     _validate_positionals(command, args, extra_opts)
+    try:
+        values.check_args(command, args, extra_opts)
+    except values.ValueProblem as e:
+        usage = [f"help: patchright-cli {COMMAND_SPECS[command]['usage']}"] if e.positional else []
+        raise UsageError(e.message, *e.help_lines, *usage) from None
 
     _warn_stale_skills()
 
@@ -2193,13 +2309,22 @@ def _main():
     # it, or a failure, prints exactly as it would without the flag.
     toon_lines = _toon_lines(command, response) if toon and success else None
 
+    failure = None if success else _failure_lines(command, output if isinstance(output, str) else str(output))
+
     if toon_lines is not None:
         click.echo("\n".join(toon_lines))
     elif as_json:
         payload = dict(response)
+        if failure is not None:
+            payload.setdefault("error", failure[0])
+            if failure[2]:
+                payload.setdefault("help", [line.removeprefix("help: ") for line in failure[2]])
         if raw and isinstance(payload.get("output"), str):
             payload["output"] = _strip_raw_output(payload["output"])
         click.echo(json.dumps(payload, default=str))
+    elif failure is not None:
+        message, details, helps = failure
+        click.echo("\n".join([f"error: {message}", *details, *helps]))
     else:
         if output:
             if raw:
