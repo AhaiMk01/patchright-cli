@@ -87,3 +87,101 @@ def test_the_most_positionals_still_pass(monkeypatch, capsys):
 def test_text_after_double_dash_is_still_counted(monkeypatch, capsys):
     code, lines, _ = _run(["type", "--", "-a", "-b"], monkeypatch, capsys)
     assert code == 2 and "got 2: -b" in lines[0]
+
+
+# -- C. bad flag and positional values exit 2 before the daemon ---------------
+
+from patchright_cli import values  # noqa: E402
+
+_TYPED_FLAGS = [(c, f, k) for c, kinds in values.FLAG_KINDS.items() for f, k in kinds.items()]
+_GLOBAL_TYPED = list(values.GLOBAL_FLAG_KINDS.items())
+
+
+def _required_args(name):
+    spec = cli.COMMAND_SPECS[name]
+    return ["e1"] * cli._min_args(spec)
+
+
+def test_every_typed_flag_is_a_declared_flag():
+    for command, flag, _ in _TYPED_FLAGS:
+        assert flag in cli.COMMAND_SPECS[command].get("flags", {}), (command, flag)
+    for flag, _ in _GLOBAL_TYPED:
+        assert flag in cli.GLOBAL_FLAGS, flag
+
+
+def test_every_numeric_or_enum_flag_has_a_kind():
+    """A flag whose default is a number, or whose description lists choices, must be typed."""
+    numeric_default = re.compile(r"\(default: -?\d")
+    for command, spec in cli.COMMAND_SPECS.items():
+        for flag, desc in spec.get("flags", {}).items():
+            looks_typed = numeric_default.search(desc) or re.search(r"\w\|\w", desc) or " in ms" in desc
+            if looks_typed and command != "open" and flag != "block-networks":
+                assert flag in values.FLAG_KINDS.get(command, {}), (command, flag, desc)
+
+
+def test_every_positional_kind_matches_the_usage():
+    for command, entries in values.ARG_KINDS.items():
+        names = [t for t in cli.COMMAND_SPECS[command]["usage"].split()[1:] if t[:1] in "<["]
+        assert len(entries) <= len(names), command
+        for entry, name in zip(entries, names, strict=False):
+            if entry is not None:
+                assert entry[0][0] == name[0], (command, entry[0], name)
+
+
+@pytest.mark.parametrize(("command", "flag", "kind"), _TYPED_FLAGS, ids=lambda v: str(v)[:20])
+def test_every_typed_flag_rejects_a_bad_value(command, flag, kind, monkeypatch, capsys):
+    bad = f"--{flag}" if isinstance(kind, values.Text) else f"--{flag}=zz-bogus"
+    code, lines, sent = _run([command, *_required_args(command), bad], monkeypatch, capsys)
+    assert code == 2, lines
+    assert sent is None
+    assert lines[0] in (f"error: invalid --{flag} value `zz-bogus`", f"error: --{flag} needs a value")
+    assert lines[1].startswith(f"help: --{flag} takes ")
+
+
+@pytest.mark.parametrize(("flag", "kind"), _GLOBAL_TYPED)
+def test_global_typed_flags_reject_a_bad_value(flag, kind, monkeypatch, capsys):
+    code, lines, sent = _run(["snapshot", f"--{flag}=zz-bogus"], monkeypatch, capsys)
+    assert (code, sent) == (2, None)
+    assert lines[0] == f"error: invalid --{flag} value `zz-bogus`"
+
+
+@pytest.mark.parametrize("command", list(values.ARG_KINDS))
+def test_every_typed_positional_rejects_a_bad_value(command, monkeypatch, capsys):
+    entries = values.ARG_KINDS[command]
+    args = ["e1" if e is None else str(e[1].example) for e in entries]
+    position = next(i for i, e in enumerate(entries) if e is not None)
+    args[position] = "zz-bogus"
+    code, lines, sent = _run([command, *args], monkeypatch, capsys)
+    assert (code, sent) == (2, None), lines
+    assert lines[0] == f"error: invalid {entries[position][0]} value `zz-bogus` for `{command}`"
+    assert lines[-1] == f"help: patchright-cli {cli.COMMAND_SPECS[command]['usage']}"
+    # The example values in the help line are themselves valid.
+    code, _, sent = _run([command, *(["e1" if e is None else str(e[1].example) for e in entries])], monkeypatch, capsys)
+    assert code == 0 and sent is not None
+
+
+@pytest.mark.parametrize(("command", "flag", "kind"), _TYPED_FLAGS, ids=lambda v: str(v)[:20])
+def test_every_typed_flag_example_is_accepted(command, flag, kind, monkeypatch, capsys):
+    code, lines, _ = _run([command, *_required_args(command), f"--{flag}={kind.example}"], monkeypatch, capsys)
+    rejected = (f"error: invalid --{flag} value", f"error: --{flag} needs a value")
+    assert not (code == 2 and lines[0].startswith(rejected)), lines
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["video-start", "--fps=abc"],
+        ["html", "--max-chars=x"],
+        ["click", "e1", "--scroll=bogus"],
+        ["pick-locator", "--wait=abc"],
+        ["show", "--annotate", "--wait=abc"],
+        ["passkey-add", "x.com", "--sign-count=x"],
+        ["find", "--role=button", "stray"],
+        ["find", "Sign", "--name=x"],
+        ["pick-locator", "--wait", "5"],
+    ],
+)
+def test_measured_bad_values(argv, monkeypatch, capsys):
+    code, lines, sent = _run(argv, monkeypatch, capsys)
+    assert (code, sent) == (2, None), lines
+    assert lines[0].startswith("error: ") and lines[1].startswith("help: ")

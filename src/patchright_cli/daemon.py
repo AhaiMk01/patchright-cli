@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from patchright_cli import daemon_pid, snapshot_text
+from patchright_cli import daemon_pid, snapshot_text, values
 from patchright_cli.debugger import SessionDebugger
 from patchright_cli.snapshot import EMPTY_SNAPSHOT, ai_snapshot, probe_ref, save_snapshot
 from patchright_cli.snapshot_text import SnapshotIndex, has_ref, normalize_ref, render_hits
@@ -4157,6 +4157,13 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
     # `requests` is an alias for `network` (matches playwright-cli naming).
     if cmd == "requests":
         cmd = "network"
+
+    try:
+        # The CLI ran these already; clients that skip it, and config-file values, meet them here.
+        values.check_command(cmd, args, options)
+    except values.ValueProblem as exc:
+        output = "\n".join([f"Error: {exc.message}", *exc.help_lines])
+        return {"success": False, "output": output, "exit_code": 2}
 
     session_name = options.pop("session", "default") or "default"
 

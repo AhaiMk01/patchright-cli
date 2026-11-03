@@ -20,7 +20,7 @@ from pathlib import Path
 
 import click
 
-from patchright_cli import __version__
+from patchright_cli import __version__, values
 from patchright_cli.daemon import (
     DEFAULT_PICK_WAIT,
     DEFAULT_PORT,
@@ -2135,6 +2135,10 @@ def _main():
 
     # Merge: global opts as base, command-level opts take precedence
     extra_opts = {**extra_opts, **cmd_opts}
+    try:
+        values.check_flags(command, extra_opts)
+    except values.ValueProblem as e:
+        raise UsageError(e.message, *e.help_lines) from None
 
     # For eval/run-code: support --file=<path> and stdin via "-"
     if command in ("eval", "run-code"):
@@ -2163,6 +2167,11 @@ def _main():
             )
 
     _validate_positionals(command, args, extra_opts)
+    try:
+        values.check_args(command, args, extra_opts)
+    except values.ValueProblem as e:
+        usage = [f"help: patchright-cli {COMMAND_SPECS[command]['usage']}"] if e.positional else []
+        raise UsageError(e.message, *e.help_lines, *usage) from None
 
     _warn_stale_skills()
 

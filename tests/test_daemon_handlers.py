@@ -854,24 +854,24 @@ async def test_find_invalid_regex_fails(mock_state, find_session):
 async def test_find_invalid_limit_fails(mock_state, find_session):
     mock_state.sessions = {"default": find_session}
     response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {"limit": "abc"}})
-    assert response["success"] is False
-    assert "Invalid --limit" in response["output"]
+    assert response["success"] is False and response["exit_code"] == 2
+    assert "--limit" in response["output"] and "1 or more" in response["output"]
 
 
 @pytest.mark.asyncio
 async def test_find_zero_limit_fails(mock_state, find_session):
     mock_state.sessions = {"default": find_session}
     response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {"limit": "0"}})
-    assert response["success"] is False
-    assert "Invalid --limit" in response["output"]
+    assert response["success"] is False and response["exit_code"] == 2
+    assert "--limit" in response["output"] and "1 or more" in response["output"]
 
 
 @pytest.mark.asyncio
 async def test_find_bare_limit_flag_fails(mock_state, find_session):
     mock_state.sessions = {"default": find_session}
     response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {"limit": True}})
-    assert response["success"] is False
-    assert "Invalid --limit" in response["output"]
+    assert response["success"] is False and response["exit_code"] == 2
+    assert "--limit" in response["output"] and "1 or more" in response["output"]
 
 
 @pytest.mark.asyncio
@@ -879,7 +879,7 @@ async def test_find_rejects_pattern_given_twice(mock_state, find_session):
     mock_state.sessions = {"default": find_session}
     response = await handle_command(mock_state, {"command": "find", "args": ["Sign"], "options": {"regex": "Sign"}})
     assert response["success"] is False
-    assert "not both" in response["output"]
+    assert "a pattern twice" in response["output"]
 
 
 @pytest.mark.asyncio

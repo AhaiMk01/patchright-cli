@@ -118,7 +118,8 @@ async def test_add_rejects_half_a_keypair(state, session, flag):
 
 async def test_add_rejects_non_integer_sign_count(state, session):
     resp = await _run(state, "passkey-add", ["x.com"], **{"sign-count": "lots"})
-    assert resp == {"success": False, "output": "--sign-count must be an integer, got 'lots'"}
+    assert resp["success"] is False and resp["exit_code"] == 2
+    assert resp["output"].startswith("Error: invalid --sign-count value `lots`")
     session.context.credentials.create.assert_not_awaited()
 
 

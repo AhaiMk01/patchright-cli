@@ -110,7 +110,13 @@ async def test_pick_reports_a_cancel_from_another_call(state_with_page):
 
 @pytest.mark.parametrize(
     ("wait", "message"),
-    [(True, "Give --wait a value"), ("abc", "Invalid --wait"), ("0", "above 0"), ("-5", "above 0"), ("inf", "above 0")],
+    [
+        (True, "--wait needs a value"),
+        ("abc", "invalid --wait value `abc`"),
+        ("0", "above 0"),
+        ("-5", "above 0"),
+        ("inf", "above 0"),
+    ],
 )
 @pytest.mark.asyncio
 async def test_pick_rejects_a_bad_wait(state_with_page, wait, message):

@@ -133,12 +133,12 @@ async def test_find_role_no_matches_skips_the_snapshot(mock_state, mock_session)
 @pytest.mark.parametrize(
     ("args", "options", "message"),
     [
-        (["Sign"], {"description": "x"}, "--description only works with --role=<role>."),
-        (["Sign"], {"exact": True, "name": "x"}, "--name, --exact only works with --role=<role>."),
-        (["Sign"], {"role": "button"}, "it takes no <text>, --regex or --all"),
-        ([], {"role": "button", "all": True}, "it takes no <text>, --regex or --all"),
-        ([], {"role": True}, "Give --role an ARIA role"),
-        ([], {"role": "button", "name": True}, "Give --name a value"),
+        (["Sign"], {"description": "x"}, "--description only works with --role=<role>"),
+        (["Sign"], {"exact": True, "name": "x"}, "--name, --exact only works with --role=<role>"),
+        (["Sign"], {"role": "button"}, "find --role takes no <text>, --regex or --all; got 'Sign'"),
+        ([], {"role": "button", "all": True}, "find --role takes no <text>, --regex or --all; got --all"),
+        ([], {"role": True}, "--role needs a value"),
+        ([], {"role": "button", "name": True}, "--name needs a value"),
         ([], {"role": "button", "description": "/[/"}, "Invalid --description regex"),
     ],
 )
@@ -196,7 +196,7 @@ async def test_html_rejects_bad_max_chars(mock_state, mock_session, bad):
     mock_state.sessions = {"default": mock_session}
     response = await _run(mock_state, "html", **{"max-chars": bad})
     assert response["success"] is False
-    assert "Invalid --max-chars" in response["output"]
+    assert "--max-chars" in response["output"] and "0 or more" in response["output"]
 
 
 @pytest.mark.asyncio
@@ -310,7 +310,7 @@ async def test_video_start_rejects_bad_fps(mock_state, mock_session, bad):
     mock_session.page.context.new_cdp_session = AsyncMock()
     response = await _run(mock_state, "video-start", fps=bad)
     assert response["success"] is False
-    assert "Invalid --fps value" in response["output"]
+    assert "--fps" in response["output"] and "from 1 to 60" in response["output"]
     mock_session.page.context.new_cdp_session.assert_not_awaited()
 
 
