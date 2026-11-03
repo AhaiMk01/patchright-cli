@@ -72,9 +72,27 @@ Every reply carries an explicit boolean `success` and a string `output`, on
 both success and failure. `success: false` indicates authentication, command,
 or daemon errors. `output` contains the result or a human-readable error.
 Additional fields, such as `snapshot_path`, are command-specific. Clients must
-ignore unknown fields. No structured error codes are currently provided.
+ignore unknown fields.
 
-Clients can detect these states in failed replies by matching these output
+### Error codes
+
+A failed reply in one of these states carries a string `code`. Branch on it
+rather than on `output`, whose wording can change in any release:
+
+| `code` | State |
+| --- | --- |
+| `session_not_open` | The requested session is absent. |
+| `tab_not_open` | The requested named tab is absent from the session. |
+| `target_closed` | The page, context or browser closed under the command. This includes a tab or window closed outside the daemon (by a person, the page or Chrome exiting), which the session still tracks. An `open` or `attach` that fails while starting a new session never carries it. A command whose own action closes its page (a popup's "Done" button) succeeds and says the page closed. |
+| `no_page` | The session is open but every page was closed with `tab-close`. `tab-new` opens one. |
+
+Other failures carry no `code`; more codes can be added later, so treat an
+unknown one like a missing one. Successful replies, including the no-ops below,
+never carry `code`. Daemons before 0.11.1 send no codes under the same
+`protocol`, so a client that may meet one keeps the output fragments below as
+its fallback.
+
+Clients can also detect these states in failed replies by matching these output
 fragments. Surrounding context and recovery advice can vary. The fragments in
 this table are part of the protocol:
 
@@ -130,17 +148,18 @@ An empty list is `[]`, and its `output` states the zero explicitly, for example
 `0 cookies in this session`. Commands not listed here send no `data`. More
 fields or commands can gain `data` later, so read only the keys you need.
 
-Best effort, not covered by the compatibility rules below: a command on a page,
-context or browser that has closed usually fails with Playwright's own message
-containing `has been closed`. That text comes from Playwright and can change
-with its version without a protocol increment.
+A command on a page, context or browser that has closed fails with
+`code: "target_closed"`. Its `output` is Playwright's own message, usually
+containing `has been closed`; that text can change with Playwright's version
+without a protocol increment, so match the code instead.
 
 ## Compatibility
 
 `protocol` is independent of the package version. Any incompatible change to
 framing, request limits, request fields (`command`, `args`, `options`, `cwd`,
-`token`), reply fields (`success`, `output`), authentication, or the
-state-detection fragments in the table above requires a protocol increment.
+`token`), reply fields (`success`, `output`), authentication, the error
+codes, or the state-detection fragments in the tables above requires a
+protocol increment. Adding an error code does not.
 Raising a request limit is not incompatible. Optional additive fields and new
 commands do not require an increment. Clients can reject unsupported protocol
 versions before sending requests.

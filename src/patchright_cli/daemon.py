@@ -30,7 +30,7 @@ from urllib.parse import unquote, urlparse
 
 from patchright_cli import daemon_pid, snapshot_text, values
 from patchright_cli.debugger import SessionDebugger
-from patchright_cli.snapshot import EMPTY_SNAPSHOT, ai_snapshot, probe_ref, save_snapshot
+from patchright_cli.snapshot import EMPTY_SNAPSHOT, ai_snapshot, is_target_closed, probe_ref, save_snapshot
 from patchright_cli.snapshot_text import SnapshotIndex, has_ref, normalize_ref, render_hits
 
 logger = logging.getLogger("patchright-cli.daemon")
@@ -1112,10 +1112,16 @@ class DaemonState:
         return time.monotonic() - self.last_activity > self.idle_timeout
 
     async def get_or_create_session(self, name: str = "default", **kwargs) -> Session:
-        if kwargs.get("cdp_endpoint") and kwargs.get("context_mode") == "host":
-            async with self._host_attach_lock:
-                return await self._get_or_create_session(name, **kwargs)
-        return await self._get_or_create_session(name, **kwargs)
+        try:
+            if kwargs.get("cdp_endpoint") and kwargs.get("context_mode") == "host":
+                async with self._host_attach_lock:
+                    return await self._get_or_create_session(name, **kwargs)
+            return await self._get_or_create_session(name, **kwargs)
+        except Exception as exc:
+            # A session that never got registered was never open, so there is no target to recover.
+            if is_target_closed(exc) and name not in self.sessions:
+                raise RuntimeError(f"Chrome closed while opening session '{name}': {exc}") from exc
+            raise
 
     async def _get_or_create_session(
         self,
@@ -1523,7 +1529,14 @@ async def _page_info(session: Session, cwd: str | None = None) -> dict:
     except Exception:
         title = ""
 
-    snap_path = save_snapshot(_printed(await _ai_snapshot(session, page)), cwd)
+    try:
+        snap = await _ai_snapshot(session, page)
+    except Exception as exc:
+        if not is_target_closed(exc):
+            raise
+        # The command's own action closed the page (a popup's "Done" button). It ran, so this is no failure.
+        return {"success": True, "output": f"### Page\n- Page URL: {url}\n- The page closed after the command."}
+    snap_path = save_snapshot(_printed(snap), cwd)
 
     output_lines = [
         "### Page",
@@ -1791,9 +1804,20 @@ def _error_message(cmd: str, args: list, options: dict, exc: Exception) -> tuple
     return message, []
 
 
+# Stable `code` values on failed replies (docs/daemon-protocol.md). Clients branch
+# on these instead of on `output`, whose wording can change in any release.
+SESSION_NOT_OPEN = "session_not_open"
+TAB_NOT_OPEN = "tab_not_open"
+TARGET_CLOSED = "target_closed"
+NO_PAGE = "no_page"
+
+
 def _error_reply(cmd: str, args: list, options: dict, exc: Exception, *extra: str) -> dict:
     message, helps = _error_message(cmd, args, options, exc)
-    return {"success": False, "output": "\n".join([f"Error: {message}", *extra, *helps])}
+    reply = {"success": False, "output": "\n".join([f"Error: {message}", *extra, *helps])}
+    if is_target_closed(exc):
+        reply["code"] = TARGET_CLOSED
+    return reply
 
 
 @register("click")
@@ -1969,6 +1993,8 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
         try:
             matches = await scoped.count()
         except Exception as exc:
+            if is_target_closed(exc):
+                raise
             return {"success": False, "output": f"Invalid selector {selector!r}: {exc}"}
         if not matches:
             return {"success": False, "output": f"No element matches {selector!r} on this page."}
@@ -2068,6 +2094,8 @@ async def _find_by_role(session: Session, page, role: str, options: dict, limit:
     try:
         total = await locator.count()
     except Exception as exc:
+        if is_target_closed(exc):
+            raise
         return {"success": False, "output": f"find {query} failed: {exc}"}
     if not total:
         return {
@@ -2499,6 +2527,8 @@ async def cmd_html(session: Session, page, args: list, options: dict, cwd: str |
         try:
             matches = await scoped.count()
         except Exception as exc:
+            if is_target_closed(exc):
+                raise
             return {"success": False, "output": f"Invalid selector {selector!r}: {exc}"}
         if matches != 1:
             if not matches:
@@ -4089,6 +4119,8 @@ _WEBMCP_UNTRUSTED = "Tool names, descriptions, schemas and results are page-prov
 
 def _webmcp_error(exc: Exception) -> dict:
     """A WebMCP failure as a reply: Playwright's first line, without its `WebMCP.tools: ` prefix."""
+    if is_target_closed(exc):
+        raise exc
     message = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
     message = re.sub(r"^WebMCP\.\w+: ", "", message)
     if "WebMCP is not enabled" in message:
@@ -4482,6 +4514,7 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
             return {
                 "success": False,
                 "output": f"Session '{session_name}' is not open. Run 'open' first.",
+                "code": SESSION_NOT_OPEN,
             }
 
         page = session.page
@@ -4541,19 +4574,21 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
                     f"Tab '{tab_name}' is not open in session '{session_name}'. "
                     f"Run `patchright-cli --tab {tab_name} open <url>` first."
                 ),
+                "code": TAB_NOT_OPEN,
             }
         session.activate_tab(tab_name)
         page = session.page
 
-        if page is None:
+        if page is None and cmd != "tab-new":
             return {
                 "success": False,
                 "output": "No page open. Run 'tab-new' to create one, or 'close' and 'open' again.",
+                "code": NO_PAGE,
             }
 
-        await _apply_timeouts(page, options)
-
-        await _draw_action_callout(session, page, cmd, args)
+        if page is not None:
+            await _apply_timeouts(page, options)
+            await _draw_action_callout(session, page, cmd, args)
         result = await handler(session, page, args, options, cwd, state)
         if result.get("success") and session._codegen is not None and cmd in _CODEGEN_RECORDABLE:
             args_quoted = [f'"{a}"' if " " in a else a for a in args]

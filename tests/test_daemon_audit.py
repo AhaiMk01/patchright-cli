@@ -199,3 +199,154 @@ async def test_daemon_rejects_an_unknown_console_level_before_capturing(mock_sta
     assert reply["success"] is False and reply["exit_code"] == 2
     assert reply["output"].startswith("Error: invalid [level] value `bogus` for `console`")
     mock_session.start_console_capture.assert_not_called()
+
+
+# -- F. Failed replies carry a stable `code` for the states clients branch on --
+
+
+@pytest.mark.asyncio
+async def test_session_not_open_carries_its_code(mock_state):  # noqa: F811
+    reply = await _run(mock_state, "snapshot", session="w")
+    assert reply["success"] is False and reply["code"] == "session_not_open"
+
+
+@pytest.mark.asyncio
+async def test_tab_not_open_carries_its_code(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    reply = await _run(mock_state, "title", tab="gone")
+    assert reply["success"] is False and reply["code"] == "tab_not_open"
+
+
+def _driver_error(name: str, message: str):
+    """An error as Patchright raises it from a driver reply."""
+    from patchright._impl._helper import parse_error
+
+    return parse_error({"name": name, "message": message, "stack": ""})
+
+
+@pytest.mark.asyncio
+async def test_a_closed_target_carries_its_code(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    closed = _driver_error("TargetClosedError", "Target page, context or browser has been closed")
+    mock_session.page.title = AsyncMock(side_effect=closed)
+    reply = await _run(mock_state, "title")
+    assert reply["success"] is False and reply["code"] == "target_closed"
+
+
+@pytest.mark.asyncio
+async def test_a_page_error_that_mentions_closing_carries_no_code(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    thrown = _driver_error("Error", "Error: the dialog has been closed")
+    mock_session.page.evaluate = AsyncMock(side_effect=thrown)
+    reply = await _run(mock_state, "eval", ["1"])
+    assert reply["success"] is False and "code" not in reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("command", "args"), [("webmcp-list", []), ("webmcp-call", ["search", "{}"])])
+async def test_webmcp_on_a_closed_target_carries_its_code(mock_state, mock_session, command, args):  # noqa: F811
+    from patchright._impl._errors import TargetClosedError
+
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.webmcp.tools = AsyncMock(side_effect=TargetClosedError())
+    mock_session.page.webmcp.call_tool = AsyncMock(side_effect=TargetClosedError())
+    reply = await _run(mock_state, command, args)
+    assert reply["success"] is False and reply["code"] == "target_closed"
+
+
+@pytest.mark.asyncio
+async def test_tab_new_recovers_a_session_without_pages(mock_state):  # noqa: F811
+    page = MagicMock(url="about:blank", title=AsyncMock(return_value=""))
+    context = MagicMock(new_page=AsyncMock(return_value=page))
+    session = daemon.Session("default", context, pages=[])
+    session.apply_emulation = AsyncMock()
+    mock_state.sessions = {"default": session}
+    assert (await _run(mock_state, "title"))["code"] == "no_page"
+    reply = await _run(mock_state, "tab-new")
+    assert reply["success"] is True
+    context.new_page.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["snapshot", "html"])
+async def test_a_closed_target_is_not_reported_as_a_bad_selector(mock_state, mock_session, command):  # noqa: F811
+    from patchright._impl._errors import TargetClosedError
+
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.locator = MagicMock(return_value=MagicMock(count=AsyncMock(side_effect=TargetClosedError())))
+    reply = await _run(mock_state, command, selector="#main")
+    assert reply["code"] == "target_closed"
+    assert "Invalid selector" not in reply["output"]
+
+
+@pytest.mark.asyncio
+async def test_other_failures_carry_no_code(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.title = AsyncMock(side_effect=Exception("Page.title: Timeout 30000ms exceeded."))
+    reply = await _run(mock_state, "title")
+    assert reply["success"] is False and "code" not in reply
+
+
+@pytest.mark.asyncio
+async def test_a_session_without_pages_carries_its_code(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page = None
+    reply = await _run(mock_state, "title")
+    assert reply["success"] is False and reply["code"] == "no_page"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_of_a_closed_page_fails_with_its_code(mock_state, mock_session):  # noqa: F811
+    from patchright._impl._errors import TargetClosedError
+
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.aria_snapshot = AsyncMock(side_effect=TargetClosedError())
+    reply = await _run(mock_state, "snapshot")
+    assert reply["success"] is False and reply["code"] == "target_closed"
+
+
+@pytest.mark.asyncio
+async def test_a_command_that_closes_its_own_page_still_succeeds(mock_state, mock_session):  # noqa: F811
+    from patchright._impl._errors import TargetClosedError
+
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.reload = AsyncMock()
+    mock_session.page.aria_snapshot = AsyncMock(side_effect=TargetClosedError())
+    reply = await _run(mock_state, "reload")
+    assert reply["success"] is True and "code" not in reply
+    assert "page closed after the command" in reply["output"]
+    mock_session.page.reload.assert_awaited_once()
+
+
+def _closing_playwright(where: str):
+    from patchright._impl._errors import TargetClosedError
+
+    playwright = MagicMock()
+    closed = AsyncMock(side_effect=TargetClosedError())
+    if where == "launch":
+        playwright.chromium.launch_persistent_context = closed
+    elif where == "first-page":
+        context = MagicMock(pages=[], new_page=closed)
+        playwright.chromium.launch_persistent_context = AsyncMock(return_value=context)
+    else:
+        playwright.chromium.connect_over_cdp = closed
+    return playwright
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("where", ["launch", "first-page", "attach"])
+async def test_a_chrome_that_closes_while_opening_is_not_a_closed_target(tmp_path, where):
+    state = daemon.DaemonState()
+    state.playwright = _closing_playwright(where)
+    if where == "attach":
+        msg = {
+            "command": "attach",
+            "args": [],
+            "options": {"session": "w", "cdp": "ws://127.0.0.1:1/devtools/browser/x"},
+        }
+    else:
+        msg = {"command": "open", "args": [], "options": {"session": "w", "profile": str(tmp_path / "p")}}
+    reply = await handle_command(state, msg)
+    assert reply["success"] is False and "code" not in reply
+    assert "closed while opening session 'w'" in reply["output"]
+    assert "w" not in state.sessions
