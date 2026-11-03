@@ -607,6 +607,10 @@ class Session:
         """Open a Page in this Session's context and record it as ours."""
         page = await self.context.new_page()
         self.own_pages.add(page)
+        if page in self._crashed:
+            # It crashed before it was ours, so the crash handler could not close it.
+            await self._close_quietly(page)
+            return page
         # The context's "page" handler applies this too, but runs as a task;
         # applying here means the caller never navigates an unemulated page.
         await self.apply_emulation(page)
