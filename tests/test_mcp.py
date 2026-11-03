@@ -260,7 +260,11 @@ def test_block_networks_none_drops_the_flag(monkeypatch):
 
 
 # Optional parameters some tools still need one of.
-_TOOL_EXTRAS = {"patchright_drop": {"data": "x"}, "patchright_find": {"text": "e1"}}
+_TOOL_EXTRAS = {
+    "patchright_drop": {"data": "x"},
+    "patchright_find": {"text": "e1"},
+    "patchright_highlight": {"ref": "e1"},
+}
 
 
 def _tool_argv(monkeypatch, tmp_path, tool, **overrides):
@@ -468,3 +472,22 @@ def test_highlight_tool_maps_style_and_hide():
     assert args == ["highlight", "e1", "--style=outline: 1px"]
     args = mcp_server._build_args("patchright_highlight", _defaults("patchright_highlight", ref="e1", hide=True))
     assert args == ["highlight", "e1", "--hide"]
+
+
+def test_highlight_tool_without_a_ref_clears_every_highlight_like_the_cli(monkeypatch):
+    import asyncio
+
+    sent = []
+
+    async def fake_run(args, session=None, timeout=0):
+        sent.append(args)
+        return "ok"
+
+    monkeypatch.setattr(mcp_server, "_run_patchright", fake_run)
+    asyncio.run(mcp_server.server.call_tool("patchright_highlight", {"hide": True}))
+    assert sent == [["highlight", "--hide"]]
+
+
+def test_highlight_tool_needs_a_ref_unless_it_hides():
+    with pytest.raises(ValueError, match="ref is required unless hide is true"):
+        mcp_server._build_args("patchright_highlight", _defaults("patchright_highlight"))

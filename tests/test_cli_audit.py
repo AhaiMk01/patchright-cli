@@ -260,3 +260,13 @@ def test_failed_toon_reply_prints_the_error_format(monkeypatch, capsys):
     reply = {"success": False, "output": "Error: boom", "data": []}
     code, lines, _ = _run(["--toon", "tab-list"], monkeypatch, capsys, reply=reply)
     assert code == 1 and lines == ["error: boom"]
+
+
+def test_console_level_must_be_one_the_capture_reports(monkeypatch, capsys):
+    code, lines, sent = _run(["console", "bogus"], monkeypatch, capsys)
+    assert (code, sent) == (2, None), lines
+    assert lines[0] == "error: invalid [level] value `bogus` for `console`"
+    assert lines[1].startswith("help: [level] takes one of: log, info, warning, warn, error, debug")
+    for level in ("error", "warning", "warn", "log", "debug", "info"):
+        code, lines, sent = _run(["console", level], monkeypatch, capsys)
+        assert code == 0 and sent["args"] == [level], lines

@@ -1550,11 +1550,11 @@ def _not_in_snapshot(ref: str) -> str:
     )
 
 
-async def _resolve_ref(session: Session, page, value, *, check: bool = True):
+async def _resolve_ref(session: Session, page, value):
     """The locator for a ref from this tab's latest snapshot.
 
-    The ref must appear in the tab's last snapshot (refs are per tab). With
-    `check`, it must also still match an element: a ref that matches nothing is
+    The ref must appear in the tab's last snapshot (refs are per tab), and it
+    must still match an element: a ref that matches nothing is
     healed once with a fresh snapshot (a ref number belongs to one element per
     document and is never reused), then reported as stale -- in milliseconds,
     where an action on it would wait out its whole timeout. Never falls back to
@@ -1564,8 +1564,6 @@ async def _resolve_ref(session: Session, page, value, *, check: bool = True):
     if not has_ref(session.last_raw, ref):
         raise ValueError(_not_in_snapshot(ref))
     locator = page.get_by_ref(ref)
-    if not check:
-        return locator
     for attempt in range(2):
         try:
             count = await locator.count()
@@ -1578,6 +1576,33 @@ async def _resolve_ref(session: Session, page, value, *, check: bool = True):
         if attempt == 0:
             await _ai_snapshot(session, page)
     raise ValueError(f"Ref {ref} no longer matches an element (removed or changed since the snapshot). Run snapshot.")
+
+
+async def _element_of_ref(session: Session, page, value):
+    """The element handle a ref from this tab's latest snapshot matches, or None when it matches nothing.
+
+    For waits on an element going away: the handle keeps pointing at the element
+    whatever later happens to the ref map, which find/pick-locator probes swap
+    for a moment (under the snapshot lock, which is held here while resolving).
+    A ref that matches nothing is healed once with a fresh snapshot first.
+    """
+    ref = _parse_ref(value)
+    if not has_ref(session.last_raw, ref):
+        raise ValueError(_not_in_snapshot(ref))
+    locator = page.get_by_ref(ref)
+    for attempt in range(2):
+        async with session.active_tab.snapshot_lock:
+            try:
+                handles = await locator.element_handles()
+            except Exception as exc:
+                if "Invalid frame" in str(exc):
+                    raise ValueError(f"Ref {ref} is from a page this tab has left. Run snapshot.") from None
+                raise
+        if handles:
+            return handles[0]
+        if attempt == 0:
+            await _ai_snapshot(session, page)
+    return None
 
 
 async def _refs_of(session: Session, page, locators: list) -> list[str | None]:
@@ -1834,12 +1859,6 @@ async def cmd_hover(session: Session, page, args: list, options: dict, cwd: str 
 @register("select")
 async def cmd_select(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     elem = await _resolve_ref(session, page, args[0])
-    if normalize_ref(args[1]):
-        # Options carry no refs; the value is the label printed under the combobox.
-        return {
-            "success": False,
-            "output": f"select takes the option label shown under the combobox, e.g. select {_parse_ref(args[0])} Green",
-        }
     try:
         await elem.select_option(args[1])
     except Exception as exc:
@@ -1848,6 +1867,11 @@ async def cmd_select(session: Session, page, args: list, options: dict, cwd: str
         block = snapshot_text.subtree(session.last_raw or "", _parse_ref(args[0])) or ""
         options_shown = [line.strip() for line in block.splitlines() if line.strip().startswith("- option ")]
         listed = ["Options:", *options_shown] if options_shown else []
+        if normalize_ref(args[1]):
+            # Options carry no refs; a ref that matched no option was meant as one.
+            listed.append(
+                f"help: select takes the option label shown under the combobox, e.g. select {_parse_ref(args[0])} Green"
+            )
         return _error_reply("select", args, options, exc, *listed)
     return await _page_info(session, cwd)
 
@@ -3138,7 +3162,11 @@ async def cmd_state_load(
         return {"success": False, "output": f"File not found: {filepath}"}
     # One native call: clears the context's cookies, storage, IndexedDB, OPFS and virtual
     # WebAuthn credentials, then applies the file's state to every origin it lists.
-    await session.context.set_storage_state(filepath)
+    # With no credentials in the file it also uninstalls the virtual authenticator,
+    # so the next passkey-* command installs it again (a no-op if it is still there).
+    async with session._passkey_lock:
+        await session.context.set_storage_state(filepath)
+        session._passkeys_installed = False
     return {"success": True, "output": f"State loaded from {filepath}"}
 
 
@@ -3856,8 +3884,18 @@ async def cmd_wait(session: Session, page, args: list, options: dict, cwd: str |
 @register("wait-for")
 async def cmd_wait_for(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     state_arg = options.get("state", "visible")
-    # Waiting for an element to go away: a ref that matches nothing is the answer, not an error.
-    elem = await _resolve_ref(session, page, args[0], check=state_arg not in ("hidden", "detached"))
+    if state_arg in ("hidden", "detached"):
+        # Waiting for an element to go away: a ref that matches nothing is the answer, not an error.
+        # Wait on the element itself, not the ref: a find probe swaps the ref map
+        # for a moment, and a ref wait read that moment as "gone".
+        element = await _element_of_ref(session, page, args[0])
+        if element is not None:
+            if state_arg == "hidden":
+                await element.wait_for_element_state("hidden")
+            else:
+                await page.wait_for_function("e => !e.isConnected", arg=element)
+        return {"success": True, "output": f"Element is {state_arg}"}
+    elem = await _resolve_ref(session, page, args[0])
     await elem.wait_for(state=state_arg)
     return {"success": True, "output": f"Element is {state_arg}"}
 

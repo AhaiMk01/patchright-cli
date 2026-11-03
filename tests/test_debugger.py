@@ -176,6 +176,87 @@ async def test_step_stops_again_inside_the_same_command(state, driver):
         daemon.COMMAND_HANDLERS.pop("fake-two")
 
 
+async def _settle():
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_armed_commands_keep_the_paused_ones_result(state, driver):
+    """A click and a slow command without a pausable call, both sent while armed:
+    only the click is held, and resume returns the click's result."""
+    click_go, slow_go = asyncio.Event(), asyncio.Event()
+
+    async def click(*_):
+        await click_go.wait()
+        await driver.call("Click button")
+        return {"success": True, "output": "clicked"}
+
+    async def slow(*_):
+        await slow_go.wait()
+        return {"success": True, "output": "slow done"}
+
+    from patchright_cli import daemon
+
+    daemon.COMMAND_HANDLERS.update({"fake-click": click, "fake-slow": slow})
+    try:
+        await _send(state, "debugger-pause")
+        click_reply = asyncio.ensure_future(_send(state, "fake-click"))
+        await _settle()
+        slow_reply = asyncio.ensure_future(_send(state, "fake-slow"))
+        await _settle()
+        click_go.set()
+        held = await asyncio.wait_for(click_reply, 2)
+        assert held["paused"] is True
+        await _settle()
+        slow_go.set()
+        ran = await asyncio.wait_for(slow_reply, 2)
+        assert "paused" not in ran
+        assert ran["output"] == "slow done"
+        resumed = await asyncio.wait_for(_send(state, "debugger-resume"), 2)
+        assert "`fake-click` finished:\nclicked" in resumed["output"]
+    finally:
+        daemon.COMMAND_HANDLERS.pop("fake-click")
+        daemon.COMMAND_HANDLERS.pop("fake-slow")
+
+
+@pytest.mark.asyncio
+async def test_a_command_sent_during_a_step_does_not_take_over_the_held_one(state, driver):
+    second_call = asyncio.Event()
+    slow_go = asyncio.Event()
+
+    async def two_calls(*_):
+        await driver.call("Evaluate")
+        await second_call.wait()
+        await driver.call("Click button")
+        return {"success": True, "output": "done"}
+
+    async def slow(*_):
+        await slow_go.wait()
+        return {"success": True, "output": "slow done"}
+
+    from patchright_cli import daemon
+
+    daemon.COMMAND_HANDLERS.update({"fake-two": two_calls, "fake-slow": slow})
+    try:
+        await _send(state, "debugger-pause")
+        assert (await asyncio.wait_for(_send(state, "fake-two"), 2))["paused"] is True
+        stepped = asyncio.ensure_future(_send(state, "debugger-step"))
+        await _settle()
+        slow_reply = asyncio.ensure_future(_send(state, "fake-slow"))
+        await _settle()
+        second_call.set()
+        assert (await asyncio.wait_for(stepped, 2))["data"]["title"] == "Click button"
+        await _settle()
+        slow_go.set()
+        assert (await asyncio.wait_for(slow_reply, 2))["output"] == "slow done"
+        resumed = await asyncio.wait_for(_send(state, "debugger-resume"), 2)
+        assert "`fake-two` finished:\ndone" in resumed["output"]
+    finally:
+        daemon.COMMAND_HANDLERS.pop("fake-two")
+        daemon.COMMAND_HANDLERS.pop("fake-slow")
+
+
 @pytest.mark.asyncio
 async def test_a_failing_held_command_reports_its_error(state, driver):
     async def boom(*_):

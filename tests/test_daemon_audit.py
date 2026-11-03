@@ -189,3 +189,13 @@ async def test_hide_one_keeps_the_glass_while_another_highlight_shows(mock_state
     frame.evaluate.assert_not_awaited()
     await _run(mock_state, "highlight", ["e2"], hide=True)
     frame.evaluate.assert_awaited_once_with(daemon._REMOVE_GLASS, isolated_context=True)
+
+
+@pytest.mark.asyncio
+async def test_daemon_rejects_an_unknown_console_level_before_capturing(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    mock_session.start_console_capture = AsyncMock(return_value=True)
+    reply = await _run(mock_state, "console", ["bogus"])
+    assert reply["success"] is False and reply["exit_code"] == 2
+    assert reply["output"].startswith("Error: invalid [level] value `bogus` for `console`")
+    mock_session.start_console_capture.assert_not_called()

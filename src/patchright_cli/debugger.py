@@ -52,6 +52,10 @@ class SessionDebugger:
         self.held_command: str | None = None
         self.held_task: asyncio.Future | None = None
         self._pause_hit = asyncio.Event()
+        # Held by the one command (or step) waiting to see whether the armed
+        # pause stops it; other commands wait their turn instead of all
+        # claiming the same pause.
+        self._pause_owner = asyncio.Lock()
         # Whether `debugger-pause` has explained what pausing does.
         self.announced = False
         debugger.on("pausedstatechanged", self._on_paused_state_changed)
@@ -89,13 +93,19 @@ class SessionDebugger:
         """
         if not self.armed or self.paused:
             return await coro
-        task = asyncio.ensure_future(coro)
-        result = await self._until_done_or_paused(command, task)
-        if self.armed and not result.get("paused") and isinstance(result.get("output"), str):
-            # Snapshots, titles, cookies and the like make no pausable call.
-            result = dict(result)
-            result["output"] += f"\nDebugger: `{command}` ran without pausing (it makes no page action); still armed."
-        return result
+        async with self._pause_owner:
+            if self.armed and not self.paused:
+                task = asyncio.ensure_future(coro)
+                result = await self._until_done_or_paused(command, task)
+                if self.armed and not result.get("paused") and isinstance(result.get("output"), str):
+                    # Snapshots, titles, cookies and the like make no pausable call.
+                    result = dict(result)
+                    result["output"] += (
+                        f"\nDebugger: `{command}` ran without pausing (it makes no page action); still armed."
+                    )
+                return result
+        # The command ahead of this one paused, or the debugger went off, while this one waited.
+        return await coro
 
     async def _until_done_or_paused(self, command: str, task: asyncio.Future) -> dict:
         self._pause_hit.clear()
@@ -129,13 +139,14 @@ class SessionDebugger:
     async def step(self) -> dict:
         """Let the paused call go and pause before the next one."""
         command, task = self.held_command, self.held_task
-        await self._debugger.next()
-        self.armed = True
-        if task is None or task.done():
-            self._clear_held(task)
-            return _released(command, task, still_armed=self.armed)
-        # The held command may finish, or stop again at one of its own later calls.
-        result = await self._until_done_or_paused(command, task)
+        async with self._pause_owner:
+            await self._debugger.next()
+            self.armed = True
+            if task is None or task.done():
+                self._clear_held(task)
+                return _released(command, task, still_armed=self.armed)
+            # The held command may finish, or stop again at one of its own later calls.
+            result = await self._until_done_or_paused(command, task)
         if result.get("paused"):
             return result
         return _released(command, task, still_armed=self.armed)

@@ -842,9 +842,9 @@ TOOL_SPECS = {
     "patchright_highlight": {
         "description": "CLI command: highlight Show, style or hide a page highlight overlay.",
         "params": [
-            ("ref", "string", True, None, "Element reference."),
+            ("ref", "string", False, "", "Element reference; optional with hide=true, which then clears all."),
             ("style", "string", False, "", "Optional CSS style."),
-            ("hide", "boolean", False, False, "Hide the highlight."),
+            ("hide", "boolean", False, False, "Hide the highlight of ref, or every highlight without a ref."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -1518,7 +1518,9 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         return args
 
     if name == "patchright_highlight":
-        args = ["highlight", _V(p["ref"])]
+        if not p["ref"] and not p["hide"]:
+            raise ValueError("ref is required unless hide is true")
+        args = ["highlight", *([_V(p["ref"])] if p["ref"] else [])]
         if p["style"]:
             args.append(f"--style={p['style']}")
         if p["hide"]:

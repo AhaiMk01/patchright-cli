@@ -126,20 +126,53 @@ async def test_a_ref_from_a_page_the_tab_left(state, session):
 
 
 @pytest.mark.parametrize("wait_state", ["hidden", "detached"])
-async def test_waiting_for_an_element_to_go_skips_the_stale_check(state, session, wait_state):
+async def test_waiting_for_an_element_to_go_waits_on_the_element_not_the_ref(state, session, wait_state):
+    element = MagicMock()
+    element.wait_for_element_state = AsyncMock()
+    session.page.wait_for_function = AsyncMock()
     loc = _locator()
+    loc.element_handles = AsyncMock(return_value=[element])
     session.page.get_by_ref = MagicMock(return_value=loc)
     response, _ = await _run(state, "wait-for", ["e2"], state=wait_state)
     assert response["success"] is True, response
-    loc.count.assert_not_awaited()
-    loc.wait_for.assert_awaited_once_with(state=wait_state)
+    loc.wait_for.assert_not_awaited()
+    if wait_state == "hidden":
+        element.wait_for_element_state.assert_awaited_once_with("hidden")
+    else:
+        session.page.wait_for_function.assert_awaited_once_with("e => !e.isConnected", arg=element)
 
 
-async def test_select_refuses_a_ref_as_the_option(state, session):
-    session.page.get_by_ref = MagicMock(return_value=_locator(1))
+@pytest.mark.parametrize("wait_state", ["hidden", "detached"])
+async def test_waiting_for_an_element_that_is_already_gone_succeeds_after_one_heal(state, session, wait_state):
+    loc = _locator()
+    loc.element_handles = AsyncMock(return_value=[])
+    session.page.get_by_ref = MagicMock(return_value=loc)
+    response, snap = await _run(state, "wait-for", ["e2"], state=wait_state)
+    assert response["success"] is True, response
+    assert response["output"] == f"Element is {wait_state}"
+    assert loc.element_handles.await_count == 2
+    assert snap.await_count == 1
+
+
+@pytest.mark.parametrize("value", ["e5", "f3e5"])
+async def test_select_takes_an_option_whose_value_or_label_looks_like_a_ref(state, session, value):
+    loc = _locator(1)
+    session.page.get_by_ref = MagicMock(return_value=loc)
+    response, _ = await _run(state, "select", ["e3", value])
+    assert response["success"] is True, response
+    loc.select_option.assert_awaited_once_with(value)
+
+
+async def test_select_of_a_ref_that_matches_no_option_says_to_use_the_label(state, session):
+    loc = _locator(1)
+    loc.select_option = AsyncMock(side_effect=Exception("Locator.select_option: Timeout 30000ms exceeded."))
+    session.page.get_by_ref = MagicMock(return_value=loc)
     response, _ = await _run(state, "select", ["e3", "e4"])
     assert response["success"] is False
-    assert "select takes the option label shown under the combobox, e.g. select e3 Green" in response["output"]
+    loc.select_option.assert_awaited_once_with("e4")
+    assert "help: select takes the option label shown under the combobox, e.g. select e3 Green" in (
+        response["output"].splitlines()
+    )
 
 
 async def test_select_timeout_lists_the_options(state, session):

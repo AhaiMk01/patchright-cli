@@ -28,7 +28,7 @@ patchright-cli screenshot                    # capture the page
 patchright-cli close                         # done
 ```
 
-Every interaction follows: **open -> snapshot -> read refs -> interact -> snapshot again -> repeat**. A ref (`e5`, or `f3e5` inside an iframe and after a navigation) names one element until it leaves the page; a ref whose element is gone fails fast with `no longer matches an element` -- re-snapshot then. Refs are per tab: after `tab-select`, use the snapshot it prints.
+Every interaction follows: **open -> snapshot -> read refs -> interact -> snapshot again -> repeat**. A ref (`e5`, or `f3e5` inside an iframe and after a navigation) names one element until it leaves the page; a ref whose element is gone fails fast with `no longer matches an element` -- re-snapshot then. Refs are per tab: after `tab-select`, use the snapshot it prints. A click that opens a popup makes the popup current, and the popup's first-document refs (`e1`, `e2`, ...) can reuse numbers from the opener, so use the snapshot printed after the click.
 
 ## Command chaining
 
