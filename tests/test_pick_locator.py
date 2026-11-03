@@ -7,8 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from patchright_cli import cli, daemon, mcp_server
-from patchright_cli.daemon import DaemonState, Session, _picked_role, handle_command
-from patchright_cli.ref_registry import AriaRefEntry, RefRegistry
+from patchright_cli.daemon import DaemonState, Session, handle_command
 
 
 @pytest.fixture
@@ -18,7 +17,7 @@ def state_with_page():
     state.shutdown_event = None
     session = MagicMock(spec=Session)
     session.name = "default"
-    session.ref_registry = None
+    session.last_raw = None
     session.tabs = {"default": MagicMock()}
     session.activate_tab = MagicMock()
     session.uses_host_context = False
@@ -47,24 +46,6 @@ async def _run(state, **options):
     return await handle_command(state, {"command": "pick-locator", "args": [], "options": options})
 
 
-# -- selector role parsing --------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("selector", "role"),
-    [
-        ('internal:role=button[name="Submit"i]', "button"),
-        ("internal:role=list >> internal:role=listitem >> nth=1", "listitem"),
-        ("internal:role=main", "main"),
-        ('internal:text="Item"i >> nth=1', None),
-        ("#buy", None),
-        ("nth=0", None),
-    ],
-)
-def test_picked_role(selector, role):
-    assert _picked_role(selector) == role
-
-
 # -- daemon handler -----------------------------------------------------------
 
 
@@ -82,46 +63,19 @@ async def test_pick_returns_the_locator(state_with_page):
 @pytest.mark.asyncio
 async def test_pick_adds_the_matching_snapshot_ref(state_with_page):
     state, session, page = state_with_page
-    registry = RefRegistry()
-    registry.entries = {
-        "e1": AriaRefEntry(ref="e1", role="heading", name="Title", nth=0),
-        "e2": AriaRefEntry(ref="e2", role="button", name="Cancel", nth=0),
-        "e3": AriaRefEntry(ref="e3", role="button", name="Submit", nth=0),
-    }
-    session.ref_registry = registry
     picked = _picked('internal:role=button[name="Submit"i]')
-    picked.element_handle = AsyncMock(return_value=MagicMock(dispose=AsyncMock()))
+    picked.aria_snapshot = AsyncMock(return_value='- button "Submit" [ref=e3]')
     page.pick_locator = AsyncMock(return_value=picked)
-
-    def get_by_role(role, name, exact):
-        candidate = MagicMock()
-        candidate.nth.return_value.evaluate = AsyncMock(return_value=name == "Submit")
-        return candidate
-
-    page.get_by_role.side_effect = get_by_role
+    page.aria_snapshot = AsyncMock(return_value='- heading "Title" [ref=e1]\n- button "Submit" [ref=e3]')
+    page.get_by_ref = MagicMock(return_value=MagicMock(count=AsyncMock(return_value=1)))
     r = await _run(state)
     assert r["success"] is True
     assert r["data"]["ref"] == "e3"
     assert "- e3" in r["output"]
-    # Only the button refs were checked, not the heading.
-    assert [c.args[0] for c in page.get_by_role.call_args_list] == ["button", "button"]
-
-
-@pytest.mark.asyncio
-async def test_pick_skips_ref_matching_with_too_many_candidates(state_with_page):
-    state, session, page = state_with_page
-    registry = RefRegistry()
-    registry.entries = {
-        f"e{i}": AriaRefEntry(ref=f"e{i}", role="link", name=f"L{i}", nth=0)
-        for i in range(daemon.PICK_REF_CANDIDATES + 1)
-    }
-    session.ref_registry = registry
-    picked = _picked('internal:role=link[name="L3"i]')
-    picked.element_handle = AsyncMock()
-    page.pick_locator = AsyncMock(return_value=picked)
-    r = await _run(state)
-    assert r["data"]["ref"] is None
-    picked.element_handle.assert_not_awaited()
+    # The probe is a depth-0 snapshot of the element; a full one restores the page's ref map.
+    picked.aria_snapshot.assert_awaited_once_with(mode="ai", depth=0, timeout=2000)
+    page.aria_snapshot.assert_awaited_once_with(mode="ai", boxes=None)
+    page.get_by_ref.assert_called_with("e3")
 
 
 @pytest.mark.asyncio
@@ -308,3 +262,15 @@ def test_mcp_pick_locator_args():
         "pick-locator",
         "--cancel",
     ]
+
+
+@pytest.mark.asyncio
+async def test_pick_gives_no_ref_for_an_element_missing_from_the_snapshot(state_with_page):
+    state, session, page = state_with_page
+    picked = _picked("#hidden")
+    picked.aria_snapshot = AsyncMock(return_value='- button "Gone" [ref=e9]')
+    page.pick_locator = AsyncMock(return_value=picked)
+    page.aria_snapshot = AsyncMock(return_value='- heading "Title" [ref=e1]')
+    r = await _run(state)
+    assert r["data"]["ref"] is None
+    assert "### Ref" not in r["output"]

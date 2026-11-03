@@ -28,10 +28,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from patchright_cli import daemon_pid
+from patchright_cli import daemon_pid, snapshot_text
 from patchright_cli.debugger import SessionDebugger
-from patchright_cli.ref_registry import RefRegistry, render_hits
-from patchright_cli.snapshot import save_snapshot, take_snapshot
+from patchright_cli.snapshot import EMPTY_SNAPSHOT, ai_snapshot, probe_ref, save_snapshot
+from patchright_cli.snapshot_text import SnapshotIndex, has_ref, normalize_ref, render_hits
 
 logger = logging.getLogger("patchright-cli.daemon")
 
@@ -97,7 +97,12 @@ class Tab:
     def __init__(self, name: str, page=None):
         self.name = name
         self.page = page
-        self.ref_registry: RefRegistry | None = None
+        # The raw text of this tab's latest full AI snapshot: what its refs were
+        # read from, and the source of every printed view (snapshot.py).
+        self.last_raw: str | None = None
+        # Held while a snapshot or an element-to-ref probe is replacing the
+        # page's ref map, so a concurrent command never sees a partial map.
+        self.snapshot_lock = asyncio.Lock()
         self.history: list[str] = []
         self.history_index: int = -1
         self.codegen: list[str] | None = None
@@ -394,17 +399,17 @@ class Session:
 
     # -- per-tab state, proxied to the active tab ---------------------------
     #
-    # Handlers read `session.ref_registry` and friends without knowing which
+    # Handlers read `session.last_raw` and friends without knowing which
     # caller they are serving. Routing lives in one place (activate_tab) rather
     # than in every handler.
 
     @property
-    def ref_registry(self) -> RefRegistry | None:
-        return self.active_tab.ref_registry
+    def last_raw(self) -> str | None:
+        return self.active_tab.last_raw
 
-    @ref_registry.setter
-    def ref_registry(self, value) -> None:
-        self.active_tab.ref_registry = value
+    @last_raw.setter
+    def last_raw(self, value: str | None) -> None:
+        self.active_tab.last_raw = value
 
     @property
     def _history(self) -> list[str]:
@@ -1463,6 +1468,49 @@ async def _profile_delete(state: DaemonState, args: list) -> dict:
 # ---------------------------------------------------------------------------
 
 
+class RefFormatError(ValueError):
+    """An argument that should be a ref is not shaped like one. The CLI exits 2."""
+
+
+async def _take_snapshot(session: Session, page, boxes: bool = False) -> str:
+    """One full-page AI snapshot into the active tab's `last_raw`. The caller holds its `snapshot_lock`."""
+    raw = await ai_snapshot(page, boxes=boxes)
+    if boxes and raw:
+        raw = await _page_coordinate_boxes(page, raw)
+    session.last_raw = raw
+    return raw
+
+
+async def _ai_snapshot(session: Session, page, boxes: bool = False) -> str:
+    """Refresh the active tab's ref map with a full-page AI snapshot; return its raw text."""
+    async with session.active_tab.snapshot_lock:
+        return await _take_snapshot(session, page, boxes)
+
+
+async def _page_coordinate_boxes(page, raw: str) -> str:
+    """Native boxes inside an iframe are relative to that iframe; shift them to page coordinates.
+
+    One bounding_box() per child frame: the gap between it and the native box of
+    the frame's first ref is that frame's offset, nested frames included.
+    """
+    offsets: dict[str, tuple[int, int]] = {}
+    for prefix, (ref, (x, y)) in snapshot_text.frame_box_anchors(raw).items():
+        try:
+            box = await page.get_by_ref(ref).bounding_box(timeout=1000)
+        except Exception:
+            box = None
+        if box:
+            offsets[prefix] = (round(box["x"]) - x, round(box["y"]) - y)
+    return snapshot_text.shift_frame_boxes(raw, offsets)
+
+
+def _printed(raw: str | None) -> str:
+    """The snapshot text a caller reads: the trimmed native YAML, or the empty-page note."""
+    if not raw or not raw.strip():
+        return EMPTY_SNAPSHOT
+    return snapshot_text.trim(raw) + "\n"
+
+
 async def _page_info(session: Session, cwd: str | None = None) -> dict:
     """Return standard page info + snapshot after a state-changing command."""
     page = session.page
@@ -1475,8 +1523,7 @@ async def _page_info(session: Session, cwd: str | None = None) -> dict:
     except Exception:
         title = ""
 
-    snapshot_text, session.ref_registry = await take_snapshot(page)
-    snap_path = save_snapshot(snapshot_text, cwd)
+    snap_path = save_snapshot(_printed(await _ai_snapshot(session, page)), cwd)
 
     output_lines = [
         "### Page",
@@ -1488,11 +1535,74 @@ async def _page_info(session: Session, cwd: str | None = None) -> dict:
     return {"success": True, "output": "\n".join(output_lines), "snapshot_path": snap_path}
 
 
-async def _resolve_ref(session: Session, page, ref: str):
-    """Resolve an element ref (e.g. 'e5') to a Playwright locator."""
-    if session.ref_registry is None:
-        raise ValueError("No snapshot available. Run 'snapshot' first.")
-    return session.ref_registry.resolve(page, ref)
+def _parse_ref(value) -> str:
+    """A ref argument (`e5`, `@e5`, `ref=e5`, `[ref=e5]`) as `e5`, or RefFormatError."""
+    ref = normalize_ref(value)
+    if ref is None:
+        raise RefFormatError(f'"{value}" is not a ref (refs look like e5 or f3e5, from snapshot)')
+    return ref
+
+
+def _not_in_snapshot(ref: str) -> str:
+    return (
+        f"{ref} is not from a snapshot of this tab; run snapshot (refs are per tab, "
+        "and an element whose role or name changed has a new ref)"
+    )
+
+
+async def _resolve_ref(session: Session, page, value, *, check: bool = True):
+    """The locator for a ref from this tab's latest snapshot.
+
+    The ref must appear in the tab's last snapshot (refs are per tab). With
+    `check`, it must also still match an element: a ref that matches nothing is
+    healed once with a fresh snapshot (a ref number belongs to one element per
+    document and is never reused), then reported as stale -- in milliseconds,
+    where an action on it would wait out its whole timeout. Never falls back to
+    matching by role and name, which picked the wrong element.
+    """
+    ref = _parse_ref(value)
+    if not has_ref(session.last_raw, ref):
+        raise ValueError(_not_in_snapshot(ref))
+    locator = page.get_by_ref(ref)
+    if not check:
+        return locator
+    for attempt in range(2):
+        try:
+            count = await locator.count()
+        except Exception as exc:
+            if "Invalid frame" in str(exc):
+                raise ValueError(f"Ref {ref} is from a page this tab has left. Run snapshot.") from None
+            raise
+        if count:
+            return locator
+        if attempt == 0:
+            await _ai_snapshot(session, page)
+    raise ValueError(f"Ref {ref} no longer matches an element (removed or changed since the snapshot). Run snapshot.")
+
+
+async def _refs_of(session: Session, page, locators: list) -> list[str | None]:
+    """The snapshot ref of each one-element locator, or None where there is none.
+
+    Each element is probed with a depth-0 AI snapshot of its own, which replaces
+    its frame's ref map; one full snapshot afterwards restores it, under the
+    tab's snapshot lock throughout. A ref that is not in that full snapshot, or
+    does not resolve to exactly one element, gives None.
+    """
+    async with session.active_tab.snapshot_lock:
+        probed: list[str | None] = []
+        try:
+            for locator in locators:
+                probed.append(await probe_ref(locator))
+        finally:
+            raw = await _take_snapshot(session, page)
+    refs: list[str | None] = []
+    for ref in probed:
+        ok = False
+        if ref and has_ref(raw, ref):
+            with contextlib.suppress(Exception):
+                ok = await page.get_by_ref(ref).count() == 1
+        refs.append(ref if ok else None)
+    return refs
 
 
 async def _apply_timeouts(page, options: dict) -> None:
@@ -1670,7 +1780,21 @@ async def cmd_hover(session: Session, page, args: list, options: dict, cwd: str 
 @register("select")
 async def cmd_select(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     elem = await _resolve_ref(session, page, args[0])
-    await elem.select_option(args[1])
+    if normalize_ref(args[1]):
+        # Options carry no refs; the value is the label printed under the combobox.
+        return {
+            "success": False,
+            "output": f"select takes the option label shown under the combobox, e.g. select {_parse_ref(args[0])} Green",
+        }
+    try:
+        await elem.select_option(args[1])
+    except Exception as exc:
+        if "Timeout" not in str(exc):
+            raise
+        block = snapshot_text.subtree(session.last_raw or "", _parse_ref(args[0])) or ""
+        options_shown = [line.strip() for line in block.splitlines() if line.strip().startswith("- option ")]
+        hint = ("\nOptions:\n" + "\n".join(options_shown)) if options_shown else ""
+        return {"success": False, "output": f"Error: {exc}{hint}"}
     return await _page_info(session, cwd)
 
 
@@ -1752,6 +1876,7 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
     element_ref = args[0] if args else None
     max_depth = int(options["depth"]) if options.get("depth") is not None else None
     interactive_only = bool(options.get("interactive", False))
+    boxes = bool(options.get("boxes"))
 
     selector = options.get("selector")
     if selector is not None:
@@ -1760,10 +1885,10 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
         if element_ref:
             return {"success": False, "output": "snapshot takes either a ref or --selector=<css>, not both."}
 
+    # Every view is cut from one full-page snapshot, so scoping, --depth and -i
+    # never replace the page's ref map: refs outside the printed part keep working.
+    scope_ref = None
     if selector:
-        # take_snapshot swallows locator errors into an empty tree, so check the
-        # match here -- "no such element" and "element has no content" are
-        # different answers and the caller needs to tell them apart.
         scoped = page.locator(selector)
         try:
             matches = await scoped.count()
@@ -1772,10 +1897,6 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
         if not matches:
             return {"success": False, "output": f"No element matches {selector!r} on this page."}
         if matches > 1:
-            # aria_snapshot() runs strict, and snapshot.py turns the resulting
-            # violation into an empty tree -- which would report success, write
-            # an empty file, and replace the registry, losing the refs the
-            # caller was about to use.
             return {
                 "success": False,
                 "output": (
@@ -1783,27 +1904,38 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
                     f"Narrow the selector, e.g. {selector!r} with :first-child or an id."
                 ),
             }
-        snapshot_text, session.ref_registry = await take_snapshot(
-            page, root_element=scoped, max_depth=max_depth, interactive_only=interactive_only
-        )
+        (scope_ref,) = await _refs_of(session, page, [scoped])
+        if scope_ref is None:
+            return {"success": False, "output": f"{selector} is not in the accessibility tree."}
+        raw = await _ai_snapshot(session, page, boxes=True) if boxes else session.last_raw or ""
     elif element_ref:
-        elem = await _resolve_ref(session, page, element_ref)
-        snapshot_text, session.ref_registry = await take_snapshot(
-            page, root_element=elem, max_depth=max_depth, interactive_only=interactive_only
-        )
+        scope_ref = _parse_ref(element_ref)
+        if not has_ref(session.last_raw, scope_ref):
+            raise ValueError(_not_in_snapshot(scope_ref))
+        raw = await _ai_snapshot(session, page, boxes=boxes)
+        if not has_ref(raw, scope_ref):
+            raise ValueError(
+                f"Ref {scope_ref} no longer matches an element (removed or changed since the snapshot). Run snapshot."
+            )
     else:
-        snapshot_text, session.ref_registry = await take_snapshot(
-            page, max_depth=max_depth, interactive_only=interactive_only
-        )
-    if options.get("boxes"):
-        snapshot_text = await _annotate_with_boxes(page, snapshot_text, session.ref_registry)
+        raw = await _ai_snapshot(session, page, boxes=boxes)
+
+    if scope_ref is not None:
+        raw = snapshot_text.subtree(raw, scope_ref) or ""
+    snapshot_out = _printed(raw)
+    if raw.strip():
+        if interactive_only:
+            snapshot_out = snapshot_text.interactive_only(snapshot_out) + "\n"
+        if max_depth is not None:
+            snapshot_out = snapshot_text.limit_depth(snapshot_out, max_depth) + "\n"
+
     fn = options.get("filename")
     if fn:
         Path(fn).parent.mkdir(parents=True, exist_ok=True)
-        Path(fn).write_text(snapshot_text, encoding="utf-8")
+        Path(fn).write_text(snapshot_out, encoding="utf-8")
         snap_path = fn
     else:
-        snap_path = save_snapshot(snapshot_text, cwd)
+        snap_path = save_snapshot(snapshot_out, cwd)
     url = page.url
     try:
         title = await page.title()
@@ -1819,42 +1951,10 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
     return {"success": True, "output": "\n".join(output_lines), "snapshot_path": snap_path}
 
 
-async def _annotate_with_boxes(page, snapshot_text: str, registry) -> str:
-    """Append `[box=x,y,w,h]` to each `[ref=eN]` line in snapshot_text.
-
-    Refs whose locator can't be measured are left unchanged.
-    """
-    if registry is None:
-        return snapshot_text
-    import re
-
-    ref_re = re.compile(r"\[ref=(e\d+)\]")
-    boxes: dict[str, str] = {}
-    for ref in registry.entries:
-        try:
-            loc = registry.resolve(page, ref)
-            box = await loc.bounding_box()
-            if box:
-                boxes[ref] = f"[box={int(box['x'])},{int(box['y'])},{int(box['width'])},{int(box['height'])}]"
-        except Exception:
-            continue
-
-    out = []
-    for line in snapshot_text.splitlines():
-        m = ref_re.search(line)
-        if m and m.group(1) in boxes:
-            line = line.rstrip() + " " + boxes[m.group(1)]
-        out.append(line)
-    return "\n".join(out)
-
-
 # `find --role` filters. --name and --description are what get_by_role takes;
 # --exact makes both whole-string and case-sensitive.
 _ROLE_FILTERS = ("name", "description", "exact")
 _SLASH_TEXT_RE = re.compile(r"^/(.*)/([ims]*)$", re.S)
-# Each match is mapped to a snapshot ref with one identity check per same-role,
-# same-name ref; more candidates than this and the match is listed without a ref.
-ROLE_REF_CANDIDATES = 20
 
 
 def _role_text(value: str):
@@ -1866,44 +1966,6 @@ def _role_text(value: str):
     for f in m.group(2):
         flags |= {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL}[f]
     return re.compile(m.group(1), flags)
-
-
-async def _ref_for_element(registry, page, target) -> str | None:
-    """The snapshot ref that resolves to the element `target` (a one-element locator), if any.
-
-    The element's own aria snapshot gives its role and name, which narrows the
-    refs to the few with the same pair; each is checked for being the same element.
-    """
-    from patchright_cli.ref_registry import _parse_node
-
-    try:
-        head = (await target.aria_snapshot(timeout=2000)).splitlines()[0]
-    except Exception:
-        return None
-    node = _parse_node(head)
-    if node is None:
-        return None
-    candidates = [e for e in registry.entries.values() if (e.role, e.name) == node]
-    if not candidates or len(candidates) > ROLE_REF_CANDIDATES:
-        return None
-    try:
-        handle = await target.element_handle(timeout=2000)
-    except Exception:
-        return None
-    try:
-        for entry in candidates:
-            try:
-                same = await registry.resolve(page, entry.ref).evaluate(
-                    "(el, target) => el === target", handle, timeout=1000
-                )
-            except Exception:
-                continue
-            if same:
-                return entry.ref
-        return None
-    finally:
-        with contextlib.suppress(Exception):
-            await handle.dispose()
 
 
 async def _find_by_role(session: Session, page, role: str, options: dict, limit: int) -> dict:
@@ -1938,14 +2000,14 @@ async def _find_by_role(session: Session, page, role: str, options: dict, limit:
             "data": [],
         }
 
-    _, session.ref_registry = await take_snapshot(page)
+    shown_count = min(total, limit)
+    refs = await _refs_of(session, page, [locator.nth(i) for i in range(shown_count)])
+    index = SnapshotIndex(session.last_raw or "")
     data = []
     lines = []
-    for i in range(min(total, limit)):
-        target = locator.nth(i)
-        ref = await _ref_for_element(session.ref_registry, page, target)
-        entry = session.ref_registry.entries.get(ref) if ref else None
-        name = entry.name if entry else ""
+    for i, ref in enumerate(refs):
+        node = index.node(ref) if ref else None
+        name = node.name if node else ""
         data.append({"ref": ref or "", "role": role, "name": name})
         label = f'- {role} "{name}"' if name else f"- {role}"
         lines.append(f"{label} [ref={ref}]" if ref else f"{label} (no ref: not in the snapshot; nth={i})")
@@ -2003,15 +2065,14 @@ async def cmd_find(session: Session, page, args: list, options: dict, cwd: str |
             "output": "find requires a search term. Usage: find <text> [--regex] [--all] [--limit=N]",
         }
 
-    # Refs are numbered across the whole tree, so they agree with `snapshot`.
-    _, session.ref_registry = await take_snapshot(page)
-    if not session.ref_registry.entries:
+    # The same full snapshot `snapshot` prints, so its refs and these agree.
+    raw = await _ai_snapshot(session, page)
+    if not raw.strip():
         return {"success": True, "output": "# Empty page - 0 accessible elements found", "data": []}
+    index = SnapshotIndex(_printed(raw))
 
     try:
-        hits, total = session.ref_registry.search(
-            query, regex=use_regex, all_roles=bool(options.get("all", False)), limit=limit
-        )
+        hits, total = index.search(query, regex=use_regex, all_roles=bool(options.get("all", False)), limit=limit)
     except re.error as exc:
         return {"success": False, "output": f"Invalid regex {query!r}: {exc}"}
 
@@ -2024,8 +2085,10 @@ async def cmd_find(session: Session, page, args: list, options: dict, cwd: str |
 
     data = []
     for hit in hits:
-        entry = session.ref_registry.entries.get(hit.ref)
-        data.append({"ref": hit.ref, "role": entry.role if entry else "", "name": entry.name if entry else ""})
+        item = {"ref": hit.ref or "", "role": hit.node.role, "name": hit.node.name}
+        if hit.ref is None and hit.node.within:
+            item["in"] = hit.node.within
+        data.append(item)
     result = {"success": True, "output": render_hits(hits, total, query), "data": data}
     if total > len(hits):
         result["total"] = total
@@ -2036,24 +2099,59 @@ async def cmd_find(session: Session, page, args: list, options: dict, cwd: str |
 async def cmd_generate_locator(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    """Emit a Playwright locator expression for a ref."""
+    """Emit a Playwright locator expression for a ref: getByRole, with .nth(i) when the role and name repeat."""
     if not args:
         return {"success": False, "output": "Usage: generate-locator <ref>"}
-    if session.ref_registry is None:
-        return {"success": False, "output": "No snapshot taken yet. Run `snapshot` first."}
-    ref = args[0].lstrip("@")
-    entry = session.ref_registry.entries.get(ref)
-    if entry is None:
-        return {"success": False, "output": f"Ref @{ref} not found. Re-run `snapshot`."}
+    locator = await _resolve_ref(session, page, args[0])
+    ref = _parse_ref(args[0])
+    line = snapshot_text.line_of(session.last_raw or "", ref) or ""
+    role, name = snapshot_text.parse_node(line) or ("generic", "")
 
-    name_part = ""
-    if entry.name:
-        escaped = entry.name.replace("\\", "\\\\").replace("'", "\\'")
-        name_part = f", {{ name: '{escaped}', exact: true }}"
-    expr = f"getByRole('{entry.role}'{name_part})"
-    if entry.nth > 0:
-        expr += f".nth({entry.nth})"
-    return {"success": True, "output": expr}
+    # A ref inside an iframe is reached through frameLocator()s, read from the
+    # frame part of Playwright's own selector for the element.
+    scope = page
+    prefix = ""
+    if snapshot_text.frame_prefix(ref) != snapshot_text.main_frame_prefix(session.last_raw or ""):
+        normalized = await locator.normalize()
+        selector = getattr(normalized, "_impl_obj", normalized)._selector
+        for frame_selector in selector.split(_ENTER_FRAME)[:-1]:
+            scope = scope.frame_locator(frame_selector)
+            prefix += f"frameLocator({_js_string(frame_selector)})."
+
+    if name:
+        expr = f"getByRole('{role}', {{ name: {_js_string(name)}, exact: true }})"
+        matches = scope.get_by_role(role, name=name, exact=True)
+    else:
+        expr = f"getByRole('{role}')"
+        matches = scope.get_by_role(role)
+    try:
+        count = await matches.count()
+    except Exception:
+        count = 0
+    if count > GENERATE_LOCATOR_MAX_MATCHES:
+        return {"success": True, "output": f"{prefix}{expr}  # ambiguous: {count} matches"}
+    if count > 1:
+        handle = await locator.element_handle(timeout=2000)
+        try:
+            for i in range(count):
+                with contextlib.suppress(Exception):
+                    if await matches.nth(i).evaluate("(el, target) => el === target", handle, timeout=1000):
+                        expr += f".nth({i})"
+                        break
+        finally:
+            with contextlib.suppress(Exception):
+                await handle.dispose()
+    return {"success": True, "output": prefix + expr}
+
+
+# generate-locator finds its .nth() index with one identity check per match.
+GENERATE_LOCATOR_MAX_MATCHES = 20
+_ENTER_FRAME = " >> internal:control=enter-frame >> "
+
+
+def _js_string(value: str) -> str:
+    """A single-quoted JavaScript string literal."""
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
 # `pick-locator` waits on a person clicking in the headed window. A minute is
@@ -2061,58 +2159,9 @@ async def cmd_generate_locator(
 # not hold the page in pick mode for long. The CLI stretches its socket
 # timeout to match.
 DEFAULT_PICK_WAIT = 60.0
-# Matching the picked element to a snapshot ref costs one round trip per
-# candidate, so only a few candidates of the picked role are tried.
-PICK_REF_CANDIDATES = 20
 # Pages with a pick in progress. `pick-locator --cancel` reports whether there
 # was one; Patchright's cancel is a silent no-op either way.
 _active_picks: weakref.WeakSet = weakref.WeakSet()
-_PICK_ROLE = re.compile(r"^internal:role=([a-z]+)(?:\[|$)")
-
-
-def _picked_role(selector: str) -> str | None:
-    """The ARIA role of a picked selector's target, when its last step names one."""
-    steps = [s.strip() for s in selector.split(" >> ") if not s.strip().startswith("nth=")]
-    if not steps:
-        return None
-    match = _PICK_ROLE.match(steps[-1])
-    return match.group(1) if match else None
-
-
-async def _ref_for_picked(session: Session, page, picked) -> str | None:
-    """The ref in the current snapshot that resolves to the picked element, if one is cheap to find.
-
-    Only role-based picks are matched: their role narrows the snapshot's refs
-    to a handful, and each is checked for being the very same element. Any
-    other pick, a pick with too many candidates, or no snapshot gives None.
-    """
-    registry = session.ref_registry
-    if registry is None:
-        return None
-    role = _picked_role(getattr(picked, "_impl_obj", picked)._selector)
-    if role is None:
-        return None
-    candidates = [e for e in registry.entries.values() if e.role == role]
-    if not candidates or len(candidates) > PICK_REF_CANDIDATES:
-        return None
-    try:
-        target = await picked.element_handle(timeout=2000)
-    except Exception:
-        return None
-    try:
-        for entry in candidates:
-            try:
-                same = await registry.resolve(page, entry.ref).evaluate(
-                    "(el, target) => el === target", target, timeout=1000
-                )
-            except Exception:
-                continue
-            if same:
-                return entry.ref
-        return None
-    finally:
-        with contextlib.suppress(Exception):
-            await target.dispose()
 
 
 async def _cancel_pick(page, task: asyncio.Future) -> None:
@@ -2176,7 +2225,7 @@ async def cmd_pick_locator(
         _active_picks.discard(page)
 
     selector = getattr(picked, "_impl_obj", picked)._selector
-    ref = await _ref_for_picked(session, page, picked)
+    (ref,) = await _refs_of(session, page, [picked])
     lines = [selector]
     if ref:
         lines += ["### Ref", f"- {ref} (in the last snapshot; use it with click, fill, ...)"]
@@ -2207,7 +2256,7 @@ async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: 
 
     if not args:
         return {"success": False, "output": "Usage: highlight <ref> [--style=...] [--hide]"}
-    ref = args[0]
+    ref = _parse_ref(args[0])
     elem = await _resolve_ref(session, page, ref)
 
     if hide:
@@ -2227,9 +2276,7 @@ async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: 
 
 @register("eval")
 async def cmd_eval(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    import re
-
-    if len(args) >= 2 and re.fullmatch(r"e\d+", args[-1]) and session.ref_registry is not None:
+    if len(args) >= 2 and normalize_ref(args[-1]):
         expr = " ".join(args[:-1])
         ref = args[-1]
         elem = await _resolve_ref(session, page, ref)
@@ -2245,9 +2292,7 @@ async def cmd_text(session: Session, page, args: list, options: dict, cwd: str |
     target = args[0] if args else ""
     if not target:
         return {"success": False, "output": "Usage: text <ref|selector>"}
-    import re
-
-    if re.fullmatch(r"e\d+", target) and session.ref_registry is not None:
+    if normalize_ref(target):
         elem = await _resolve_ref(session, page, target)
     else:
         elem = page.locator(target)
@@ -2357,7 +2402,7 @@ async def cmd_screenshot(
     # pixel ratio instead. They only differ under --mobile / --device, where a
     # dpr of 2-3 makes the default capture several times larger.
     scale = "device" if options.get("hires") else "css"
-    if args and args[0].startswith("e"):
+    if args and normalize_ref(args[0]):
         elem = await _resolve_ref(session, page, args[0])
         filepath = snap_dir / (fn or f"element-{ts}.png")
         await elem.screenshot(path=str(filepath), scale=scale)
@@ -3546,18 +3591,19 @@ async def _draw_action_callout(session: Session, page, cmd: str, args: list) -> 
         return
 
     box = None
-    ref = args[0] if args and re.fullmatch(r"e\d+", str(args[0])) else None
-    if ref and session.ref_registry is not None:
-        entry = session.ref_registry.entries.get(ref)
-        if entry is not None:
-            label = f"{label} {entry.role}" + (f' "{entry.name}"' if entry.name else "")
-            try:
-                # Short timeout on purpose: this is decoration. Without one an
-                # unmatched ref blocked the action it was meant to annotate for
-                # the full action timeout.
-                box = await session.ref_registry.resolve(page, ref).bounding_box(timeout=1000)
-            except Exception:
-                box = None
+    ref = normalize_ref(args[0]) if args else None
+    line = snapshot_text.line_of(session.last_raw or "", ref) if ref else None
+    node = snapshot_text.parse_node(line) if line else None
+    if node is not None:
+        role, name = node
+        label = f"{label} {role}" + (f' "{name}"' if name else "")
+        try:
+            # Short timeout on purpose: this is decoration. Without one an
+            # unmatched ref blocked the action it was meant to annotate for
+            # the full action timeout.
+            box = await page.get_by_ref(ref).bounding_box(timeout=1000)
+        except Exception:
+            box = None
 
     try:
         await page.evaluate(
@@ -3694,8 +3740,9 @@ async def cmd_wait(session: Session, page, args: list, options: dict, cwd: str |
 
 @register("wait-for")
 async def cmd_wait_for(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    elem = await _resolve_ref(session, page, args[0])
     state_arg = options.get("state", "visible")
+    # Waiting for an element to go away: a ref that matches nothing is the answer, not an error.
+    elem = await _resolve_ref(session, page, args[0], check=state_arg not in ("hidden", "detached"))
     await elem.wait_for(state=state_arg)
     return {"success": True, "output": f"Element is {state_arg}"}
 
@@ -3793,8 +3840,7 @@ async def cmd_show(session: Session, page, args: list, options: dict, cwd: str |
     lines.append("### Notes")
     lines.append(notes if notes else "(none)")
 
-    snapshot_text, session.ref_registry = await take_snapshot(page)
-    snap_path = save_snapshot(snapshot_text, cwd)
+    snap_path = save_snapshot(_printed(await _ai_snapshot(session, page)), cwd)
     lines.append("### Snapshot")
     lines.append(f"[Snapshot]({snap_path})")
 
@@ -4363,6 +4409,9 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
             session._codegen.append(cmd_line)
         return result
 
+    except RefFormatError as e:
+        # A malformed ref is a usage error, like an unknown flag: exit 2.
+        return {"success": False, "output": f"Error: {e}", "exit_code": 2}
     except Exception as e:
         logger.error("Command %s failed: %s", cmd, traceback.format_exc())
         return {"success": False, "output": f"Error: {e}"}

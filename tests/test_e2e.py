@@ -102,7 +102,8 @@ class TestE2E:
 
     def test_snapshot_has_refs(self, daemon):
         snap = _read_snapshot(daemon)
-        assert "[ref=e1]" in snap
+        # Playwright's own refs: eN on a first document, fKeN after a navigation or in a frame.
+        assert re.search(r"\[ref=(f\d+)?e\d+\]", snap)
 
     def test_fill_textbox(self, daemon):
         snap = _read_snapshot(daemon)
@@ -162,7 +163,7 @@ class TestE2E:
         assert resp["success"] is True
         assert 'button "Click me"' in resp["output"]
 
-        match = re.search(r"\[ref=(e\d+)\]", resp["output"])
+        match = re.search(r"\[ref=((?:f\d+)?e\d+)\]", resp["output"])
         assert match is not None, f"No ref found in find output: {resp['output']!r}"
 
         resp = _cmd(daemon, "click", args=[match.group(1)])
@@ -363,7 +364,7 @@ class TestNativeStorageAndDrop:
         tab = {"tab": "drop"}
         assert _cmd(daemon, "open", args=[_DROP_PAGE], options=tab)["success"] is True
         snap = _cmd(daemon, "snapshot", options=tab)
-        zone = re.search(r'region "dropzone".*?\[ref=(e\d+)\]', Path(snap["snapshot_path"]).read_text("utf-8"))
+        zone = re.search(r'region "dropzone".*?\[ref=((?:f\d+)?e\d+)\]', Path(snap["snapshot_path"]).read_text("utf-8"))
         assert zone
         note = tmp_path / "note.txt"
         note.write_text("hello file", encoding="utf-8")
@@ -696,3 +697,71 @@ class TestFindByRoleHtmlAndVideoFps:
         info = json.loads(probe.stdout)
         assert info["streams"][0]["avg_frame_rate"] == rate
         assert 1.8 <= float(info["format"]["duration"]) <= 3.5
+
+
+NATIVE_REFS_PAGE = """<!doctype html><html><head><title>refs</title></head><body>
+<button id="keep">Keep</button>
+<ul id="items"><li><button id="a">Item A</button></li><li><button id="b">Item B</button></li></ul>
+<iframe id="frame" title="Inner" srcdoc="<button id='inner' onclick='this.textContent=&quot;done&quot;'>Inner</button>"></iframe>
+</body></html>"""
+
+
+@pytest.fixture
+def refs_page(daemon, tmp_path):
+    page = tmp_path / "refs.html"
+    page.write_text(NATIVE_REFS_PAGE, encoding="utf-8")
+    resp = _cmd(daemon, "goto", args=[page.resolve().as_uri()])
+    assert resp["success"] is True, resp
+    time.sleep(0.5)
+    return daemon
+
+
+@pytest.mark.e2e
+class TestNativeRefs:
+    """Refs are Playwright's own: stable, iframe-aware, and stale ones fail fast."""
+
+    def test_iframe_elements_get_refs_that_act(self, refs_page):
+        snap = _read_snapshot(refs_page)
+        inner = re.search(r'button "Inner" \[ref=(f\d+e\d+)\]', snap)
+        assert inner, snap
+        locator = _cmd(refs_page, "generate-locator", args=[inner.group(1)])
+        assert (
+            locator["output"]
+            == "frameLocator('iframe[title=\"Inner\"]').getByRole('button', { name: 'Inner', exact: true })"
+        )
+        assert _cmd(refs_page, "click", args=[inner.group(1)])["success"] is True
+        # The click renamed the button, and a renamed element gets a new ref.
+        renamed = _cmd(refs_page, "text", args=[inner.group(1)])
+        assert "an element whose role or name changed has a new ref" in renamed["output"]
+        done = re.search(r'button "done".*?\[ref=(f\d+e\d+)\]', _read_snapshot(refs_page)).group(1)
+        assert _cmd(refs_page, "text", args=[done])["output"] == "done"
+
+    def test_refs_survive_snapshots_and_stale_ones_fail_fast(self, refs_page):
+        snap = _read_snapshot(refs_page)
+        item_a = re.search(r'button "Item A" \[ref=((?:f\d+)?e\d+)\]', snap).group(1)
+        keep = re.search(r'button "Keep" \[ref=((?:f\d+)?e\d+)\]', snap).group(1)
+        assert f"[ref={item_a}]" in _read_snapshot(refs_page)  # a second snapshot keeps the number
+
+        _cmd(
+            refs_page, "eval", args=["document.getElementById('items').innerHTML = '<li><button>Item A</button></li>'"]
+        )
+        started = time.monotonic()
+        stale = _cmd(refs_page, "click", args=[item_a])
+        assert stale["success"] is False
+        assert f"Ref {item_a} no longer matches an element" in stale["output"]
+        assert time.monotonic() - started < 5
+        assert _cmd(refs_page, "click", args=[keep])["success"] is True
+
+    def test_a_malformed_ref_is_a_usage_error(self, refs_page):
+        _read_snapshot(refs_page)
+        resp = _cmd(refs_page, "click", args=["#keep"])
+        assert resp["success"] is False
+        assert resp["exit_code"] == 2
+
+    def test_scoped_snapshot_keeps_refs_outside_it(self, refs_page):
+        snap = _read_snapshot(refs_page)
+        keep = re.search(r'button "Keep" \[ref=((?:f\d+)?e\d+)\]', snap).group(1)
+        scoped = _cmd(refs_page, "snapshot", options={"selector": "#items"})
+        assert scoped["success"] is True, scoped
+        assert "Keep" not in Path(scoped["snapshot_path"]).read_text(encoding="utf-8")
+        assert _cmd(refs_page, "click", args=[keep])["success"] is True

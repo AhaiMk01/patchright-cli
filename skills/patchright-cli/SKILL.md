@@ -28,7 +28,7 @@ patchright-cli screenshot                    # capture the page
 patchright-cli close                         # done
 ```
 
-Every interaction follows: **open -> snapshot -> read refs -> interact -> snapshot again -> repeat**. Refs are ephemeral -- they change on every page update. If a ref fails, re-snapshot.
+Every interaction follows: **open -> snapshot -> read refs -> interact -> snapshot again -> repeat**. A ref (`e5`, or `f3e5` inside an iframe and after a navigation) names one element until it leaves the page; a ref whose element is gone fails fast with `no longer matches an element` -- re-snapshot then. Refs are per tab: after `tab-select`, use the snapshot it prints.
 
 ## Command chaining
 
@@ -149,9 +149,9 @@ snapshot <ref>                # Subtree of a specific element
 snapshot --selector="#main"   # Subtree of a CSS selector -- must match exactly
                               # one element. No ref needed, so
                               # this works before the first snapshot
-snapshot --depth=N            # Limit depth
-snapshot -i                   # Interactive elements only
-snapshot --boxes              # Append [box=x,y,w,h] to each [ref=eN] line
+snapshot --depth=N            # Levels 0..N; a cut node ends in `# +N refs`
+snapshot -i                   # Interactive elements (and named landmarks around them)
+snapshot --boxes              # Append [box=x,y,w,h] (page coordinates, iframes too)
 ```
 
 ### Searching instead of snapshotting
@@ -182,13 +182,13 @@ controls stay distinguishable:
 
 ```
   # table > rowgroup > cell "407 points by pluc 4 hours ago | hide | 321 ..."
-- link "hide": [ref=e49]
+- link "hide" [ref=e49]:
   - /url: hide?id=49489982
 ```
 
-Refs from `find` are numbered across the whole page and are immediately
-usable with `click`, `fill`, and the rest. They stay valid until the next
-`snapshot` or `find`.
+Refs from `find` are the same refs `snapshot` prints and are immediately
+usable with `click`, `fill`, and the rest. A hit with no ref of its own (a
+`text:` line or an `option`) names the element to act on as `[in=e12]`.
 
 When output says `Found 20 of 340 matches`, narrow the query rather than
 raising `--limit`.

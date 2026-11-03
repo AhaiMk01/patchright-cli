@@ -8,7 +8,7 @@ import pytest
 
 from patchright_cli import cli, daemon, mcp_server
 from patchright_cli.daemon import DaemonState, Session, handle_command
-from patchright_cli.ref_registry import RefRegistry
+from tests.ref_helpers import use_refs
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def mock_session():
     session.name = "default"
     session.pages = []
     session.current_tab = 0
-    session.ref_registry = None
+    session.last_raw = None
     session.context = MagicMock()
     session.page = MagicMock()
     session.page.url = "https://example.com/"
@@ -53,15 +53,17 @@ async def _run(state, command, args=(), **options):
 
 
 def _role_page(session, count, refs):
-    """page.get_by_role yields `count` matches; _ref_for_element maps them to `refs` in turn."""
-    registry = RefRegistry()
-    registry.parse('- button "Delete"\n- button "Delete"\n- button "Save"\n')
+    """page.get_by_role yields `count` matches; _refs_of maps them to `refs`."""
+    session.last_raw = '- button "Delete" [ref=e1]\n- button "Delete" [ref=e2]\n- button "Save" [ref=e3]\n'
     locator = MagicMock()
     locator.count = AsyncMock(return_value=count)
     locator.nth = MagicMock(side_effect=lambda i: f"match-{i}")
     session.page.get_by_role = MagicMock(return_value=locator)
-    snap = patch("patchright_cli.daemon.take_snapshot", AsyncMock(return_value=("ignored", registry)))
-    mapper = patch("patchright_cli.daemon._ref_for_element", AsyncMock(side_effect=list(refs)))
+    snap = patch("patchright_cli.daemon.ai_snapshot", AsyncMock(return_value=session.last_raw))
+    mapper = patch(
+        "patchright_cli.daemon._refs_of",
+        AsyncMock(side_effect=lambda _session, _page, locators: list(refs)[: len(locators)]),
+    )
     return snap, mapper
 
 
@@ -148,39 +150,6 @@ async def test_find_role_rejects_bad_combinations(mock_state, mock_session, args
     assert message in response["output"]
 
 
-@pytest.mark.asyncio
-async def test_ref_for_element_picks_the_identical_candidate():
-    registry = RefRegistry()
-    registry.parse('- button "Delete"\n- button "Delete"\n- button "Save"\n')
-    target = MagicMock()
-    target.aria_snapshot = AsyncMock(return_value='- button "Delete"')
-    handle = MagicMock()
-    handle.dispose = AsyncMock()
-    target.element_handle = AsyncMock(return_value=handle)
-    page = MagicMock()
-    resolved = {}
-
-    def resolve(_page, ref):
-        loc = MagicMock()
-        loc.evaluate = AsyncMock(return_value=ref == "e2")
-        resolved[ref] = loc
-        return loc
-
-    with patch.object(registry, "resolve", side_effect=resolve):
-        assert await daemon._ref_for_element(registry, page, target) == "e2"
-    assert set(resolved) == {"e1", "e2"}  # only same role and name are checked
-    handle.dispose.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_ref_for_element_without_candidates_is_none():
-    registry = RefRegistry()
-    registry.parse('- button "Save"\n')
-    target = MagicMock()
-    target.aria_snapshot = AsyncMock(return_value='- link "Home"')
-    assert await daemon._ref_for_element(registry, MagicMock(), target) is None
-
-
 def test_find_role_needs_no_text_on_the_command_line(monkeypatch, capsys):
     from tests.test_cli_axi import _run as run_cli
 
@@ -259,14 +228,12 @@ async def test_html_selector_serializes_one_element(mock_state, mock_session):
 @pytest.mark.asyncio
 async def test_html_ref_serializes_the_ref(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    registry = MagicMock()
     elem = MagicMock()
     elem.evaluate = AsyncMock(return_value="<button>Delete</button>")
-    registry.resolve.return_value = elem
-    mock_session.ref_registry = registry
+    use_refs(mock_session, elem)
     response = await _run(mock_state, "html", ["e3"])
     assert response["output"] == "<button>Delete</button>"
-    registry.resolve.assert_called_once_with(mock_session.page, "e3")
+    mock_session.page.get_by_ref.assert_called_with("e3")
     elem.evaluate.assert_awaited_once_with(daemon._ELEMENT_HTML_JS, False)
 
 
@@ -485,3 +452,43 @@ def test_mcp_html_and_video_start_map_their_flags():
     for bad in (0, 90):
         with pytest.raises(ValueError, match="fps must be from 1 to 60"):
             mcp_server._build_args("patchright_video_start", _mcp_defaults("patchright_video_start", fps=bad))
+
+
+@pytest.mark.asyncio
+async def test_refs_of_probes_each_element_then_restores_the_map():
+    session = MagicMock()
+    page = MagicMock()
+    raw = '- button "Delete" [ref=e1]\n- button "Delete" [ref=e2]\n'
+    page.aria_snapshot = AsyncMock(return_value=raw)
+    page.get_by_ref = MagicMock(return_value=MagicMock(count=AsyncMock(return_value=1)))
+    first, second, missing = (MagicMock() for _ in range(3))
+    first.aria_snapshot = AsyncMock(return_value='- button "Delete" [ref=e2]')
+    second.aria_snapshot = AsyncMock(return_value='- button "Delete" [ref=e1]')
+    missing.aria_snapshot = AsyncMock(return_value='- button "Ghost" [ref=e7]')
+
+    assert await daemon._refs_of(session, page, [first, second, missing]) == ["e2", "e1", None]
+    # One restoring full snapshot after all the probes.
+    page.aria_snapshot.assert_awaited_once_with(mode="ai", boxes=None)
+    assert session.last_raw == raw
+
+
+@pytest.mark.asyncio
+async def test_refs_of_restores_the_map_when_a_probe_fails():
+    session = MagicMock()
+    page = MagicMock()
+    page.aria_snapshot = AsyncMock(return_value='- button "Save" [ref=e1]')
+    broken = MagicMock()
+    broken.aria_snapshot = AsyncMock(side_effect=RuntimeError("detached"))
+    assert await daemon._refs_of(session, page, [broken]) == [None]
+    page.aria_snapshot.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_refs_of_drops_a_ref_that_does_not_match_one_element():
+    session = MagicMock()
+    page = MagicMock()
+    page.aria_snapshot = AsyncMock(return_value='- button "Save" [ref=e1]')
+    page.get_by_ref = MagicMock(return_value=MagicMock(count=AsyncMock(return_value=0)))
+    target = MagicMock()
+    target.aria_snapshot = AsyncMock(return_value='- button "Save" [ref=e1]')
+    assert await daemon._refs_of(session, page, [target]) == [None]

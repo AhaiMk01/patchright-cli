@@ -23,7 +23,9 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-    "patchright",
+    # Refs come from patchright 1.64's aria_snapshot(mode="ai") and get_by_ref; re-run
+    # scripts/ref_sweep before widening this.
+    "patchright>=1.64,<1.65",
     "pyyaml",
     "click",
     "aiohttp>=3.9",

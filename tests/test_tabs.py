@@ -76,22 +76,22 @@ async def test_opening_a_named_tab_does_not_move_the_default_tab():
 @pytest.mark.asyncio
 async def test_named_tab_keeps_its_own_refs_and_history():
     session = _session()
-    session.ref_registry = "default-refs"
+    session.last_raw = "default-refs"
     session.push_history("https://a.test")
 
     await session.open_tab("inbox")
     session.activate_tab("inbox")
 
-    assert session.ref_registry is None
-    session.ref_registry = "inbox-refs"
+    assert session.last_raw is None
+    session.last_raw = "inbox-refs"
     session.push_history("https://b.test")
 
     session.activate_tab(DEFAULT_TAB)
-    assert session.ref_registry == "default-refs"
+    assert session.last_raw == "default-refs"
     assert session._history == ["https://a.test"]
 
     session.activate_tab("inbox")
-    assert session.ref_registry == "inbox-refs"
+    assert session.last_raw == "inbox-refs"
     assert session._history == ["https://b.test"]
 
 
@@ -166,7 +166,7 @@ def test_activating_an_unknown_tab_raises():
 def test_tab_state_starts_empty():
     tab = Tab("a")
     assert tab.page is None
-    assert tab.ref_registry is None
+    assert tab.last_raw is None
     assert tab.codegen is None
     assert tab.history == []
     assert tab.history_index == -1
@@ -297,24 +297,24 @@ async def test_two_tasks_do_not_share_the_active_tab():
         started.set()
         await released.wait()
         # Post-await write: must land on alpha, not on whoever ran meanwhile.
-        session.ref_registry = "alpha-refs"
+        session.last_raw = "alpha-refs"
         session.push_history("https://alpha.test")
-        return session.ref_registry
+        return session.last_raw
 
     async def quick_beta():
         await started.wait()
         session.activate_tab("beta")
-        session.ref_registry = "beta-refs"
+        session.last_raw = "beta-refs"
         session.push_history("https://beta.test")
         released.set()
-        return session.ref_registry
+        return session.last_raw
 
     a, b = await asyncio.gather(slow_alpha(), quick_beta())
 
     assert a == "alpha-refs"
     assert b == "beta-refs"
-    assert session.tabs["alpha"].ref_registry == "alpha-refs"
-    assert session.tabs["beta"].ref_registry == "beta-refs"
+    assert session.tabs["alpha"].last_raw == "alpha-refs"
+    assert session.tabs["beta"].last_raw == "beta-refs"
     assert session.tabs["alpha"].history == ["https://alpha.test"]
     assert session.tabs["beta"].history == ["https://beta.test"]
 
@@ -327,11 +327,11 @@ async def test_activation_does_not_leak_across_sessions():
     await first.open_tab("inbox")
 
     first.activate_tab("inbox")
-    first.ref_registry = "first-inbox"
+    first.last_raw = "first-inbox"
 
     # `second` has no tab called inbox; it must fall back to its own default.
     assert second.active_tab.name == DEFAULT_TAB
-    assert second.ref_registry is None
+    assert second.last_raw is None
 
 
 @pytest.mark.asyncio

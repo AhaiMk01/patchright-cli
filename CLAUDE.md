@@ -54,7 +54,7 @@ CLI (cli.py) --TCP:9321--> Daemon (daemon.py) --Patchright--> Chrome
 
 - **Daemon (`src/patchright_cli/daemon.py`)**: Long-running async process managing browser sessions. Auto-spawned on `open` via `ensure_daemon_running()` which launches a subprocess. Uses `DaemonState` → multiple `Session` objects, each owning a Patchright persistent browser context. Command dispatch uses `@register()` decorated handlers in `COMMAND_HANDLERS` dict, dispatched by `handle_command()`. Console capture uses CDP sessions (not Playwright's `page.on('console')`) because Patchright suppresses it.
 
-- **Snapshot (`src/patchright_cli/snapshot.py`)**: Uses Playwright's native `aria_snapshot()` to get the accessibility tree. `RefRegistry` annotates each node with sequential refs (`e1`, `e2`, ...). Snapshots are saved as YAML to `.patchright-cli/` in the caller's cwd.
+- **Snapshot (`src/patchright_cli/snapshot.py`, `snapshot_text.py`)**: One full-page `page.aria_snapshot(mode="ai")` per tab (kept as `Tab.last_raw`) gives Playwright's own refs (`e5`, `f3e5` in iframes and after navigation); `page.get_by_ref` resolves them. Any other `aria_snapshot()` call replaces the page's ref map, so `snapshot.py` is the only caller (a unit test greps for it) and scoping, `--depth`, `-i` and `find` are text operations in `snapshot_text.py`. `scripts/ref_sweep/` is the before/after sweep of every ref-taking command; rerun it on a patchright bump. Snapshots are saved as YAML to `.patchright-cli/` in the caller's cwd.
 
 ## Key Design Decisions
 
