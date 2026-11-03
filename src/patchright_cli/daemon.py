@@ -106,6 +106,10 @@ class Tab:
         self.history: list[str] = []
         self.history_index: int = -1
         self.codegen: list[str] | None = None
+        # Its page closed or crashed outside the daemon. The tab stays until the
+        # next command reports it as not open, so a command still running on it
+        # never falls back to the default tab's page.
+        self.gone = False
 
 
 class Session:
@@ -147,6 +151,10 @@ class Session:
         # True when `open --webmcp` launched Chrome with the WebMCP feature on.
         self.webmcp = False
         self.current_tab: int = 0
+        # The default tab's page closed or crashed outside the daemon. Its index
+        # would otherwise slide onto a neighbour, and the next command would run
+        # on someone else's tab. Cleared only by select_page.
+        self._current_gone = False
         self.tabs: dict[str, Tab] = {DEFAULT_TAB: Tab(DEFAULT_TAB)}
         # Whether anyone actually works in the implicit default tab. A session
         # opened only through `--tab` never touches it, and an untouched default
@@ -219,8 +227,7 @@ class Session:
             if opener is not None and opener in self.own_pages:
                 self.own_pages.add(page)
         if page not in self.pages:
-            self.pages.append(page)
-            self.current_tab = len(self.pages) - 1
+            self.select_page(page)
         # Emulate before the listener setup awaits, so a popup's own scripts
         # see the session's media features as early as possible.
         await self.apply_emulation(page)
@@ -238,6 +245,10 @@ class Session:
         page.on("request", lambda req: self._on_request(req))
         page.on("response", lambda resp: asyncio.ensure_future(self._on_response(resp)))
         page.on("dialog", lambda dialog: self._handle_dialog(dialog))
+        # Chrome reports pages a person, the page or the Host closed. A crashed
+        # page is gone too: Patchright fails every later call on it.
+        page.on("close", lambda *_: self._forget_page(page, outside=True))
+        page.on("crash", lambda *_: self._forget_page(page, outside=True))
         if self._console_capture_enabled:
             await self._start_page_console_capture(page, include_startup=True)
 
@@ -392,7 +403,7 @@ class Session:
         pinned = self.active_tab.page
         if pinned is not None:
             return pinned
-        if not self.pages:
+        if self._current_gone or not self.pages:
             return None
         idx = max(0, min(self.current_tab, len(self.pages) - 1))
         return self.pages[idx]
@@ -475,7 +486,7 @@ class Session:
     async def open_tab(self, name: str) -> Tab:
         """Return the named tab, giving it a fresh page on first use."""
         existing = self.tabs.get(name)
-        if existing is not None:
+        if existing is not None and not existing.gone:
             return existing
         # _on_new_page advances current_tab for every page the context opens.
         # A named tab owns its page outright, so letting it move that pointer
@@ -503,16 +514,7 @@ class Session:
         tab = self.tabs.pop(name)
         page = tab.page
         if page is not None:
-            self._console_sessions.pop(id(page), None)
-            if page in self.pages:
-                removed_index = self.pages.index(page)
-                self.pages.remove(page)
-                # Follow the page current_tab pointed at. Clamping alone silently
-                # reassigns the default caller to its neighbour when an earlier
-                # page is the one that went.
-                if removed_index < self.current_tab:
-                    self.current_tab -= 1
-            self.current_tab = max(0, min(self.current_tab, len(self.pages) - 1))
+            self._forget_page(page)
             try:
                 await self._unattended(page.close())
             except Exception:
@@ -525,6 +527,38 @@ class Session:
 
         named = [key for key in self.tabs if key != DEFAULT_TAB]
         return bool(named) or self.default_in_use
+
+    def select_page(self, page) -> None:
+        """Make `page` the default tab's page, tracking it first if it is new."""
+        if page not in self.pages:
+            self.pages.append(page)
+        self.current_tab = self.pages.index(page)
+        self._current_gone = False
+
+    def _forget_page(self, page, *, outside: bool = False) -> None:
+        """Stop tracking `page`. Every removal goes through here; idempotent.
+
+        `outside` means Chrome reported it closed or crashed, not that a command
+        closed it: then the default tab does not move on to another page, and a
+        named tab on it is marked gone.
+        """
+        self._console_sessions.pop(id(page), None)
+        if outside:
+            for tab in self.tabs.values():
+                if tab.page is page:
+                    tab.gone = True
+        if page not in self.pages:
+            return
+        removed_index = self.pages.index(page)
+        self.pages.remove(page)
+        if outside and removed_index == self.current_tab:
+            self._current_gone = True
+        # Follow the page current_tab pointed at. Clamping alone silently
+        # reassigns the default caller to its neighbour when an earlier page
+        # is the one that went.
+        elif removed_index < self.current_tab:
+            self.current_tab -= 1
+        self.current_tab = max(0, min(self.current_tab, len(self.pages) - 1))
 
     async def new_page(self):
         """Open a Page in this Session's context and record it as ours."""
@@ -1521,6 +1555,8 @@ async def _page_info(session: Session, cwd: str | None = None) -> dict:
     """Return standard page info + snapshot after a state-changing command."""
     page = session.page
     if page is None:
+        if session.pages:
+            return {"success": True, "output": "### Page\n- The page closed after the command."}
         return {"success": True, "output": "No page open."}
 
     url = page.url
@@ -2664,6 +2700,7 @@ async def cmd_tab_new(session: Session, page, args: list, options: dict, cwd: st
     url = args[0] if args else "about:blank"
     await session.check_navigation(url, _web_only(options))
     new_page = await session.new_page()
+    session.select_page(new_page)
     if url and url != "about:blank":
         await session.goto(new_page, url, _web_only(options))
     return await _page_info(session, cwd)
@@ -2688,11 +2725,7 @@ async def cmd_tab_close(session: Session, page, args: list, options: dict, cwd: 
         await session.close_tab(owner)
         return {"success": True, "output": f"Tab {idx} closed (was tab '{owner}')."}
 
-    session.pages.pop(idx)
-    session._console_sessions.pop(id(page), None)
-    if idx < session.current_tab:
-        session.current_tab -= 1
-    session.current_tab = max(0, min(session.current_tab, len(session.pages) - 1))
+    session._forget_page(page)
     await page.close()
     return {"success": True, "output": f"Tab {idx} closed."}
 
@@ -2713,7 +2746,7 @@ async def cmd_tab_select(
         }
     idx = int(args[0])
     if 0 <= idx < len(session.pages):
-        session.current_tab = idx
+        session.select_page(session.pages[idx])
         await session.pages[idx].bring_to_front()
         return await _page_info(session, cwd)
     return {"success": False, "output": f"Invalid tab index: {idx}"}
@@ -4306,6 +4339,9 @@ async def cmd_debugger_status(
 
 # Commands that end a Session run its teardown unattended (see SessionDebugger),
 # so they must not be held at a pause themselves.
+# Commands that run without a current page: the tab ones get a page back, and
+# console reads the session-wide buffer, which outlives the page that closed.
+_PAGELESS = frozenset({"tab-new", "tab-select", "tab-list", "console"})
 _NOT_HELD = {"close", "close-all", "kill-all", "detach", "delete-data", "list", "profile-list"}
 
 
@@ -4567,6 +4603,8 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
         # Route to the caller's tab last, so it cannot shadow an unknown command
         # or the page-less commands above, and re-read the page afterwards --
         # activation is what decides which page `session.page` resolves to.
+        if tab_name in session.tabs and session.tabs[tab_name].gone is True:
+            del session.tabs[tab_name]
         if tab_name not in session.tabs:
             return {
                 "success": False,
@@ -4579,7 +4617,16 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
         session.activate_tab(tab_name)
         page = session.page
 
-        if page is None and cmd != "tab-new":
+        if page is None and session.pages and cmd not in _PAGELESS:
+            return {
+                "success": False,
+                "output": (
+                    "This tab's page was closed outside the daemon.\n"
+                    "help: run `tab-list`, then `tab-select <index>`, or `tab-new [url]`"
+                ),
+                "code": TARGET_CLOSED,
+            }
+        if page is None and cmd not in _PAGELESS:
             return {
                 "success": False,
                 "output": "No page open. Run 'tab-new' to create one, or 'close' and 'open' again.",

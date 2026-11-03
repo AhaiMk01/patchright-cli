@@ -1510,7 +1510,7 @@ async def test_attaching_a_page_sends_no_runtime_enable():
     cdp.send.assert_not_awaited()
     assert session._console_sessions == {}
     # The page-event listeners, which involve no CDP domain, stay.
-    assert [call.args[0] for call in page.on.call_args_list] == ["request", "response", "dialog"]
+    assert [call.args[0] for call in page.on.call_args_list] == ["request", "response", "dialog", "close", "crash"]
 
 
 @pytest.mark.asyncio
@@ -1593,8 +1593,9 @@ async def test_console_does_not_reuse_capture_after_the_page_closed(mock_state):
     cdp.send.reset_mock()
 
     page.is_closed.return_value = True
-    close_listener = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "close")
-    close_listener()
+    for call in page.on.call_args_list:
+        if call.args[0] == "close":
+            call.args[1]()
     response = await handle_command(mock_state, {"command": "console", "args": []})
 
     assert response["success"] is True
