@@ -417,7 +417,22 @@ def test_toon_renders_a_data_dict(monkeypatch, capsys):
 def test_toon_empty_list_is_explicit(monkeypatch, capsys):
     reply = {"success": True, "output": "0 cookies in this session", "data": []}
     _, out = _run_reply(["--toon", "cookie-list"], reply, monkeypatch, capsys)
-    assert out == "cookies: []\n"
+    assert out == "cookies: []\nmessage: 0 cookies in this session\n"
+
+
+def test_toon_empty_list_keeps_the_text_hints(monkeypatch, capsys):
+    reply = {
+        "success": True,
+        "output": "Virtual passkey authenticator installed in this session.\n0 passkeys in this session\n"
+        "help: add one with `passkey-add <rp-id>`, e.g. passkey-add example.com",
+        "data": [],
+    }
+    _, out = _run_reply(["--toon", "passkey-list"], reply, monkeypatch, capsys)
+    assert out.splitlines() == [
+        "passkeys: []",
+        "message: 0 passkeys in this session",
+        "help: add one with `passkey-add <rp-id>`, e.g. passkey-add example.com",
+    ]
 
 
 def test_toon_without_data_falls_back_to_text(monkeypatch, capsys):

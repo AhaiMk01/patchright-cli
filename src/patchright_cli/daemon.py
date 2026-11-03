@@ -3169,6 +3169,8 @@ async def cmd_passkey_list(
     if not data:
         filters = "".join(f" --{k}={options[k]}" for k in ("rp-id", "id") if options.get(k))
         output = "0 passkeys in this session" + (f" matching{filters}" if filters else "")
+        rp_id = options.get("rp-id") if isinstance(options.get("rp-id"), str) else "example.com"
+        output += f"\nhelp: add one with `passkey-add <rp-id>`, e.g. passkey-add {rp_id}"
     else:
         output = json.dumps(data, indent=2)
     return {"success": True, "output": _passkey_notice(installed) + output, "data": data}
@@ -3184,10 +3186,7 @@ async def cmd_passkey_add(
     if ("private_key" in kwargs) != ("public_key" in kwargs):
         return {"success": False, "output": "Pass --private-key and --public-key together (or neither)."}
     if options.get("sign-count") is not None:
-        try:
-            kwargs["sign_count"] = int(options["sign-count"])
-        except ValueError:
-            return {"success": False, "output": f"--sign-count must be an integer, got '{options['sign-count']}'"}
+        kwargs["sign_count"] = int(options["sign-count"])  # shape checked in values.FLAG_KINDS
     installed = await _ensure_passkeys(session)
     cred = await session.context.credentials.create(args[0], **kwargs)
     data = {k: cred.get(k) for k in _PASSKEY_LIST_FIELDS}

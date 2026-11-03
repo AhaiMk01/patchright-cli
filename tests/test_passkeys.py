@@ -72,7 +72,12 @@ async def test_every_passkey_command_installs(state, session, command, args):
 async def test_list_empty_says_so_with_filters(state, session):
     session._passkeys_installed = True
     resp = await _run(state, "passkey-list", **{"rp-id": "x.com"})
-    assert resp == {"success": True, "output": "0 passkeys in this session matching --rp-id=x.com", "data": []}
+    assert resp == {
+        "success": True,
+        "output": "0 passkeys in this session matching --rp-id=x.com\n"
+        "help: add one with `passkey-add <rp-id>`, e.g. passkey-add x.com",
+        "data": [],
+    }
     session.context.credentials.get.assert_awaited_once_with(id=None, rp_id="x.com")
 
 

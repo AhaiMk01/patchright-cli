@@ -1812,6 +1812,7 @@ _TOON_NOUNS = {
     "profile-list": "profiles",
     "find": "matches",
     "webmcp-list": "tools",
+    "passkey-list": "passkeys",
 }
 
 # What to do when a list reply was cut short (`total` > shown).
@@ -1838,6 +1839,15 @@ def _toon_lines(command: str, response: dict) -> list[str] | None:
     total = response.get("total")
     if isinstance(total, int):
         doc["total"] = total
+    empty_helps: list[str] = []
+    if data == []:
+        # A bare `items: []` says nothing about what was looked for; carry the
+        # text reply's explicit empty state ("0 passkeys in this session") and its hints.
+        text = [line.strip() for line in str(response.get("output") or "").splitlines() if line.strip()]
+        message = next((line for line in text if line.startswith(("0 ", "# "))), None)
+        if message:
+            doc["message"] = message
+        empty_helps = [line for line in text if line.startswith("help:")]
     try:
         encoded = toon.encode(doc)
     except (TypeError, ValueError):
@@ -1848,7 +1858,7 @@ def _toon_lines(command: str, response: dict) -> list[str] | None:
     if isinstance(total, int) and isinstance(data, list) and total > len(data):
         hint = _MORE_HINTS.get(command, "narrow the request to see the rest")
         lines.append(f"help: showing {len(data)} of {total}; {hint}")
-    return lines
+    return lines + empty_helps
 
 
 def _parse_port(value: str) -> int:
