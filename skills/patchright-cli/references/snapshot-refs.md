@@ -27,7 +27,9 @@ open browser -> snapshot -> read refs -> interact -> snapshot again -> repeat
 - Refs are **per tab**. A ref that is not in this tab's last snapshot is refused:
   `e2 is not from a snapshot of this tab; run snapshot (...)`. An element whose role
   or name changes (a button relabelled "Saved") gets a new ref, so the old one is refused too.
-  After `tab-select`, use the snapshot it prints.
+  After `tab-select`, use the snapshot it prints. A click that opens a popup makes
+  the popup current, and the popup's first-document refs (`e1`, `e2`, ...) can reuse
+  numbers from the opener, so use the snapshot printed after the click.
 - `e5`, `@e5`, `ref=e5` and `[ref=e5]` all work. Anything else is a usage error (exit 2).
 
 ## Snapshot commands
