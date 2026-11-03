@@ -122,6 +122,12 @@ SCROLL = Choice(("auto", "none"))
 BUTTON = Choice(("left", "right", "middle"))
 CALLOUT_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
 WAIT_STATES = ("visible", "hidden", "attached", "detached")
+# The `type` of CDP's Runtime.consoleAPICalled, which console capture records;
+# `warn` is the handler's alias for `warning`.
+CONSOLE_LEVELS = (
+    "log", "info", "warning", "warn", "error", "debug", "trace", "assert", "dir", "dirxml", "table",
+    "clear", "count", "timeEnd", "startGroup", "startGroupCollapsed", "endGroup", "profile", "profileEnd",
+)  # fmt: skip
 MAX_VIDEO_FPS = 60
 FILENAME = Text("out.png")
 
@@ -208,6 +214,7 @@ ARG_KINDS: dict[str, list[tuple[str, object] | None]] = {
     "set-contrast": [("<contrast>", Choice(("more", "no-preference")))],
     "set-media": [("<media>", Choice(("screen", "print")))],
     "network-state-set": [("<state>", Choice(("online", "offline")))],
+    "console": [("[level]", Choice(CONSOLE_LEVELS))],
 }
 
 
