@@ -510,3 +510,16 @@ def test_console_level_is_an_enum_of_the_levels_the_cli_accepts():
     enum = next(choice["enum"] for choice in level["anyOf"] if "enum" in choice)
     assert enum == list(values.CONSOLE_LEVELS)
     assert mcp_server._build_args("patchright_console", _defaults("patchright_console")) == ["console"]
+
+
+def test_console_level_accepts_the_empty_string_old_clients_send(monkeypatch):
+    sent = []
+
+    async def fake_run(args, session=None, timeout=0):
+        sent.append(args)
+        return "ok"
+
+    monkeypatch.setattr(mcp_server, "_run_patchright", fake_run)
+    asyncio.run(mcp_server.server.call_tool("patchright_console", {"level": ""}))
+    asyncio.run(mcp_server.server.call_tool("patchright_console", {"level": "error"}))
+    assert sent == [["console"], ["console", "error"]]

@@ -217,19 +217,67 @@ async def test_tab_not_open_carries_its_code(mock_state, mock_session):  # noqa:
     assert reply["success"] is False and reply["code"] == "tab_not_open"
 
 
-def _closed_errors():
-    from patchright._impl._errors import TargetClosedError
+def _driver_error(name: str, message: str):
+    """An error as Patchright raises it from a driver reply."""
+    from patchright._impl._helper import parse_error
 
-    return [TargetClosedError(), Exception("Page.title: Target page, context or browser has been closed")]
+    return parse_error({"name": name, "message": message, "stack": ""})
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("exc", _closed_errors(), ids=["TargetClosedError", "plain-error"])
-async def test_a_closed_target_carries_its_code(mock_state, mock_session, exc):  # noqa: F811
+async def test_a_closed_target_carries_its_code(mock_state, mock_session):  # noqa: F811
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.title = AsyncMock(side_effect=exc)
+    closed = _driver_error("TargetClosedError", "Target page, context or browser has been closed")
+    mock_session.page.title = AsyncMock(side_effect=closed)
     reply = await _run(mock_state, "title")
     assert reply["success"] is False and reply["code"] == "target_closed"
+
+
+@pytest.mark.asyncio
+async def test_a_page_error_that_mentions_closing_carries_no_code(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    thrown = _driver_error("Error", "Error: the dialog has been closed")
+    mock_session.page.evaluate = AsyncMock(side_effect=thrown)
+    reply = await _run(mock_state, "eval", ["1"])
+    assert reply["success"] is False and "code" not in reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("command", "args"), [("webmcp-list", []), ("webmcp-call", ["search", "{}"])])
+async def test_webmcp_on_a_closed_target_carries_its_code(mock_state, mock_session, command, args):  # noqa: F811
+    from patchright._impl._errors import TargetClosedError
+
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.webmcp.tools = AsyncMock(side_effect=TargetClosedError())
+    mock_session.page.webmcp.call_tool = AsyncMock(side_effect=TargetClosedError())
+    reply = await _run(mock_state, command, args)
+    assert reply["success"] is False and reply["code"] == "target_closed"
+
+
+@pytest.mark.asyncio
+async def test_tab_new_recovers_a_session_without_pages(mock_state):  # noqa: F811
+    page = MagicMock(url="about:blank", title=AsyncMock(return_value=""))
+    context = MagicMock(new_page=AsyncMock(return_value=page))
+    session = daemon.Session("default", context, pages=[])
+    session.apply_emulation = AsyncMock()
+    mock_state.sessions = {"default": session}
+    assert (await _run(mock_state, "title"))["code"] == "no_page"
+    reply = await _run(mock_state, "tab-new")
+    assert reply["success"] is True
+    context.new_page.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_chrome_that_dies_while_launching_is_not_a_closed_target(tmp_path):
+    from patchright._impl._errors import TargetClosedError
+
+    state = daemon.DaemonState()
+    state.playwright = MagicMock()
+    state.playwright.chromium.launch_persistent_context = AsyncMock(side_effect=TargetClosedError())
+    reply = await handle_command(
+        state, {"command": "open", "args": [], "options": {"session": "w", "profile": str(tmp_path / "p")}}
+    )
+    assert reply["success"] is False and "code" not in reply
 
 
 @pytest.mark.asyncio
