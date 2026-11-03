@@ -1883,6 +1883,80 @@ def _parse_geolocation(value: str) -> dict:
     return {"lat": lat, "lon": lon}
 
 
+# A sentence that tells the reader what to do next: printed as a `help:` line.
+_NEXT_STEP = (
+    "Run",
+    "Use",
+    "Close",
+    "Finish",
+    "Narrow",
+    "Quote",
+    "Drop",
+    "Pass",
+    "Give",
+    "Try",
+    "Open",
+    "Call",
+    "Start",
+    "Navigate",
+    "Goto",
+    "Reload",
+    "Wait",
+    "Check",
+    "Raise",
+)
+_NEXT_STEP_SPLIT = re.compile(r"(?<=[.!?])\s+(?=(?:" + "|".join(_NEXT_STEP) + r")\b)")
+_ERROR_PREFIX = re.compile(r"^(?:error|Error|ERROR)\s*:\s*")
+_USAGE_TAIL = re.compile(r"(?:^|\s)Usage: (.+)$")
+
+
+def _lower_first(text: str) -> str:
+    """`Tab 'x' is not open` -> `tab 'x' is not open`; acronyms (`WebMCP`, `URL`) stay."""
+    word = re.match(r"[A-Za-z]+", text)
+    if word and word.group()[0].isupper() and (word.group()[1:].islower() or word.group() == "A"):
+        return text[0].lower() + text[1:]
+    return text
+
+
+def _drop_period(text: str) -> str:
+    return text[:-1] if text.endswith(".") and not text.endswith("..") else text
+
+
+def _as_help(sentence: str) -> str:
+    sentence = sentence.strip()
+    if sentence.startswith("help:"):
+        return sentence
+    return f"help: {_lower_first(_drop_period(sentence))}"
+
+
+def _failure_lines(command: str, output: str) -> tuple[str, list[str], list[str]]:
+    """A failed daemon reply as (message, detail lines, help lines), whatever its wording.
+
+    The daemon's messages grew in several styles (`Error: ...`, bare sentences,
+    `Usage: ...`, a next step in the same sentence). Every failure prints the
+    same way: `error: <message>`, any detail lines, then `help:` lines.
+    """
+    lines = [line.rstrip() for line in output.strip().splitlines()]
+    if not lines or not lines[0].strip():
+        return f"`{command}` failed", [], []
+    first = _ERROR_PREFIX.sub("", lines[0].strip())
+    helps: list[str] = []
+    usage = _USAGE_TAIL.search(first)
+    if usage:
+        first = first[: usage.start()].strip() or f"`{command}` got missing or invalid arguments"
+        helps.append(f"help: patchright-cli {usage.group(1).strip()}")
+    message, *next_steps = _NEXT_STEP_SPLIT.split(first)
+    helps[:0] = [_as_help(step) for step in next_steps]
+    details: list[str] = []
+    for line in lines[1:]:
+        bare = line.strip()
+        if bare.startswith("help:") or bare.startswith(_NEXT_STEP):
+            helps.append(_as_help(bare))
+        elif bare:
+            details.append(line)
+    return _lower_first(_drop_period(message.strip())), details, helps
+
+
 def _print_error(message: str, *help_lines: str) -> None:
     """CLI-originated errors go to stdout, where the agent reads its output."""
     click.echo(f"error: {message}")
@@ -2223,13 +2297,22 @@ def _main():
     # it, or a failure, prints exactly as it would without the flag.
     toon_lines = _toon_lines(command, response) if toon and success else None
 
+    failure = None if success else _failure_lines(command, output if isinstance(output, str) else str(output))
+
     if toon_lines is not None:
         click.echo("\n".join(toon_lines))
     elif as_json:
         payload = dict(response)
+        if failure is not None:
+            payload.setdefault("error", failure[0])
+            if failure[2]:
+                payload.setdefault("help", [line.removeprefix("help: ") for line in failure[2]])
         if raw and isinstance(payload.get("output"), str):
             payload["output"] = _strip_raw_output(payload["output"])
         click.echo(json.dumps(payload, default=str))
+    elif failure is not None:
+        message, details, helps = failure
+        click.echo("\n".join([f"error: {message}", *details, *helps]))
     else:
         if output:
             if raw:

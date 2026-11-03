@@ -185,3 +185,78 @@ def test_measured_bad_values(argv, monkeypatch, capsys):
     code, lines, sent = _run(argv, monkeypatch, capsys)
     assert (code, sent) == (2, None), lines
     assert lines[0].startswith("error: ") and lines[1].startswith("help: ")
+
+
+# -- D. every failed daemon reply prints one way -------------------------------
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        ("Error: stale element", ["error: stale element"]),
+        ("Invalid --fps value: 'abc'.", ["error: invalid --fps value: 'abc'"]),
+        (
+            "Session 'w' is not open. Run 'open' first.",
+            ["error: session 'w' is not open", "help: run 'open' first"],
+        ),
+        (
+            "No page open. Run 'tab-new' to create one, or 'close' and 'open' again.",
+            ["error: no page open", "help: run 'tab-new' to create one, or 'close' and 'open' again"],
+        ),
+        (
+            "Usage: network-state-set <online|offline>",
+            [
+                "error: `cmd` got missing or invalid arguments",
+                "help: patchright-cli network-state-set <online|offline>",
+            ],
+        ),
+        (
+            "find requires a search term. Usage: find <text> [--regex]",
+            ["error: find requires a search term", "help: patchright-cli find <text> [--regex]"],
+        ),
+        (
+            "Error: element is outside of the viewport\nhelp: drop --scroll=none or scroll first",
+            ["error: element is outside of the viewport", "help: drop --scroll=none or scroll first"],
+        ),
+        (
+            'Error: Timeout\nOptions:\n- option "Red"\nhelp: pick one',
+            ["error: timeout", "Options:", '- option "Red"', "help: pick one"],
+        ),
+        ("WebMCP is not enabled in this browser.", ["error: WebMCP is not enabled in this browser"]),
+        ("", ["error: `cmd` failed"]),
+    ],
+)
+def test_failure_lines_normalize_every_style(output, expected):
+    message, details, helps = cli._failure_lines("cmd", output)
+    assert [f"error: {message}", *details, *helps] == expected
+
+
+def test_failed_reply_prints_error_then_help(monkeypatch, capsys):
+    reply = {"success": False, "output": "Session 'w' is not open. Run 'open' first."}
+    code, lines, _ = _run(["-s=w", "snapshot"], monkeypatch, capsys, reply=reply)
+    assert code == 1
+    assert lines == ["error: session 'w' is not open", "help: run 'open' first"]
+
+
+def test_failed_usage_reply_keeps_exit_2(monkeypatch, capsys):
+    reply = {"success": False, "output": 'Error: "zz" is not a ref', "exit_code": 2}
+    code, lines, _ = _run(["click", "zz"], monkeypatch, capsys, reply=reply)
+    assert code == 2 and lines == ['error: "zz" is not a ref']
+
+
+def test_failed_json_reply_gains_an_error_field(monkeypatch, capsys):
+    import json
+
+    reply = {"success": False, "output": "Session 'w' is not open. Run 'open' first.", "data": []}
+    code, lines, _ = _run(["--json", "tab-list"], monkeypatch, capsys, reply=reply)
+    payload = json.loads(lines[0])
+    assert code == 1
+    assert payload["output"] == reply["output"] and payload["data"] == []
+    assert payload["error"] == "session 'w' is not open"
+    assert payload["help"] == ["run 'open' first"]
+
+
+def test_failed_toon_reply_prints_the_error_format(monkeypatch, capsys):
+    reply = {"success": False, "output": "Error: boom", "data": []}
+    code, lines, _ = _run(["--toon", "tab-list"], monkeypatch, capsys, reply=reply)
+    assert code == 1 and lines == ["error: boom"]

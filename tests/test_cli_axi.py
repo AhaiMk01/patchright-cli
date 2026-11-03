@@ -439,7 +439,7 @@ def test_toon_leaves_failures_alone(monkeypatch, capsys):
     reply = {"success": False, "output": "Session 'default' is not open", "data": []}
     code, out = _run_reply(["--toon", "tab-list"], reply, monkeypatch, capsys)
     assert code == 1
-    assert out == "Session 'default' is not open\n"
+    assert out == "error: session 'default' is not open\n"
 
 
 def test_toon_truncated_list_carries_total_and_a_hint(monkeypatch, capsys):
