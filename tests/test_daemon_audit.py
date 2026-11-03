@@ -316,3 +316,46 @@ async def test_snapshot_of_a_closed_page_fails_with_its_code(mock_state, mock_se
     mock_session.page.aria_snapshot = AsyncMock(side_effect=TargetClosedError())
     reply = await _run(mock_state, "snapshot")
     assert reply["success"] is False and reply["code"] == "target_closed"
+
+
+@pytest.mark.asyncio
+async def test_a_command_that_closes_its_own_page_still_succeeds(mock_state, mock_session):  # noqa: F811
+    from patchright._impl._errors import TargetClosedError
+
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.reload = AsyncMock()
+    mock_session.page.aria_snapshot = AsyncMock(side_effect=TargetClosedError())
+    reply = await _run(mock_state, "reload")
+    assert reply["success"] is True and "code" not in reply
+    assert "page closed" in reply["output"]
+    mock_session.page.reload.assert_awaited_once()
+
+
+def _closing_playwright(where: str):
+    from patchright._impl._errors import TargetClosedError
+
+    playwright = MagicMock()
+    closed = AsyncMock(side_effect=TargetClosedError())
+    if where == "launch":
+        playwright.chromium.launch_persistent_context = closed
+    elif where == "first-page":
+        context = MagicMock(pages=[], new_page=closed)
+        playwright.chromium.launch_persistent_context = AsyncMock(return_value=context)
+    else:
+        playwright.chromium.connect_over_cdp = closed
+    return playwright
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("where", ["launch", "first-page", "attach"])
+async def test_a_chrome_that_closes_while_opening_is_not_a_closed_target(tmp_path, where):
+    state = daemon.DaemonState()
+    state.playwright = _closing_playwright(where)
+    if where == "attach":
+        msg = {"command": "attach", "args": [], "options": {"session": "w", "cdp": "ws://127.0.0.1:1/devtools/browser/x"}}
+    else:
+        msg = {"command": "open", "args": [], "options": {"session": "w", "profile": str(tmp_path / "p")}}
+    reply = await handle_command(state, msg)
+    assert reply["success"] is False and "code" not in reply
+    assert "closed while opening session 'w'" in reply["output"]
+    assert "w" not in state.sessions
