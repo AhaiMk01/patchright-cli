@@ -828,9 +828,12 @@ TOOL_SPECS = {
     "patchright_pick_locator": {
         "description": (
             "CLI command: pick-locator Wait for a person to click an element in the headed browser and return "
-            "its locator, plus its snapshot ref when one matches."
+            "its locator, plus its snapshot ref when one matches. Page-detectable: Playwright's recorder stays in "
+            "every page of the session (window.playwright, __pw_* globals) until it closes, so it runs only with "
+            "detectable=true."
         ),
         "params": [
+            ("detectable", "boolean", False, False, "Required to pick: accept the page-visible recorder traces."),
             ("wait", "number", False, 60, "Seconds to wait for the click before cancelling."),
             ("cancel", "boolean", False, False, "Cancel the pick-locator waiting on this tab instead."),
             ("session", "string", False, "default", "Named Patchright browser session."),
@@ -1525,7 +1528,7 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name == "patchright_pick_locator":
         if p["cancel"]:
             return ["pick-locator", "--cancel"]
-        return ["pick-locator", f"--wait={p['wait']}"]
+        return ["pick-locator", f"--wait={p['wait']}", *(["--detectable"] if p["detectable"] else [])]
 
     if name == "patchright_show":
         args = ["show", f"--show-port={p['port']}"]

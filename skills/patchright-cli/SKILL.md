@@ -325,6 +325,12 @@ and future pages, including popups. Earlier messages are unavailable: call it
 before reproducing an issue, then again to read messages. Capture makes CDP
 detectable until the session closes; `console --clear` only clears the buffer.
 
+A highlight is page-visible while shown (an `<x-pw-glass>` element under `<html>`);
+`--hide` removes the element once no highlight is left. `pick-locator` refuses to
+run without `--detectable`: Playwright's recorder then stays in every page of the
+session (`window.playwright`, `__pw_*` globals, an `<x-pw-glass>` element it
+re-adds) until the session closes, so use a throwaway session for it.
+
 ### Debugger (step through a command's browser calls)
 
 ```bash
@@ -539,8 +545,8 @@ network [--static] [--clear]            # Show network requests
 requests [--static] [--clear]           # Alias for `network`
 request <id> [--body]                   # Show full detail for a network request
 generate-locator <ref>                  # Emit Playwright locator expression for a ref
-pick-locator [--wait] [--cancel]        # Wait for a person to click an element; print its locator
-highlight <ref> [--style] [--hide]      # Show overlay on element
+pick-locator [--detectable] [--wait] [--cancel]  # Wait for a person to click an element; print its locator (page-detectable: needs --detectable)
+highlight <ref> [--style] [--hide]      # Show overlay on element (page-detectable while shown; removed on --hide)
 
 # Debugger
 debugger-pause                          # Pause before the next page action, navigation or eval; that command replies at once, held

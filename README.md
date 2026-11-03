@@ -429,6 +429,12 @@ the messages. Capture can make automation detectable and stays enabled until the
 session closes; `--clear` only clears the message buffer. A new session starts
 with capture disabled.
 
+Two DevTools commands leave traces a page can see. `highlight` draws inside an
+`<x-pw-glass>` element under `<html>`; `highlight --hide` removes it once no
+highlight is left. `pick-locator` runs only with `--detectable`: it installs
+Playwright's recorder, which puts `window.playwright`, `__pw_*` globals and an
+`<x-pw-glass>` element into every page of the session until the session closes.
+
 ### Output
 ```bash
 patchright-cli --raw eval --file=s.js  # Raw output (no page/snapshot decoration)

@@ -266,7 +266,16 @@ def check_command(command: str, args: list, options: dict) -> None:
 _ROLE_ONLY = ("name", "description", "exact")
 
 
+PICK_LOCATOR_TRACES = "window.playwright, __pw_* globals, an <x-pw-glass> loop"
+
+
 def _check_combinations(command: str, args: list, options: dict) -> None:
+    if command == "pick-locator" and not options.get("cancel") and not options.get("detectable"):
+        raise ValueProblem(
+            f"pick-locator installs Playwright's recorder in every page of this session ({PICK_LOCATOR_TRACES}) "
+            "until the session closes",
+            "help: patchright-cli pick-locator --detectable",
+        )
     if command == "find":
         if "role" in options:
             stray = [repr(a) for a in args] + [f"--{f}" for f in ("regex", "all") if f in options]

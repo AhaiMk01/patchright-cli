@@ -1,8 +1,10 @@
 """AXI audit, daemon side: the checks MCP and raw clients meet without the CLI in front."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
-from patchright_cli import values
+from patchright_cli import daemon, values
 from patchright_cli.daemon import _error_reply, handle_command
 from tests.test_daemon_axi import _run, mock_session, mock_state  # noqa: F401
 
@@ -148,3 +150,42 @@ def test_error_reply_translates_playwright_errors(cmd, args, options, raw, expec
     lines = reply["output"].splitlines()
     assert lines == [f"Error: {expected[0]}", *expected[1:]]
     assert "Call log" not in reply["output"]
+
+
+# -- A2. highlight --hide takes Playwright's overlay element out of the page ----
+
+
+def _highlight_page(session):
+    frame = MagicMock()
+    frame.evaluate = AsyncMock()
+    session.page.frames = [frame]
+    loc = MagicMock()
+    loc.count = AsyncMock(return_value=1)
+    loc.highlight = AsyncMock()
+    loc.hide_highlight = AsyncMock()
+    session.page.get_by_ref = MagicMock(return_value=loc)
+    session.page.hide_highlight = AsyncMock()
+    session.last_raw = '- button "A" [ref=e1]\n- button "B" [ref=e2]'
+    return frame
+
+
+@pytest.mark.asyncio
+async def test_hide_all_removes_the_glass_in_the_isolated_world(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    frame = _highlight_page(mock_session)
+    await _run(mock_state, "highlight", ["e1"])
+    frame.evaluate.assert_not_awaited()
+    await _run(mock_state, "highlight", [], hide=True)
+    frame.evaluate.assert_awaited_once_with(daemon._REMOVE_GLASS, isolated_context=True)
+
+
+@pytest.mark.asyncio
+async def test_hide_one_keeps_the_glass_while_another_highlight_shows(mock_state, mock_session):  # noqa: F811
+    mock_state.sessions = {"default": mock_session}
+    frame = _highlight_page(mock_session)
+    await _run(mock_state, "highlight", ["e1"])
+    await _run(mock_state, "highlight", ["e2"])
+    await _run(mock_state, "highlight", ["e1"], hide=True)
+    frame.evaluate.assert_not_awaited()
+    await _run(mock_state, "highlight", ["e2"], hide=True)
+    frame.evaluate.assert_awaited_once_with(daemon._REMOVE_GLASS, isolated_context=True)

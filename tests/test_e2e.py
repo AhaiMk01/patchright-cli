@@ -17,6 +17,7 @@ from patchright_cli.daemon import ensure_daemon_running, read_daemon_token
 
 FIXTURE_URL = "file://" + os.path.join(os.path.dirname(__file__), "fixture.html")
 WEBMCP_FIXTURE_URL = (Path(__file__).parent / "webmcp_fixture.html").resolve().as_uri()
+DETECT_FIXTURE_URL = (Path(__file__).parent / "detect_fixture.html").resolve().as_uri()
 # Overridable so parallel runs (one per worktree) do not share a daemon.
 TEST_PORT = int(os.environ.get("PATCHRIGHT_CLI_E2E_PORT", "19321"))
 
@@ -431,7 +432,9 @@ class TestPickLocator:
 
         result = {}
         thread = threading.Thread(
-            target=lambda: result.update(_cmd(port, "pick-locator", options=options or {"wait": "20"}))
+            target=lambda: result.update(
+                _cmd(port, "pick-locator", options=options or {"wait": "20", "detectable": True})
+            )
         )
         thread.start()
         time.sleep(1.5)
@@ -468,7 +471,7 @@ class TestPickLocator:
         assert "cancelled" in resp["output"]
 
     def test_wait_expiry_cancels_pick_mode(self, daemon):
-        resp = _cmd(daemon, "pick-locator", options={"wait": "1"})
+        resp = _cmd(daemon, "pick-locator", options={"wait": "1", "detectable": True})
         assert resp["success"] is False
         assert "No element was picked within 1s" in resp["output"]
         again = _cmd(daemon, "pick-locator", options={"cancel": True})
@@ -765,3 +768,105 @@ class TestNativeRefs:
         assert scoped["success"] is True, scoped
         assert "Keep" not in Path(scoped["snapshot_path"]).read_text(encoding="utf-8")
         assert _cmd(refs_page, "click", args=[keep])["success"] is True
+
+
+TRACES_SESSION = "traces"
+
+
+@pytest.fixture
+def traces(daemon):
+    """A session of its own: after a pick, Playwright's recorder stays in every page of the session."""
+    opened = _t(daemon, "open", args=[DETECT_FIXTURE_URL])
+    assert opened["success"] is True, opened
+    yield daemon
+    _cmd(daemon, "close", options={"session": TRACES_SESSION})
+
+
+def _t(port: int, action: str, args=None, **options) -> dict:
+    profile = {"profile": f"e2e-{TEST_PORT}-{TRACES_SESSION}"} if action == "open" else {}
+    return _cmd(port, action, args, {"session": TRACES_SESSION, **profile, **options})
+
+
+def _probe(port: int) -> dict:
+    """What the page's own main-world script sees (tests/detect_fixture.html)."""
+    time.sleep(0.3)  # the page refreshes its probe every 50ms
+    resp = _t(port, "eval", args=["document.getElementById('probe').value"])
+    assert resp["success"] is True, resp
+    return json.loads(json.loads(resp["output"]))
+
+
+def _target_ref(port: int) -> str:
+    snap = _t(port, "snapshot")
+    return _find_ref(Path(snap["snapshot_path"]).read_text(encoding="utf-8"), 'button "Target"')
+
+
+@pytest.mark.e2e
+class TestPageVisibleTraces:
+    def test_highlight_hide_leaves_no_glass(self, traces):
+        ref = _target_ref(traces)
+        assert _t(traces, "highlight", args=[ref])["success"] is True
+        assert _probe(traces)["glass"] == 1
+
+        assert _t(traces, "highlight", args=[ref], hide=True)["success"] is True
+        seen = _probe(traces)
+        assert seen["glass"] == 0
+        assert seen["mutations"][-1] == "-X-PW-GLASS"
+        assert seen["playwright"] == "undefined" and seen["pwGlobals"] == 0
+
+        # Playwright puts the glass back for the next highlight; --hide without a ref clears it again.
+        assert _t(traces, "highlight", args=[ref])["success"] is True
+        assert _probe(traces)["glass"] == 1
+        assert _t(traces, "highlight", hide=True)["output"] == "All highlights cleared."
+        time.sleep(1)
+        assert _probe(traces)["glass"] == 0
+
+    def test_pick_locator_needs_detectable(self, traces):
+        refused = _t(traces, "pick-locator", wait="5")
+        assert refused["success"] is False and refused["exit_code"] == 2
+        seen = _probe(traces)
+        assert seen["playwright"] == "undefined" and seen["glass"] == 0
+
+    def test_pick_locator_cleanup_and_what_stays_until_the_session_closes(self, traces):
+        import threading
+
+        box = _t(
+            traces,
+            "eval",
+            args=[
+                "(() => { const r = document.getElementById('target').getBoundingClientRect();"
+                " return `at ${Math.round(r.x + r.width / 2)},${Math.round(r.y + r.height / 2)}`; })()"
+            ],
+        )
+        x, y = re.search(r"at (\d+),(\d+)", box["output"]).groups()
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(_t(traces, "pick-locator", wait="20", detectable=True)))
+        thread.start()
+        time.sleep(1.5)
+        _t(traces, "mousemove", args=[x, y])
+        _t(traces, "mousedown")
+        _t(traces, "mouseup")
+        thread.join(25)
+        assert result["success"] is True, result
+        assert result["output"].splitlines()[-1].startswith("help: run `patchright-cli close`")
+
+        time.sleep(1.5)  # past the recorder's 1s mode poll and its 500ms glass loop
+        seen = _probe(traces)
+        assert seen["cursor"] is None  # removed from the isolated world, and it stays removed
+        assert seen["sheets"] == 0
+        assert "@BODY.data-pw-cursor=null" in seen["mutations"]
+        # The recorder lives in the page's own world and follows the session to every document.
+        assert seen["playwright"] == "object" and seen["pwGlobals"] > 0
+        assert _t(traces, "reload")["success"] is True
+        assert _probe(traces)["playwright"] == "object"
+
+        # Closing the session is what drops it.
+        assert _t(traces, "close")["success"] is True
+        assert _t(traces, "open", args=[DETECT_FIXTURE_URL])["success"] is True
+        seen = _probe(traces)
+        assert (seen["glass"], seen["cursor"], seen["sheets"], seen["playwright"], seen["pwGlobals"]) == (
+            0,
+            None,
+            0,
+            "undefined",
+            0,
+        )

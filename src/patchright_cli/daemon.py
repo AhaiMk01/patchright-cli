@@ -2252,6 +2252,47 @@ async def cmd_pick_locator(
         }
 
     _active_picks.add(page)
+    try:
+        reply = await _wait_for_pick(session, page, wait_seconds)
+    finally:
+        _active_picks.discard(page)
+        await _clean_after_pick(session, page)
+    reply["output"] = "\n".join([reply["output"], PICK_TRACES_NOTE, PICK_TRACES_HELP])
+    return reply
+
+
+# What pick-locator leaves behind that the isolated world cannot remove: the
+# recorder runs in the page's own world, re-adds its overlay every 500ms, and is
+# installed into every later document of the browser context (reloads, new tabs).
+PICK_TRACES_NOTE = (
+    "note: every page of this session now carries window.playwright, __pw_* globals and an <x-pw-glass> "
+    "element, until the session closes"
+)
+PICK_TRACES_HELP = "help: run `patchright-cli close`, then `open` again, to drop them"
+
+# The recorder's own traces that do stay gone once removed: the cursor attribute
+# on <body> and its adopted stylesheet. Run in the isolated world.
+_PICK_CLEANUP = """(removeGlass) => {
+  if (document.body) document.body.removeAttribute('data-pw-cursor');
+  const isRecorderSheet = (sheet) => {
+    try { return [...sheet.cssRules].some((rule) => rule.cssText.includes('data-pw-cursor')); }
+    catch { return false; }
+  };
+  const sheets = document.adoptedStyleSheets;
+  if (sheets.some(isRecorderSheet)) document.adoptedStyleSheets = sheets.filter((s) => !isRecorderSheet(s));
+  if (removeGlass) for (const el of document.querySelectorAll('x-pw-glass')) el.remove();
+}"""
+
+
+async def _clean_after_pick(session: Session, page) -> None:
+    """Undo what pick mode left in the DOM, from the isolated world; keep the glass while highlights show."""
+    remove_glass = not (getattr(session, "highlights", None) or {}).get(id(page))
+    for frame in list(getattr(page, "frames", None) or [page.main_frame]):
+        with contextlib.suppress(Exception):
+            await frame.evaluate(_PICK_CLEANUP, remove_glass, isolated_context=True)
+
+
+async def _wait_for_pick(session: Session, page, wait_seconds: float) -> dict:
     task = asyncio.ensure_future(page.pick_locator())
     try:
         done, _ = await asyncio.wait({task}, timeout=wait_seconds)
@@ -2273,8 +2314,6 @@ async def cmd_pick_locator(
     except asyncio.CancelledError:
         await _cancel_pick(page, task)
         raise
-    finally:
-        _active_picks.discard(page)
 
     selector = getattr(picked, "_impl_obj", picked)._selector
     (ref,) = await _refs_of(session, page, [picked])
@@ -2282,6 +2321,22 @@ async def cmd_pick_locator(
     if ref:
         lines += ["### Ref", f"- {ref} (in the last snapshot; use it with click, fill, ...)"]
     return {"success": True, "output": "\n".join(lines), "data": {"locator": selector, "ref": ref}}
+
+
+# Playwright's highlight overlay lives in an <x-pw-glass> element under <html>,
+# and hide_highlight() only empties it: the element stays where any page script
+# can find it. Removed from the isolated world, so no page-visible script runs;
+# Playwright re-inserts it on the next highlight.
+_REMOVE_GLASS = "() => { for (const el of document.querySelectorAll('x-pw-glass')) el.remove(); }"
+
+
+async def _remove_glass(page) -> None:
+    """Take Playwright's overlay element out of every frame of `page`, unless a pick is using it."""
+    if page in _active_picks:
+        return
+    for frame in list(getattr(page, "frames", None) or [page.main_frame]):
+        with contextlib.suppress(Exception):
+            await frame.evaluate(_REMOVE_GLASS, isolated_context=True)
 
 
 @register("highlight")
@@ -2302,6 +2357,7 @@ async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: 
         had = bool(shown)
         shown.clear()
         await page.hide_highlight()
+        await _remove_glass(page)
         if not had:
             return {"success": True, "output": "No highlights on the page (no-op)"}
         return {"success": True, "output": "All highlights cleared."}
@@ -2316,6 +2372,8 @@ async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: 
             return {"success": True, "output": f"{ref} is not highlighted (no-op)"}
         await elem.hide_highlight()
         shown.discard(ref)
+        if not shown:
+            await _remove_glass(page)
         return {"success": True, "output": f"Hid highlight on {ref}."}
 
     await elem.highlight(style=style or None)

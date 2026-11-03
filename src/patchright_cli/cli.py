@@ -1227,16 +1227,18 @@ COMMAND_SPECS: dict[str, dict] = {
     },
     "pick-locator": {
         "usage": "pick-locator",
-        "summary": "Wait for a person to click an element; print its locator",
+        "summary": "Wait for a person to click an element; print its locator (page-detectable: needs --detectable)",
         "flags": {
+            "detectable": "Required: accept that Playwright's recorder stays in every page of the session "
+            "(window.playwright, __pw_* globals, an <x-pw-glass> element) until it closes (default: refuse)",
             "wait": "Seconds to wait for the click before cancelling (default: 60)",
-            "cancel": "Cancel the pick-locator waiting on this tab (default: off)",
+            "cancel": "Cancel the pick-locator waiting on this tab; needs no --detectable (default: off)",
         },
-        "examples": ["pick-locator", "pick-locator --wait=180", "pick-locator --cancel"],
+        "examples": ["pick-locator --detectable", "pick-locator --detectable --wait=180", "pick-locator --cancel"],
     },
     "highlight": {
         "usage": "highlight <ref>",
-        "summary": "Show overlay on element",
+        "summary": "Show overlay on element (page-detectable while shown; removed on --hide)",
         "flags": {
             "style": "Extra inline CSS for the overlay, e.g. outline: 2px dashed red (default: Playwright's highlight box)",
             "hide": "Remove the overlay instead; without a ref, clear every overlay (default: off)",
