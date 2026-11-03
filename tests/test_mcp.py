@@ -1,10 +1,11 @@
 """Browserless tests for the optional MCP wrapper."""
 
+import asyncio
 import sys
 
 import pytest
 
-from patchright_cli import cli, mcp_server
+from patchright_cli import cli, mcp_server, values
 
 
 def test_attach_builds_host_context_args():
@@ -491,3 +492,21 @@ def test_highlight_tool_without_a_ref_clears_every_highlight_like_the_cli(monkey
 def test_highlight_tool_needs_a_ref_unless_it_hides():
     with pytest.raises(ValueError, match="ref is required unless hide is true"):
         mcp_server._build_args("patchright_highlight", _defaults("patchright_highlight"))
+
+
+def test_snapshot_tool_scopes_to_a_selector():
+    args = mcp_server._build_args("patchright_snapshot", _defaults("patchright_snapshot", selector="#main"))
+    assert args == ["snapshot", "--selector=#main"]
+
+
+def test_snapshot_tool_refuses_ref_and_selector_together():
+    with pytest.raises(ValueError, match="either ref or selector"):
+        mcp_server._build_args("patchright_snapshot", _defaults("patchright_snapshot", ref="e1", selector="#main"))
+
+
+def test_console_level_is_an_enum_of_the_levels_the_cli_accepts():
+    tool = asyncio.run(mcp_server.server.get_tool("patchright_console"))
+    level = tool.parameters["properties"]["level"]
+    enum = next(choice["enum"] for choice in level["anyOf"] if "enum" in choice)
+    assert enum == list(values.CONSOLE_LEVELS)
+    assert mcp_server._build_args("patchright_console", _defaults("patchright_console")) == ["console"]

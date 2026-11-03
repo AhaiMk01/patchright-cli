@@ -24,6 +24,8 @@ from fastmcp.tools import ToolResult
 from mcp.types import ImageContent
 from pydantic import Field
 
+from patchright_cli import values
+
 CLI = (sys.executable, "-m", "patchright_cli")
 DAEMON_PORT = int(os.environ.get("PATCHRIGHT_CLI_MCP_DAEMON_PORT", "9321"))
 # File paths given to tools must sit beneath MCP_ROOT, so an MCP client (possibly
@@ -220,6 +222,7 @@ TOOL_SPECS = {
         "description": "CLI command: snapshot Capture an accessibility snapshot and refresh element references.",
         "params": [
             ("ref", "string", False, "", "Optional element reference for a subtree."),
+            ("selector", "string", False, "", "Optional CSS selector of the one element to print; not with ref."),
             ("filename", "string", False, "", "Optional output file."),
             ("depth", "number", False, 0, "Maximum snapshot depth; zero means unlimited."),
             ("interactive", "boolean", False, False, "Return interactive elements only."),
@@ -286,7 +289,8 @@ TOOL_SPECS = {
         ],
     },
     "patchright_drop": {
-        "description": "CLI command: drop Drop a file or data payload onto an element.",
+        "description": "CLI command: drop Drop a file or data payload onto an element. Fails when the target does not "
+        "accept drops (its dragover handler must call preventDefault()).",
         "params": [
             ("ref", "string", True, None, "Target element reference."),
             ("path", "string", False, "", "File path."),
@@ -794,9 +798,10 @@ TOOL_SPECS = {
         ],
     },
     "patchright_console": {
-        "description": "CLI command: console Return captured browser console messages.",
+        "description": "CLI command: console Return captured browser console messages. The first call starts "
+        "session-wide CDP capture, which pages can detect; messages from before it are unavailable.",
         "params": [
-            ("level", "string", False, "", "Optional level: debug, info, log, warning or error."),
+            ("level", "string", False, None, "Optional level to filter by, e.g. error, warning, info or log."),
             ("clear", "boolean", False, False, "Clear messages after reading."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
@@ -840,7 +845,8 @@ TOOL_SPECS = {
         ],
     },
     "patchright_highlight": {
-        "description": "CLI command: highlight Show, style or hide a page highlight overlay.",
+        "description": "CLI command: highlight Show, style or hide a page highlight overlay. The page can detect the "
+        "overlay while it is shown; hiding the last highlight removes it.",
         "params": [
             ("ref", "string", False, "", "Element reference; optional with hide=true, which then clears all."),
             ("style", "string", False, "", "Optional CSS style."),
@@ -1260,9 +1266,13 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
 
     if name == "patchright_snapshot":
         _validate_cli_path(p["filename"])
+        if p["ref"] and p["selector"]:
+            raise ValueError("Give either ref or selector, not both")
         args = ["snapshot"]
         if p["ref"]:
             args.append(_V(p["ref"]))
+        if p["selector"]:
+            args.append(f"--selector={p['selector']}")
         if p["filename"]:
             args.append(f"--filename={p['filename']}")
         if p["depth"] != 0:
@@ -1615,6 +1625,9 @@ def _parameter_type(tool_name: str, param_name: str, type_name: str) -> Any:
 
     if tool_name == "patchright_network_state_set" and param_name == "state":
         return Literal["online", "offline"]
+
+    if tool_name == "patchright_console" and param_name == "level":
+        return Literal[values.CONSOLE_LEVELS] | None
 
     if tool_name in _EMULATION_VALUES and param_name == "value":
         return Literal[_EMULATION_VALUES[tool_name]]
