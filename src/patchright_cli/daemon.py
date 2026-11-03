@@ -1546,7 +1546,7 @@ def _parse_ref(value) -> str:
 def _not_in_snapshot(ref: str) -> str:
     return (
         f"{ref} is not from a snapshot of this tab; run snapshot (refs are per tab, "
-        "and an element whose role or name changed has a new ref)"
+        "and a ref goes away when its element is removed or its role or name changes)"
     )
 
 

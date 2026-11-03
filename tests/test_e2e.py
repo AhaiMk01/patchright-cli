@@ -732,7 +732,7 @@ class TestNativeRefs:
         assert _cmd(refs_page, "click", args=[inner.group(1)])["success"] is True
         # The click renamed the button, and a renamed element gets a new ref.
         renamed = _cmd(refs_page, "text", args=[inner.group(1)])
-        assert "an element whose role or name changed has a new ref" in renamed["output"]
+        assert "a ref goes away when its element is removed or its role or name changes" in renamed["output"]
         done = re.search(r'button "done".*?\[ref=(f\d+e\d+)\]', _read_snapshot(refs_page)).group(1)
         assert _cmd(refs_page, "text", args=[done])["output"] == "done"
 
