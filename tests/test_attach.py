@@ -15,6 +15,7 @@ def _fake_page(url="https://example.com", opener=None):
     page.close = AsyncMock()
     page.goto = AsyncMock()
     page.opener = AsyncMock(return_value=opener)
+    page.is_closed = MagicMock(return_value=False)
     return page
 
 

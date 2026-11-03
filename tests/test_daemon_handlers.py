@@ -1510,7 +1510,7 @@ async def test_attaching_a_page_sends_no_runtime_enable():
     cdp.send.assert_not_awaited()
     assert session._console_sessions == {}
     # The page-event listeners, which involve no CDP domain, stay.
-    assert [call.args[0] for call in page.on.call_args_list] == ["request", "response", "dialog", "close", "crash"]
+    assert [call.args[0] for call in page.on.call_args_list] == ["close", "crash", "request", "response", "dialog"]
 
 
 @pytest.mark.asyncio

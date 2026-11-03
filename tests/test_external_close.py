@@ -44,6 +44,19 @@ async def _state(*urls: str) -> tuple[DaemonState, Session, list[_Page]]:
     return state, session, pages
 
 
+def _opens(session, *pages):
+    """context.new_page hands out `pages`, emitting Chrome's page event before it resolves."""
+    queue = list(pages)
+
+    async def new_page():
+        page = queue.pop(0)
+        _page_event_handler(session)(page)
+        await asyncio.sleep(0)
+        return page
+
+    session.context.new_page = new_page
+
+
 async def _run(state, command, args=None, **options):
     return await handle_command(state, {"command": command, "args": args or [], "options": options})
 
@@ -75,9 +88,8 @@ async def test_the_default_tab_does_not_slide_onto_a_neighbour(event):
 @pytest.mark.asyncio
 async def test_a_named_tab_whose_page_closed_outside_is_not_open():
     state, session, _ = await _state("https://a.test")
-    session.context.new_page = AsyncMock(return_value=_Page("https://inbox.test"))
+    _opens(session, _Page("https://inbox.test"))
     tab = await session.open_tab("inbox")
-    await session._attach_page_listeners(tab.page)
     tab.page.fire("close")
     reply = await _run(state, "title", tab="inbox")
     assert reply["success"] is False and reply["code"] == "tab_not_open"
@@ -112,14 +124,7 @@ async def test_opening_a_named_tab_keeps_the_default_tab_off_a_neighbour():
     state, session, (a, b) = await _state("https://a.test", "https://b.test")
     session.current_tab = 1
     b.fire("close")
-    inbox = _Page("https://inbox.test")
-
-    async def new_page():
-        _page_event_handler(session)(inbox)  # Chrome emits the page event before new_page resolves
-        await asyncio.sleep(0)
-        return inbox
-
-    session.context.new_page = new_page
+    _opens(session, _Page("https://inbox.test"))
     assert (await _run(state, "open", tab="inbox"))["success"] is True
     reply = await _run(state, "title")
     assert reply["code"] == "target_closed"
@@ -140,9 +145,8 @@ async def test_a_popup_does_not_become_the_default_tab_while_its_page_is_gone():
 async def test_a_running_command_stays_on_its_tab_when_another_request_drops_it():
     state, session, (a,) = await _state("https://a.test")
     inbox = _Page("https://inbox.test")
-    session.context.new_page = AsyncMock(return_value=inbox)
+    _opens(session, inbox)
     await _run(state, "open", tab="inbox")
-    await session._attach_page_listeners(inbox)
     release = asyncio.Event()
 
     async def slow_reload():
@@ -163,9 +167,9 @@ async def test_a_running_command_stays_on_its_tab_when_another_request_drops_it(
 async def test_a_gone_named_tab_does_not_keep_the_browser_open():
     _, session, _ = await _state("https://a.test")
     session.default_in_use = False
-    session.context.new_page = AsyncMock(side_effect=[_Page("https://one.test"), _Page("https://two.test")])
-    one, two = await session.open_tab("one"), await session.open_tab("two")
-    await session._attach_page_listeners(two.page)
+    _opens(session, _Page("https://one.test"), _Page("https://two.test"))
+    await session.open_tab("one")
+    two = await session.open_tab("two")
     two.page.fire("close")
     assert await session.close_tab("one") is False
 
