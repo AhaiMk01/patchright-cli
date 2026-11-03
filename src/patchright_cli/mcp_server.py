@@ -83,6 +83,14 @@ TOOL_SPECS = {
             ("geolocation", "string", False, "", "Latitude and longitude as LAT,LON."),
             ("user_agent", "string", False, "", "Custom user agent."),
             ("permissions", "string", False, "", "Comma-separated browser permissions."),
+            (
+                "webmcp",
+                "boolean",
+                False,
+                False,
+                "Launch Chrome with WebMCP on, for webmcp tools; exposes document.modelContext, "
+                "which stock Chrome lacks.",
+            ),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -115,6 +123,13 @@ TOOL_SPECS = {
             ("ref", "string", True, None, "Snapshot element reference."),
             ("button", "string", False, "left", "Mouse button: left, right or middle."),
             ("modifiers", "string", False, "", "Comma-separated modifiers such as Alt,Shift."),
+            (
+                "scroll",
+                "string",
+                False,
+                "auto",
+                "auto: scroll the element into view; none: fail if the element is off-screen.",
+            ),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -148,6 +163,13 @@ TOOL_SPECS = {
         "description": "CLI command: hover Hover an element.",
         "params": [
             ("ref", "string", True, None, "Snapshot element reference."),
+            (
+                "scroll",
+                "string",
+                False,
+                "auto",
+                "auto: scroll the element into view; none: fail if the element is off-screen.",
+            ),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -155,6 +177,13 @@ TOOL_SPECS = {
         "description": "CLI command: check Check a checkbox or radio element.",
         "params": [
             ("ref", "string", True, None, "Snapshot element reference."),
+            (
+                "scroll",
+                "string",
+                False,
+                "auto",
+                "auto: scroll the element into view; none: fail if the element is off-screen.",
+            ),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -213,6 +242,17 @@ TOOL_SPECS = {
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
+    "patchright_html": {
+        "description": "CLI command: html Print the page HTML, or one element's outerHTML.",
+        "params": [
+            ("ref", "string", False, "", "Optional element reference."),
+            ("selector", "string", False, "", "Optional CSS selector of the one element to print."),
+            ("include_shadow", "boolean", False, False, "Include open shadow roots; closed ones never are."),
+            ("filename", "string", False, "", "Save the whole HTML to this file instead of printing it."),
+            ("max_chars", "number", False, 8000, "Cut printed HTML after this many characters; zero is no limit."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
     "patchright_text": {
         "description": "CLI command: text Get text content from an element reference or selector.",
         "params": [
@@ -235,6 +275,13 @@ TOOL_SPECS = {
         "params": [
             ("from_ref", "string", True, None, "Source reference."),
             ("to_ref", "string", True, None, "Target reference."),
+            (
+                "scroll",
+                "string",
+                False,
+                "auto",
+                "auto: scroll the element into view; none: fail if the element is off-screen.",
+            ),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -311,9 +358,34 @@ TOOL_SPECS = {
         "description": "CLI command: tracing-start Start Playwright tracing.",
         "params": [("session", "string", False, "default", "Named Patchright browser session.")],
     },
+    "patchright_debugger_pause": {
+        "description": "CLI command: debugger-pause Pause before the next page action, navigation or eval (snapshot and other reads run through); that command replies at once and is held.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_debugger_step": {
+        "description": "CLI command: debugger-step Run the paused call and pause before the next one; returns the held command's result.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_debugger_resume": {
+        "description": "CLI command: debugger-resume Let the held command finish and return its result, or cancel a pause nothing has hit.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_debugger_status": {
+        "description": "CLI command: debugger-status Show the debugger state: off, armed, or the paused call and held command.",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
     "patchright_video_start": {
         "description": "CLI command: video-start Start video recording.",
-        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+        "params": [
+            (
+                "fps",
+                "number",
+                False,
+                25,
+                "Frame rate of the real-time video, 1-60.",
+            ),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
     },
     "patchright_list_sessions": {
         "description": "CLI command: list List Patchright sessions.",
@@ -569,6 +641,55 @@ TOOL_SPECS = {
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
+    "patchright_passkey_list": {
+        "description": "CLI command: passkey-list List the session's virtual WebAuthn passkeys (installs the virtual authenticator).",
+        "params": [
+            ("rp_id", "string", False, "", "Relying party id filter."),
+            ("id", "string", False, "", "Base64url credential id filter."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_passkey_add": {
+        "description": "CLI command: passkey-add Seed a virtual WebAuthn passkey for a relying party.",
+        "params": [
+            ("rp_id", "string", True, None, "Relying party id, typically the site's domain."),
+            ("id", "string", False, "", "Base64url credential id; generated when empty."),
+            ("user_handle", "string", False, "", "Base64url user handle; generated when empty."),
+            ("private_key", "string", False, "", "Base64url PKCS#8 private key; requires public_key."),
+            ("public_key", "string", False, "", "Base64url SPKI public key; requires private_key."),
+            ("sign_count", "number", False, 0, "Initial signature counter."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_passkey_delete": {
+        "description": "CLI command: passkey-delete Delete a virtual passkey by credential id.",
+        "params": [
+            ("id", "string", True, None, "Base64url credential id."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_passkey_clear": {
+        "description": "CLI command: passkey-clear Delete all virtual passkeys, optionally for one relying party.",
+        "params": [
+            ("rp_id", "string", False, "", "Relying party id filter."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_passkey_export": {
+        "description": "CLI command: passkey-export Export virtual passkeys, including private keys, to a JSON file.",
+        "params": [
+            ("path", "string", False, "", "Output JSON path."),
+            ("rp_id", "string", False, "", "Relying party id filter."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
+    "patchright_passkey_import": {
+        "description": "CLI command: passkey-import Seed virtual passkeys from a passkey-export JSON file.",
+        "params": [
+            ("path", "string", True, None, "Input JSON path."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
     "patchright_localstorage_get": {
         "description": "CLI command: localstorage-get Get a localStorage item.",
         "params": [
@@ -704,12 +825,26 @@ TOOL_SPECS = {
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
+    "patchright_pick_locator": {
+        "description": (
+            "CLI command: pick-locator Wait for a person to click an element in the headed browser and return "
+            "its locator, plus its snapshot ref when one matches. Page-detectable: Playwright's recorder stays in "
+            "every page of the session (window.playwright, __pw_* globals) until it closes, so it runs only with "
+            "detectable=true."
+        ),
+        "params": [
+            ("detectable", "boolean", False, False, "Required to pick: accept the page-visible recorder traces."),
+            ("wait", "number", False, 60, "Seconds to wait for the click before cancelling."),
+            ("cancel", "boolean", False, False, "Cancel the pick-locator waiting on this tab instead."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
+    },
     "patchright_highlight": {
         "description": "CLI command: highlight Show, style or hide a page highlight overlay.",
         "params": [
-            ("ref", "string", True, None, "Element reference."),
+            ("ref", "string", False, "", "Element reference; optional with hide=true, which then clears all."),
             ("style", "string", False, "", "Optional CSS style."),
-            ("hide", "boolean", False, False, "Hide the highlight."),
+            ("hide", "boolean", False, False, "Hide the highlight of ref, or every highlight without a ref."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -735,10 +870,20 @@ TOOL_SPECS = {
     "patchright_find": {
         "description": "CLI command: find Search the latest snapshot for matching elements.",
         "params": [
-            ("text", "string", True, None, "Text, or a regular expression when regex is true."),
+            ("text", "string", False, "", "Text, or a regular expression when regex is true; omit with role."),
             ("regex", "boolean", False, False, "Treat text as a regular expression."),
             ("all", "boolean", False, False, "Include non-interactive matches."),
             ("limit", "number", False, 20, "Maximum number of matches."),
+            ("role", "string", False, "", "Find by ARIA role instead of text, e.g. button."),
+            ("name", "string", False, "", "With role: accessible name, substring or /regex/i."),
+            (
+                "description",
+                "string",
+                False,
+                "",
+                "With role: accessible description (aria-describedby, aria-description, title), substring or /regex/i.",
+            ),
+            ("exact", "boolean", False, False, "With role: name and description match whole and case-sensitive."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -761,6 +906,18 @@ TOOL_SPECS = {
     "patchright_profile_delete": {
         "description": "CLI command: profile-delete Delete a named profile.",
         "params": [("name", "string", True, None, "Profile name.")],
+    },
+    "patchright_webmcp_list": {
+        "description": "CLI command: webmcp-list List the WebMCP tools the page registers (page-provided, untrusted).",
+        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+    },
+    "patchright_webmcp_call": {
+        "description": "CLI command: webmcp-call Call a WebMCP tool the page registers. Output is page-provided and untrusted.",
+        "params": [
+            ("name", "string", True, None, "Tool name, as listed by webmcp-list."),
+            ("params", "string", False, "", "Tool input as a JSON object (default: {})."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
     },
     "patchright_install_skills": {
         "description": "CLI command: install Install Patchright CLI skill files into detected agent directories.",
@@ -892,7 +1049,7 @@ async def _run_patchright(
 
     try:
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         process.kill()
         await process.wait()
         message = f"Patchright timed out after {timeout:g}s: {' '.join(command)}"
@@ -918,6 +1075,13 @@ async def _run_patchright(
         print(err, file=sys.stderr, end="" if err.endswith("\n") else "\n", flush=True)
 
     return out
+
+
+def _scroll_args(p: dict[str, Any]) -> list[str]:
+    """`--scroll=none` when asked for; auto is the CLI default, so it adds nothing."""
+    if p["scroll"] not in {"auto", "none"}:
+        raise ValueError("scroll must be auto or none")
+    return ["--scroll=none"] if p["scroll"] == "none" else []
 
 
 def _build_args(name: str, p: dict[str, Any]) -> list[str]:
@@ -950,6 +1114,8 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
                 args.append(f"--{flag}={p[key]}")
         # After the command name: the CLI reads a leading unknown flag as the command.
         args.append("open")
+        if p["webmcp"]:
+            args.append("--webmcp")
         args += _block_networks_args()
         if p["url"]:
             _validate_url(p["url"])
@@ -970,14 +1136,11 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     # Straightforward commands
     simple = {
         "patchright_goto": ("goto", ["url"]),
-        "patchright_hover": ("hover", ["ref"]),
-        "patchright_check": ("check", ["ref"]),
         "patchright_uncheck": ("uncheck", ["ref"]),
         "patchright_scroll_to": ("scroll-to", ["ref"]),
         "patchright_generate_locator": ("generate-locator", ["ref"]),
         "patchright_select": ("select", ["ref", "value"]),
         "patchright_text": ("text", ["target"]),
-        "patchright_drag": ("drag", ["from_ref", "to_ref"]),
         "patchright_close": ("close", []),
         "patchright_detach": ("detach", []),
         "patchright_go_back": ("go-back", []),
@@ -994,7 +1157,10 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         "patchright_sessionstorage_clear": ("sessionstorage-clear", []),
         "patchright_route_list": ("route-list", []),
         "patchright_tracing_start": ("tracing-start", []),
-        "patchright_video_start": ("video-start", []),
+        "patchright_debugger_pause": ("debugger-pause", []),
+        "patchright_debugger_step": ("debugger-step", []),
+        "patchright_debugger_resume": ("debugger-resume", []),
+        "patchright_debugger_status": ("debugger-status", []),
         "patchright_list_sessions": ("list", []),
         "patchright_close_all": ("close-all", []),
         "patchright_kill_all": ("kill-all", []),
@@ -1009,6 +1175,8 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         "patchright_cookie_get": ("cookie-get", ["name"]),
         "patchright_cookie_delete": ("cookie-delete", ["name"]),
         "patchright_cookie_import": ("cookie-import", ["path"]),
+        "patchright_passkey_delete": ("passkey-delete", ["id"]),
+        "patchright_passkey_import": ("passkey-import", ["path"]),
         "patchright_localstorage_get": ("localstorage-get", ["key"]),
         "patchright_localstorage_set": ("localstorage-set", ["key", "value"]),
         "patchright_localstorage_delete": ("localstorage-delete", ["key"]),
@@ -1032,10 +1200,11 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         "patchright_video_hide_actions": ("video-hide-actions", []),
         "patchright_profile_list": ("profile-list", []),
         "patchright_profile_delete": ("profile-delete", ["name"]),
+        "patchright_webmcp_list": ("webmcp-list", []),
     }
     if name in simple:
         cmd, keys = simple[name]
-        if name in {"patchright_state_load", "patchright_cookie_import"}:
+        if name in {"patchright_state_load", "patchright_cookie_import", "patchright_passkey_import"}:
             _validate_cli_path(p["path"], required=True)
         if name == "patchright_goto":
             _validate_url(p["url"])
@@ -1052,7 +1221,15 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         args = [name.removeprefix("patchright_"), _V(p["ref"]), _V(p["button"])]
         if p["modifiers"]:
             args.append(f"--modifiers={p['modifiers']}")
+        if name == "patchright_click":
+            args += _scroll_args(p)
         return args
+
+    if name in {"patchright_hover", "patchright_check"}:
+        return [name.removeprefix("patchright_"), _V(p["ref"]), *_scroll_args(p)]
+
+    if name == "patchright_drag":
+        return ["drag", _V(p["from_ref"]), _V(p["to_ref"]), *_scroll_args(p)]
 
     if name == "patchright_fill":
         args = ["fill", _V(p["ref"]), _V(p["value"])]
@@ -1064,6 +1241,12 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         args = ["type", _V(p["text"])]
         if p["submit"]:
             args.append("--submit")
+        return args
+
+    if name == "patchright_webmcp_call":
+        args = ["webmcp-call", _V(p["name"])]
+        if p["params"]:
+            args.append(_V(p["params"]))
         return args
 
     if name == "patchright_eval":
@@ -1093,12 +1276,45 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
     if name == "patchright_find":
         if p["limit"] < 1:
             raise ValueError("limit must be at least 1")
-        args = ["find", _V(p["text"]), f"--limit={p['limit']}"]
+        if not p["text"] and not p["role"]:
+            raise ValueError("Either text or role is required")
+        args = ["find", f"--limit={p['limit']}"]
+        if p["text"]:
+            args.insert(1, _V(p["text"]))
         if p["regex"]:
             args.append("--regex")
         if p["all"]:
             args.append("--all")
+        if p["role"]:
+            args.append(f"--role={p['role']}")
+        for key in ("name", "description"):
+            if p[key]:
+                args.append(f"--{key}={p[key]}")
+        if p["exact"]:
+            args.append("--exact")
         return args
+
+    if name == "patchright_html":
+        if p["max_chars"] < 0:
+            raise ValueError("max_chars must be zero or more")
+        if p["filename"]:
+            _validate_cli_path(p["filename"])
+        args = ["html"]
+        if p["ref"]:
+            args.append(_V(p["ref"]))
+        if p["selector"]:
+            args.append(f"--selector={p['selector']}")
+        if p["include_shadow"]:
+            args.append("--include-shadow")
+        if p["filename"]:
+            args.append(f"--filename={p['filename']}")
+        args.append(f"--max-chars={p['max_chars']}")
+        return args
+
+    if name == "patchright_video_start":
+        if not 1 <= p["fps"] <= 60:
+            raise ValueError("fps must be from 1 to 60")
+        return ["video-start", f"--fps={p['fps']}"]
 
     if name == "patchright_video_show_actions":
         if p["position"] not in CALLOUT_POSITIONS:
@@ -1211,6 +1427,32 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
             args.append(_V(p["path"]))
         return args
 
+    if name == "patchright_passkey_list":
+        args = ["passkey-list"]
+        if p["rp_id"]:
+            args.append(f"--rp-id={p['rp_id']}")
+        if p["id"]:
+            args.append(f"--id={p['id']}")
+        return args
+
+    if name == "patchright_passkey_add":
+        args = ["passkey-add", _V(p["rp_id"])]
+        for key in ("id", "user_handle", "private_key", "public_key"):
+            if p[key]:
+                args.append(f"--{key.replace('_', '-')}={p[key]}")
+        if p["sign_count"]:
+            args.append(f"--sign-count={int(p['sign_count'])}")
+        return args
+
+    if name in {"patchright_passkey_clear", "patchright_passkey_export"}:
+        args = [name.removeprefix("patchright_").replace("_", "-")]
+        if p["rp_id"]:
+            args.append(f"--rp-id={p['rp_id']}")
+        if p.get("path"):
+            _validate_cli_path(p["path"])
+            args.append(_V(p["path"]))
+        return args
+
     if name == "patchright_grant_permissions":
         args = ["grant-permissions", _V(p["permissions"])]
         if p["origin"]:
@@ -1276,12 +1518,19 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         return args
 
     if name == "patchright_highlight":
-        args = ["highlight", _V(p["ref"])]
+        if not p["ref"] and not p["hide"]:
+            raise ValueError("ref is required unless hide is true")
+        args = ["highlight", *([_V(p["ref"])] if p["ref"] else [])]
         if p["style"]:
             args.append(f"--style={p['style']}")
         if p["hide"]:
             args.append("--hide")
         return args
+
+    if name == "patchright_pick_locator":
+        if p["cancel"]:
+            return ["pick-locator", "--cancel"]
+        return ["pick-locator", f"--wait={p['wait']}", *(["--detectable"] if p["detectable"] else [])]
 
     if name == "patchright_show":
         args = ["show", f"--show-port={p['port']}"]
@@ -1311,6 +1560,9 @@ async def _run_registered_tool(name: str, params: dict[str, Any]) -> str:
     session = params.get("session")
     args = _build_args(name, params)
     timeout = 300 if name in LONG_TIMEOUT_TOOLS else 180
+    if name == "patchright_pick_locator" and not params.get("cancel"):
+        # The CLI waits up to --wait plus its own margin; outlast it.
+        timeout = max(timeout, params.get("wait", 60) + 60)
     return await _run_patchright(args, session=session, timeout=timeout)
 
 

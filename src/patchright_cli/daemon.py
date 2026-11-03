@@ -28,9 +28,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from patchright_cli import daemon_pid
-from patchright_cli.ref_registry import RefRegistry, render_hits
-from patchright_cli.snapshot import save_snapshot, take_snapshot
+from patchright_cli import daemon_pid, snapshot_text, values
+from patchright_cli.debugger import SessionDebugger
+from patchright_cli.snapshot import EMPTY_SNAPSHOT, ai_snapshot, probe_ref, save_snapshot
+from patchright_cli.snapshot_text import SnapshotIndex, has_ref, normalize_ref, render_hits
 
 logger = logging.getLogger("patchright-cli.daemon")
 
@@ -96,7 +97,12 @@ class Tab:
     def __init__(self, name: str, page=None):
         self.name = name
         self.page = page
-        self.ref_registry: RefRegistry | None = None
+        # The raw text of this tab's latest full AI snapshot: what its refs were
+        # read from, and the source of every printed view (snapshot.py).
+        self.last_raw: str | None = None
+        # Held while a snapshot or an element-to-ref probe is replacing the
+        # page's ref map, so a concurrent command never sees a partial map.
+        self.snapshot_lock = asyncio.Lock()
         self.history: list[str] = []
         self.history_index: int = -1
         self.codegen: list[str] | None = None
@@ -138,6 +144,8 @@ class Session:
         self.attach_notices: list[str] = []
         # Set by `--block-networks`; keeps frames off the address ranges it names.
         self.network_guard: NetworkGuard | None = None
+        # True when `open --webmcp` launched Chrome with the WebMCP feature on.
+        self.webmcp = False
         self.current_tab: int = 0
         self.tabs: dict[str, Tab] = {DEFAULT_TAB: Tab(DEFAULT_TAB)}
         # Whether anyone actually works in the implicit default tab. A session
@@ -160,17 +168,41 @@ class Session:
         self._console_capture_enabled = False
         self._console_lock = asyncio.Lock()
         self._console_sessions: dict[int, object] = {}
+        # Virtual WebAuthn authenticator, installed by the first passkey-* command.
+        self._passkeys_installed = False
+        self._passkey_lock = asyncio.Lock()
         self._video_cdp = None
         self._video_page = None
         self._video_frames: list[bytes] = []
+        # Each frame's capture time, to pace the output at `_video_fps`.
+        self._video_times: list[float] = []
+        self._video_fps: int | None = None
         self._video_recording: bool = False
         self._video_chapters: list[tuple[int, str]] = []
         self._video_show_actions: dict | None = None
         self._tracing: bool = False
         # Active `route` interceptions: pattern -> (handler, fulfilled status).
         self._routes: dict[str, tuple] = {}
+        # Refs shown by `highlight`, per page (by id): the native overlay can't
+        # be queried, so this is what `highlight --hide` reports against.
+        self.highlights: dict[int, set[str]] = {}
+        # BrowserContext.debugger, wrapped by the first debugger-* command.
+        self.debugger: SessionDebugger | None = None
 
     # -- internal helpers ---------------------------------------------------
+
+    def get_debugger(self) -> tuple[SessionDebugger, bool]:
+        """This Session's debugger, and whether this call created it."""
+        if self.debugger is not None:
+            return self.debugger, False
+        self.debugger = SessionDebugger(self.context.debugger)
+        return self.debugger, True
+
+    async def _unattended(self, coro):
+        """Await a teardown call, resuming any debugger pause it meets so it cannot hang."""
+        if self.debugger is None:
+            return await coro
+        return await self.debugger.unattended(coro)
 
     async def setup_listeners(self):
         """Attach network and dialog listeners to all existing pages."""
@@ -289,6 +321,9 @@ class Session:
                 "text": " ".join(str(a.get("value", a.get("description", ""))) for a in event.get("args", [])),
                 "url": url,
                 "ts": time.time(),
+                # CDP's Runtime.Timestamp: when the page logged it, in ms since the
+                # epoch -- what ConsoleMessage.timestamp reports.
+                "timestamp": event.get("timestamp", time.time() * 1000),
             }
         )
 
@@ -364,17 +399,17 @@ class Session:
 
     # -- per-tab state, proxied to the active tab ---------------------------
     #
-    # Handlers read `session.ref_registry` and friends without knowing which
+    # Handlers read `session.last_raw` and friends without knowing which
     # caller they are serving. Routing lives in one place (activate_tab) rather
     # than in every handler.
 
     @property
-    def ref_registry(self) -> RefRegistry | None:
-        return self.active_tab.ref_registry
+    def last_raw(self) -> str | None:
+        return self.active_tab.last_raw
 
-    @ref_registry.setter
-    def ref_registry(self, value) -> None:
-        self.active_tab.ref_registry = value
+    @last_raw.setter
+    def last_raw(self, value: str | None) -> None:
+        self.active_tab.last_raw = value
 
     @property
     def _history(self) -> list[str]:
@@ -479,7 +514,7 @@ class Session:
                     self.current_tab -= 1
             self.current_tab = max(0, min(self.current_tab, len(self.pages) - 1))
             try:
-                await page.close()
+                await self._unattended(page.close())
             except Exception:
                 pass
 
@@ -518,11 +553,11 @@ class Session:
             for page in list(self.pages):
                 if page in self.own_pages:
                     try:
-                        await page.close()
+                        await self._unattended(page.close())
                     except Exception:
                         pass
         if self.browser is not None:
-            await _disconnect_quietly(self.browser)
+            await self._unattended(_disconnect_quietly(self.browser))
 
     async def end(self) -> None:
         """End the Session the strongest way it is allowed to.
@@ -534,11 +569,11 @@ class Session:
             await self.detach()
             return
         try:
-            await self.context.close()
+            await self._unattended(self.context.close())
         except Exception:
             pass
         if self.browser is not None:
-            await _disconnect_quietly(self.browser)
+            await self._unattended(_disconnect_quietly(self.browser))
 
     async def check_navigation(self, url: str, web_only: bool = False) -> None:
         """Raise when this Session's guard, or a request's `--web-only`, refuses navigating to `url`."""
@@ -1012,6 +1047,29 @@ async def _disconnect_quietly(browser) -> None:
         pass
 
 
+# Chrome only exposes `document.modelContext` behind this feature, and
+# Playwright refuses WebMCP calls on a browser it launched without it. Off unless
+# `open --webmcp`: stock Chrome has no `document.modelContext`, so a page could
+# tell the browser apart by it.
+WEBMCP_FEATURE = "WebMCP"
+
+
+def _enable_chrome_feature(args: list[str], feature: str) -> list[str]:
+    """`args` with `feature` in Chrome's --enable-features, merged into an existing one.
+
+    Chrome reads only the last --enable-features switch, so a second one would
+    silently drop the features of the first.
+    """
+    prefix = "--enable-features="
+    for i, arg in enumerate(args):
+        if arg.startswith(prefix):
+            features = [f for f in arg[len(prefix) :].split(",") if f]
+            if feature in features:
+                return list(args)
+            return [*args[:i], prefix + ",".join([*features, feature]), *args[i + 1 :]]
+    return [*args, prefix + feature]
+
+
 class DaemonState:
     """Global daemon state holding all sessions."""
 
@@ -1083,6 +1141,7 @@ class DaemonState:
         profile_base: str | None = None,
         block_networks: str | None = None,
         web_only: bool = False,
+        webmcp: bool = False,
     ) -> Session:
         if context_mode not in CDP_CONTEXT_MODES:
             raise ValueError(f"Invalid --context={context_mode!r}; expected one of: {', '.join(CDP_CONTEXT_MODES)}.")
@@ -1113,6 +1172,10 @@ class DaemonState:
                     raise ValueError(
                         f"Session '{name}' is already open on profile '{existing.profile.label}'. "
                         f"`close` it first, or use another -s for profile '{profile}'."
+                    )
+                if webmcp and not existing.webmcp and not existing.is_attached:
+                    raise ValueError(
+                        f"Session '{name}' is already open without WebMCP. `close` it first, then `open --webmcp`."
                     )
                 if guard is not None:
                     current = existing.network_guard
@@ -1209,7 +1272,7 @@ class DaemonState:
                 else:
                     context = await attached_browser.new_context(**context_options)
             else:
-                context = await self._launch(chosen, use_headless, proxy, context_options)
+                context = await self._launch(chosen, use_headless, proxy, context_options, webmcp=webmcp)
             # Never in a Host Context: its other Pages are someone else's browsing.
             if guard is not None and not use_host:
                 guard.install(context)
@@ -1235,6 +1298,7 @@ class DaemonState:
                 session.own_pages.add(created)
             session.attach_notices = notices
             session.network_guard = guard
+            session.webmcp = webmcp and not cdp_endpoint
             session.profile = chosen
             await session.setup_listeners()
         except BaseException:
@@ -1249,12 +1313,17 @@ class DaemonState:
         self.sessions[name] = session
         return session
 
-    async def _launch(self, profile: Profile, headless: bool, proxy: str | None, context_options: dict):
+    async def _launch(
+        self, profile: Profile, headless: bool, proxy: str | None, context_options: dict, *, webmcp: bool = False
+    ):
         """Start real Chrome on a Profile."""
+        args = ["--disable-blink-features=AutomationControlled"]
+        if webmcp:
+            args = _enable_chrome_feature(args, WEBMCP_FEATURE)
         launch_kwargs = {
             "channel": "chrome",
             "headless": headless,
-            "args": ["--disable-blink-features=AutomationControlled"],
+            "args": args,
         }
         if os.environ.get(CHROME_SANDBOX_ENV) == "1":
             launch_kwargs["chromium_sandbox"] = True
@@ -1399,6 +1468,49 @@ async def _profile_delete(state: DaemonState, args: list) -> dict:
 # ---------------------------------------------------------------------------
 
 
+class RefFormatError(ValueError):
+    """An argument that should be a ref is not shaped like one. The CLI exits 2."""
+
+
+async def _take_snapshot(session: Session, page, boxes: bool = False) -> str:
+    """One full-page AI snapshot into the active tab's `last_raw`. The caller holds its `snapshot_lock`."""
+    raw = await ai_snapshot(page, boxes=boxes)
+    if boxes and raw:
+        raw = await _page_coordinate_boxes(page, raw)
+    session.last_raw = raw
+    return raw
+
+
+async def _ai_snapshot(session: Session, page, boxes: bool = False) -> str:
+    """Refresh the active tab's ref map with a full-page AI snapshot; return its raw text."""
+    async with session.active_tab.snapshot_lock:
+        return await _take_snapshot(session, page, boxes)
+
+
+async def _page_coordinate_boxes(page, raw: str) -> str:
+    """Native boxes inside an iframe are relative to that iframe; shift them to page coordinates.
+
+    One bounding_box() per child frame: the gap between it and the native box of
+    the frame's first ref is that frame's offset, nested frames included.
+    """
+    offsets: dict[str, tuple[int, int]] = {}
+    for prefix, (ref, (x, y)) in snapshot_text.frame_box_anchors(raw).items():
+        try:
+            box = await page.get_by_ref(ref).bounding_box(timeout=1000)
+        except Exception:
+            box = None
+        if box:
+            offsets[prefix] = (round(box["x"]) - x, round(box["y"]) - y)
+    return snapshot_text.shift_frame_boxes(raw, offsets)
+
+
+def _printed(raw: str | None) -> str:
+    """The snapshot text a caller reads: the trimmed native YAML, or the empty-page note."""
+    if not raw or not raw.strip():
+        return EMPTY_SNAPSHOT
+    return snapshot_text.trim(raw) + "\n"
+
+
 async def _page_info(session: Session, cwd: str | None = None) -> dict:
     """Return standard page info + snapshot after a state-changing command."""
     page = session.page
@@ -1411,8 +1523,7 @@ async def _page_info(session: Session, cwd: str | None = None) -> dict:
     except Exception:
         title = ""
 
-    snapshot_text, session.ref_registry = await take_snapshot(page)
-    snap_path = save_snapshot(snapshot_text, cwd)
+    snap_path = save_snapshot(_printed(await _ai_snapshot(session, page)), cwd)
 
     output_lines = [
         "### Page",
@@ -1424,11 +1535,99 @@ async def _page_info(session: Session, cwd: str | None = None) -> dict:
     return {"success": True, "output": "\n".join(output_lines), "snapshot_path": snap_path}
 
 
-async def _resolve_ref(session: Session, page, ref: str):
-    """Resolve an element ref (e.g. 'e5') to a Playwright locator."""
-    if session.ref_registry is None:
-        raise ValueError("No snapshot available. Run 'snapshot' first.")
-    return session.ref_registry.resolve(page, ref)
+def _parse_ref(value) -> str:
+    """A ref argument (`e5`, `@e5`, `ref=e5`, `[ref=e5]`) as `e5`, or RefFormatError."""
+    ref = normalize_ref(value)
+    if ref is None:
+        raise RefFormatError(f'"{value}" is not a ref (refs look like e5 or f3e5, from snapshot)')
+    return ref
+
+
+def _not_in_snapshot(ref: str) -> str:
+    return (
+        f"{ref} is not from a snapshot of this tab; run snapshot (refs are per tab, "
+        "and a ref goes away when its element is removed or its role or name changes)"
+    )
+
+
+async def _resolve_ref(session: Session, page, value):
+    """The locator for a ref from this tab's latest snapshot.
+
+    The ref must appear in the tab's last snapshot (refs are per tab), and it
+    must still match an element: a ref that matches nothing is
+    healed once with a fresh snapshot (a ref number belongs to one element per
+    document and is never reused), then reported as stale -- in milliseconds,
+    where an action on it would wait out its whole timeout. Never falls back to
+    matching by role and name, which picked the wrong element.
+    """
+    ref = _parse_ref(value)
+    if not has_ref(session.last_raw, ref):
+        raise ValueError(_not_in_snapshot(ref))
+    locator = page.get_by_ref(ref)
+    for attempt in range(2):
+        try:
+            count = await locator.count()
+        except Exception as exc:
+            if "Invalid frame" in str(exc):
+                raise ValueError(f"Ref {ref} is from a page this tab has left. Run snapshot.") from None
+            raise
+        if count:
+            return locator
+        if attempt == 0:
+            await _ai_snapshot(session, page)
+    raise ValueError(f"Ref {ref} no longer matches an element (removed or changed since the snapshot). Run snapshot.")
+
+
+async def _element_of_ref(session: Session, page, value):
+    """The element handle a ref from this tab's latest snapshot matches, or None when it matches nothing.
+
+    For waits on an element going away: the handle keeps pointing at the element
+    whatever later happens to the ref map, which find/pick-locator probes swap
+    for a moment (under the snapshot lock, which is held here while resolving).
+    A ref that matches nothing is healed once with a fresh snapshot first.
+    """
+    ref = _parse_ref(value)
+    if not has_ref(session.last_raw, ref):
+        raise ValueError(_not_in_snapshot(ref))
+    locator = page.get_by_ref(ref)
+    for attempt in range(2):
+        async with session.active_tab.snapshot_lock:
+            try:
+                handles = await locator.element_handles()
+            except Exception as exc:
+                if "Invalid frame" in str(exc):
+                    raise ValueError(f"Ref {ref} is from a page this tab has left. Run snapshot.") from None
+                raise
+        if handles:
+            return handles[0]
+        if attempt == 0:
+            await _ai_snapshot(session, page)
+    return None
+
+
+async def _refs_of(session: Session, page, locators: list) -> list[str | None]:
+    """The snapshot ref of each one-element locator, or None where there is none.
+
+    Each element is probed with a depth-0 AI snapshot of its own, which replaces
+    its frame's ref map; one full snapshot afterwards restores it, under the
+    tab's snapshot lock throughout. A ref that is not in that full snapshot, or
+    does not resolve to exactly one element, gives None.
+    """
+    async with session.active_tab.snapshot_lock:
+        probed: list[str | None] = []
+        try:
+            for locator in locators:
+                probed.append(await probe_ref(locator))
+        finally:
+            raw = await _take_snapshot(session, page)
+    refs: list[str | None] = []
+    for ref in probed:
+        ok = False
+        if ref and has_ref(raw, ref):
+            with contextlib.suppress(Exception):
+                ok = await page.get_by_ref(ref).count() == 1
+        refs.append(ref if ok else None)
+    return refs
 
 
 async def _apply_timeouts(page, options: dict) -> None:
@@ -1507,9 +1706,99 @@ async def cmd_title(session: Session, page, args: list, options: dict, cwd: str 
 
 # -- Core interactions -------------------------------------------------------
 
+SCROLL_VALUES = ("auto", "none")
+
+
+def _scroll_option(options: dict) -> str | None:
+    """The `--scroll` value for an action: auto (the default) or none.
+
+    `none` makes the action fail instead of scrolling the element into view.
+    """
+    value = options.get("scroll")
+    if value is None:
+        return None
+    if value not in SCROLL_VALUES:
+        raise ValueError(f"Invalid --scroll value: {value!r}. Expected one of: {', '.join(SCROLL_VALUES)}.")
+    return value
+
+
+SCROLL_NONE_HINT = "help: the element is off-screen; drop --scroll=none or scroll first"
+
+# `Locator.hover: `, `WebStorage.items: `, `Page.goto: ` -- Playwright's method name.
+_API_PREFIX = re.compile(r"^(?:[A-Z][A-Za-z]*\.[a-z_]\w*: )+")
+_TIMEOUT_MS = re.compile(r"\bTimeout (\d+(?:\.\d+)?)ms exceeded")
+# The reason Playwright kept retrying, from its call log: the last one is the cause.
+_TIMEOUT_REASON = re.compile(
+    r"^\s*- (.+? intercepts pointer events|element is not (?:visible|enabled|stable|editable|attached)"
+    r"(?: and \w+)?|did not find some options)\s*$",
+    re.M,
+)
+_NAVIGATION_COMMANDS = frozenset({"open", "goto", "reload", "go-back", "go-forward", "tab-new", "wait"})
+
+
+def _error_message(cmd: str, args: list, options: dict, exc: Exception) -> tuple[str, list[str]]:
+    """An exception from a handler as (one actionable line, help lines), without Playwright internals.
+
+    Playwright errors carry the API method (`Locator.drop: `) and a `Call log:`
+    of its retries; neither tells the caller what to do. The full text stays in
+    the daemon log.
+    """
+    raw = str(exc).strip() or type(exc).__name__
+    head = raw.split("Call log:", 1)[0].strip() or raw
+    first = head.splitlines()[0].strip()
+    message = _API_PREFIX.sub("", first) if _API_PREFIX.match(first) else head
+    ref = str(args[0]) if args and normalize_ref(str(args[0])) else None
+    on_ref = f" on {ref}" if ref else ""
+
+    if "Drop target did not accept" in message:
+        return (
+            f"{ref or 'the target'} did not accept the drop (its dragover handler does not call preventDefault)",
+            ["help: drop onto the element that handles drops"],
+        )
+    if "SecurityError" in message and cmd.startswith(("localstorage-", "sessionstorage-")):
+        store = "localStorage" if cmd.startswith("local") else "sessionStorage"
+        return f"{store} is not available on this page (opaque origin)", ["help: goto an http(s) page first"]
+    timeout = _TIMEOUT_MS.search(message)
+    if timeout:
+        after = f"{float(timeout.group(1)) / 1000:g}s"
+        if options.get("scroll") == "none" and "outside of the viewport" in raw:
+            return f"{cmd}{on_ref} timed out after {after}: the element is outside of the viewport", [SCROLL_NONE_HINT]
+        reasons = _TIMEOUT_REASON.findall(raw)
+        reason = reasons[-1].strip() if reasons else ""
+        if "intercepts pointer events" in reason:
+            blocker = reason.replace(" intercepts pointer events", "")
+            blocker = blocker if len(blocker) <= 100 else blocker[:97] + "..."
+            return f"{cmd}{on_ref} timed out after {after}: {blocker} covers it", [
+                "help: close what covers it first (a dialog or overlay: press Escape, or click its close button)"
+            ]
+        if reason == "did not find some options":
+            return f"{cmd}{on_ref} timed out after {after}: no option with that label", []
+        if reason:
+            return f"{cmd}{on_ref} timed out after {after}: {reason}", [
+                f"help: run `snapshot` to check {ref or 'the element'}, or raise --timeout-action=<ms>"
+            ]
+        if cmd == "wait-for" and ref:
+            hint = (
+                f"help: {ref} is not {options.get('state', 'visible')} yet; raise --timeout-action=<ms> to wait longer"
+            )
+        elif cmd in _NAVIGATION_COMMANDS:
+            hint = "help: the page did not finish loading; check the URL, or raise --timeout-navigation=<ms>"
+        elif ref:
+            hint = f"help: run `snapshot` to check {ref} is visible and enabled, or raise --timeout-action=<ms>"
+        else:
+            hint = "help: raise --timeout-action=<ms>"
+        return f"{cmd}{on_ref} timed out after {after}", [hint]
+    return message, []
+
+
+def _error_reply(cmd: str, args: list, options: dict, exc: Exception, *extra: str) -> dict:
+    message, helps = _error_message(cmd, args, options, exc)
+    return {"success": False, "output": "\n".join([f"Error: {message}", *extra, *helps])}
+
 
 @register("click")
 async def cmd_click(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
     button = args[1] if len(args) > 1 else "left"
     modifiers = options.get("modifiers", "").split(",") if options.get("modifiers") else []
@@ -1519,10 +1808,16 @@ async def cmd_click(session: Session, page, args: list, options: dict, cwd: str 
         "el => { while (el) { if (el.tagName === 'A') return el.href; el = el.parentElement; } return null; }"
     )
     if link_href:
+        # The link is followed without a click, so with --scroll=none check reachability with a trial click first.
+        if scroll == "none":
+            await elem.click(trial=True, scroll="none")
         await session.goto(page, link_href, _web_only(options))
         session.push_history(page.url)
     else:
-        await elem.click(button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None)
+        clicked = elem.click(
+            button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None, scroll=scroll
+        )
+        await clicked
     return await _page_info(session, cwd)
 
 
@@ -1555,22 +1850,37 @@ async def cmd_type(session: Session, page, args: list, options: dict, cwd: str |
 
 @register("hover")
 async def cmd_hover(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
-    await elem.hover()
+    await elem.hover(scroll=scroll)
     return await _page_info(session, cwd)
 
 
 @register("select")
 async def cmd_select(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     elem = await _resolve_ref(session, page, args[0])
-    await elem.select_option(args[1])
+    try:
+        await elem.select_option(args[1])
+    except Exception as exc:
+        if "Timeout" not in str(exc):
+            raise
+        block = snapshot_text.subtree(session.last_raw or "", _parse_ref(args[0])) or ""
+        options_shown = [line.strip() for line in block.splitlines() if line.strip().startswith("- option ")]
+        listed = ["Options:", *options_shown] if options_shown else []
+        if normalize_ref(args[1]):
+            # Options carry no refs; a ref that matched no option was meant as one.
+            listed.append(
+                f"help: select takes the option label shown under the combobox, e.g. select {_parse_ref(args[0])} Green"
+            )
+        return _error_reply("select", args, options, exc, *listed)
     return await _page_info(session, cwd)
 
 
 @register("check")
 async def cmd_check(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
-    await elem.check()
+    await elem.check(scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -1583,9 +1893,10 @@ async def cmd_uncheck(session: Session, page, args: list, options: dict, cwd: st
 
 @register("drag")
 async def cmd_drag(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    scroll = _scroll_option(options)
     src = await _resolve_ref(session, page, args[0])
     dst = await _resolve_ref(session, page, args[1])
-    await src.drag_to(dst)
+    await src.drag_to(dst, scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -1603,7 +1914,6 @@ async def cmd_drop(session: Session, page, args: list, options: dict, cwd: str |
 
     files: list[dict] = []
     if path_opt:
-        import base64
         import mimetypes
 
         paths = [path_opt] if isinstance(path_opt, str) else list(path_opt)
@@ -1611,43 +1921,26 @@ async def cmd_drop(session: Session, page, args: list, options: dict, cwd: str |
             fp = Path(p)
             if not fp.exists():
                 return {"success": False, "output": f"File not found: {p}"}
+            # In-memory buffers rather than paths, so the MIME type stays the one
+            # Python's mimetypes guesses (Playwright's own table differs for some extensions).
             mime = mimetypes.guess_type(fp.name)[0] or "application/octet-stream"
-            files.append(
-                {
-                    "name": fp.name,
-                    "type": mime,
-                    "b64": base64.b64encode(fp.read_bytes()).decode("ascii"),
-                }
-            )
+            files.append({"name": fp.name, "mimeType": mime, "buffer": fp.read_bytes()})
 
-    data_entries: list[tuple[str, str]] = []
+    data: dict[str, str] = {}
     if data_opt:
         raw_list = [data_opt] if isinstance(data_opt, str) else list(data_opt)
         for raw in raw_list:
             if "=" not in raw:
                 return {"success": False, "output": f"Invalid --data (need mime=value): {raw}"}
             mime, value = raw.split("=", 1)
-            data_entries.append((mime, value))
+            data[mime] = value
 
-    js = """
-    async (target, { files, dataEntries }) => {
-      const dt = new DataTransfer();
-      for (const f of files) {
-        const bytes = Uint8Array.from(atob(f.b64), c => c.charCodeAt(0));
-        dt.items.add(new File([bytes], f.name, { type: f.type }));
-      }
-      for (const [mime, value] of dataEntries) {
-        dt.setData(mime, value);
-      }
-      const evt = (type) => new DragEvent(type, {
-        bubbles: true, cancelable: true, dataTransfer: dt,
-      });
-      target.dispatchEvent(evt('dragenter'));
-      target.dispatchEvent(evt('dragover'));
-      target.dispatchEvent(evt('drop'));
-    }
-    """
-    await elem.evaluate(js, {"files": files, "dataEntries": data_entries})
+    payload: dict = {}
+    if files:
+        payload["files"] = files
+    if data:
+        payload["data"] = data
+    await elem.drop(payload)
     return await _page_info(session, cwd)
 
 
@@ -1659,6 +1952,7 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
     element_ref = args[0] if args else None
     max_depth = int(options["depth"]) if options.get("depth") is not None else None
     interactive_only = bool(options.get("interactive", False))
+    boxes = bool(options.get("boxes"))
 
     selector = options.get("selector")
     if selector is not None:
@@ -1667,10 +1961,10 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
         if element_ref:
             return {"success": False, "output": "snapshot takes either a ref or --selector=<css>, not both."}
 
+    # Every view is cut from one full-page snapshot, so scoping, --depth and -i
+    # never replace the page's ref map: refs outside the printed part keep working.
+    scope_ref = None
     if selector:
-        # take_snapshot swallows locator errors into an empty tree, so check the
-        # match here -- "no such element" and "element has no content" are
-        # different answers and the caller needs to tell them apart.
         scoped = page.locator(selector)
         try:
             matches = await scoped.count()
@@ -1679,10 +1973,6 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
         if not matches:
             return {"success": False, "output": f"No element matches {selector!r} on this page."}
         if matches > 1:
-            # aria_snapshot() runs strict, and snapshot.py turns the resulting
-            # violation into an empty tree -- which would report success, write
-            # an empty file, and replace the registry, losing the refs the
-            # caller was about to use.
             return {
                 "success": False,
                 "output": (
@@ -1690,27 +1980,38 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
                     f"Narrow the selector, e.g. {selector!r} with :first-child or an id."
                 ),
             }
-        snapshot_text, session.ref_registry = await take_snapshot(
-            page, root_element=scoped, max_depth=max_depth, interactive_only=interactive_only
-        )
+        (scope_ref,) = await _refs_of(session, page, [scoped])
+        if scope_ref is None:
+            return {"success": False, "output": f"{selector} is not in the accessibility tree."}
+        raw = await _ai_snapshot(session, page, boxes=True) if boxes else session.last_raw or ""
     elif element_ref:
-        elem = await _resolve_ref(session, page, element_ref)
-        snapshot_text, session.ref_registry = await take_snapshot(
-            page, root_element=elem, max_depth=max_depth, interactive_only=interactive_only
-        )
+        scope_ref = _parse_ref(element_ref)
+        if not has_ref(session.last_raw, scope_ref):
+            raise ValueError(_not_in_snapshot(scope_ref))
+        raw = await _ai_snapshot(session, page, boxes=boxes)
+        if not has_ref(raw, scope_ref):
+            raise ValueError(
+                f"Ref {scope_ref} no longer matches an element (removed or changed since the snapshot). Run snapshot."
+            )
     else:
-        snapshot_text, session.ref_registry = await take_snapshot(
-            page, max_depth=max_depth, interactive_only=interactive_only
-        )
-    if options.get("boxes"):
-        snapshot_text = await _annotate_with_boxes(page, snapshot_text, session.ref_registry)
+        raw = await _ai_snapshot(session, page, boxes=boxes)
+
+    if scope_ref is not None:
+        raw = snapshot_text.subtree(raw, scope_ref) or ""
+    snapshot_out = _printed(raw)
+    if raw.strip():
+        if interactive_only:
+            snapshot_out = snapshot_text.interactive_only(snapshot_out) + "\n"
+        if max_depth is not None:
+            snapshot_out = snapshot_text.limit_depth(snapshot_out, max_depth) + "\n"
+
     fn = options.get("filename")
     if fn:
         Path(fn).parent.mkdir(parents=True, exist_ok=True)
-        Path(fn).write_text(snapshot_text, encoding="utf-8")
+        Path(fn).write_text(snapshot_out, encoding="utf-8")
         snap_path = fn
     else:
-        snap_path = save_snapshot(snapshot_text, cwd)
+        snap_path = save_snapshot(snapshot_out, cwd)
     url = page.url
     try:
         title = await page.title()
@@ -1726,37 +2027,103 @@ async def cmd_snapshot(session: Session, page, args: list, options: dict, cwd: s
     return {"success": True, "output": "\n".join(output_lines), "snapshot_path": snap_path}
 
 
-async def _annotate_with_boxes(page, snapshot_text: str, registry) -> str:
-    """Append `[box=x,y,w,h]` to each `[ref=eN]` line in snapshot_text.
+# `find --role` filters. --name and --description are what get_by_role takes;
+# --exact makes both whole-string and case-sensitive.
+_ROLE_FILTERS = ("name", "description", "exact")
+_SLASH_TEXT_RE = re.compile(r"^/(.*)/([ims]*)$", re.S)
 
-    Refs whose locator can't be measured are left unchanged.
-    """
-    if registry is None:
-        return snapshot_text
-    import re
 
-    ref_re = re.compile(r"\[ref=(e\d+)\]")
-    boxes: dict[str, str] = {}
-    for ref in registry.entries:
-        try:
-            loc = registry.resolve(page, ref)
-            box = await loc.bounding_box()
-            if box:
-                boxes[ref] = f"[box={int(box['x'])},{int(box['y'])},{int(box['width'])},{int(box['height'])}]"
-        except Exception:
+def _role_text(value: str):
+    """A --name/--description value: `/pattern/flags` is a regex, anything else plain text."""
+    m = _SLASH_TEXT_RE.match(value)
+    if not m:
+        return value
+    flags = 0
+    for f in m.group(2):
+        flags |= {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL}[f]
+    return re.compile(m.group(1), flags)
+
+
+async def _find_by_role(session: Session, page, role: str, options: dict, limit: int) -> dict:
+    """`find --role=<role>`: elements get_by_role matches, mapped to snapshot refs."""
+    kwargs: dict = {}
+    shown = [f"role={role}"]
+    for key in ("name", "description"):
+        value = options.get(key)
+        if value is None:
             continue
+        if not isinstance(value, str) or not value:
+            return {"success": False, "output": f'Give --{key} a value, e.g. --{key}="Delete".'}
+        try:
+            kwargs[key] = _role_text(value)
+        except re.error as exc:
+            return {"success": False, "output": f"Invalid --{key} regex {value!r}: {exc}"}
+        shown.append(f"{key}={json.dumps(value)}")
+    if options.get("exact"):
+        kwargs["exact"] = True
+        shown.append("exact")
+    query = " ".join(shown)
 
-    out = []
-    for line in snapshot_text.splitlines():
-        m = ref_re.search(line)
-        if m and m.group(1) in boxes:
-            line = line.rstrip() + " " + boxes[m.group(1)]
-        out.append(line)
-    return "\n".join(out)
+    locator = page.get_by_role(role, **kwargs)
+    try:
+        total = await locator.count()
+    except Exception as exc:
+        return {"success": False, "output": f"find {query} failed: {exc}"}
+    if not total:
+        return {
+            "success": True,
+            "output": f"0 matches for {query}.\nDrop a filter, or use /pattern/i for a looser --name/--description.",
+            "data": [],
+        }
+
+    shown_count = min(total, limit)
+    refs = await _refs_of(session, page, [locator.nth(i) for i in range(shown_count)])
+    index = SnapshotIndex(session.last_raw or "")
+    data = []
+    lines = []
+    for i, ref in enumerate(refs):
+        node = index.node(ref) if ref else None
+        name = node.name if node else ""
+        data.append({"ref": ref or "", "role": role, "name": name})
+        label = f'- {role} "{name}"' if name else f"- {role}"
+        lines.append(f"{label} [ref={ref}]" if ref else f"{label} (no ref: not in the snapshot; nth={i})")
+    if total > len(data):
+        header = f"Found {len(data)} of {total} matches for {query}. Narrow the filters to reduce ambiguity."
+    else:
+        header = f"Found {total} match{'' if total == 1 else 'es'} for {query}."
+    result = {"success": True, "output": "\n".join([header, "", *lines]) + "\n", "data": data}
+    if total > len(data):
+        result["total"] = total
+    return result
 
 
 @register("find")
 async def cmd_find(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    raw_limit = options.get("limit", 20)
+    try:
+        if isinstance(raw_limit, bool):
+            raise TypeError
+        limit = int(raw_limit)
+    except (TypeError, ValueError):
+        return {"success": False, "output": f"Invalid --limit value: {raw_limit!r}. Expected a positive integer."}
+    if limit < 1:
+        return {"success": False, "output": f"Invalid --limit value: {limit}. Expected a positive integer."}
+
+    role = options.get("role")
+    if role is None:
+        stray = [f"--{k}" for k in _ROLE_FILTERS if k in options]
+        if stray:
+            return {"success": False, "output": f"{', '.join(stray)} only works with --role=<role>."}
+    else:
+        if not isinstance(role, str) or not role:
+            return {"success": False, "output": "Give --role an ARIA role, e.g. --role=button."}
+        if args or "regex" in options or "all" in options:
+            return {
+                "success": False,
+                "output": "find --role filters by role, --name and --description; "
+                "it takes no <text>, --regex or --all. Run them as two finds.",
+            }
+        return await _find_by_role(session, page, role, options, limit)
     regex_option = options.get("regex", False)
     if isinstance(regex_option, str):
         if args:
@@ -1774,25 +2141,14 @@ async def cmd_find(session: Session, page, args: list, options: dict, cwd: str |
             "output": "find requires a search term. Usage: find <text> [--regex] [--all] [--limit=N]",
         }
 
-    raw_limit = options.get("limit", 20)
-    try:
-        if isinstance(raw_limit, bool):
-            raise TypeError
-        limit = int(raw_limit)
-    except (TypeError, ValueError):
-        return {"success": False, "output": f"Invalid --limit value: {raw_limit!r}. Expected a positive integer."}
-    if limit < 1:
-        return {"success": False, "output": f"Invalid --limit value: {limit}. Expected a positive integer."}
-
-    # Refs are numbered across the whole tree, so they agree with `snapshot`.
-    _, session.ref_registry = await take_snapshot(page)
-    if not session.ref_registry.entries:
+    # The same full snapshot `snapshot` prints, so its refs and these agree.
+    raw = await _ai_snapshot(session, page)
+    if not raw.strip():
         return {"success": True, "output": "# Empty page - 0 accessible elements found", "data": []}
+    index = SnapshotIndex(_printed(raw))
 
     try:
-        hits, total = session.ref_registry.search(
-            query, regex=use_regex, all_roles=bool(options.get("all", False)), limit=limit
-        )
+        hits, total = index.search(query, regex=use_regex, all_roles=bool(options.get("all", False)), limit=limit)
     except re.error as exc:
         return {"success": False, "output": f"Invalid regex {query!r}: {exc}"}
 
@@ -1805,8 +2161,10 @@ async def cmd_find(session: Session, page, args: list, options: dict, cwd: str |
 
     data = []
     for hit in hits:
-        entry = session.ref_registry.entries.get(hit.ref)
-        data.append({"ref": hit.ref, "role": entry.role if entry else "", "name": entry.name if entry else ""})
+        item = {"ref": hit.ref or "", "role": hit.node.role, "name": hit.node.name}
+        if hit.ref is None and hit.node.within:
+            item["in"] = hit.node.within
+        data.append(item)
     result = {"success": True, "output": render_hits(hits, total, query), "data": data}
     if total > len(hits):
         result["total"] = total
@@ -1817,83 +2175,234 @@ async def cmd_find(session: Session, page, args: list, options: dict, cwd: str |
 async def cmd_generate_locator(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    """Emit a Playwright locator expression for a ref."""
+    """Emit a Playwright locator expression for a ref: getByRole, with .nth(i) when the role and name repeat."""
     if not args:
         return {"success": False, "output": "Usage: generate-locator <ref>"}
-    if session.ref_registry is None:
-        return {"success": False, "output": "No snapshot taken yet. Run `snapshot` first."}
-    ref = args[0].lstrip("@")
-    entry = session.ref_registry.entries.get(ref)
-    if entry is None:
-        return {"success": False, "output": f"Ref @{ref} not found. Re-run `snapshot`."}
+    locator = await _resolve_ref(session, page, args[0])
+    ref = _parse_ref(args[0])
+    line = snapshot_text.line_of(session.last_raw or "", ref) or ""
+    role, name = snapshot_text.parse_node(line) or ("generic", "")
 
-    name_part = ""
-    if entry.name:
-        escaped = entry.name.replace("\\", "\\\\").replace("'", "\\'")
-        name_part = f", {{ name: '{escaped}', exact: true }}"
-    expr = f"getByRole('{entry.role}'{name_part})"
-    if entry.nth > 0:
-        expr += f".nth({entry.nth})"
-    return {"success": True, "output": expr}
+    # A ref inside an iframe is reached through frameLocator()s, read from the
+    # frame part of Playwright's own selector for the element.
+    scope = page
+    prefix = ""
+    if snapshot_text.frame_prefix(ref) != snapshot_text.main_frame_prefix(session.last_raw or ""):
+        normalized = await locator.normalize()
+        selector = getattr(normalized, "_impl_obj", normalized)._selector
+        for frame_selector in selector.split(_ENTER_FRAME)[:-1]:
+            scope = scope.frame_locator(frame_selector)
+            prefix += f"frameLocator({_js_string(frame_selector)})."
+
+    if name:
+        expr = f"getByRole('{role}', {{ name: {_js_string(name)}, exact: true }})"
+        matches = scope.get_by_role(role, name=name, exact=True)
+    else:
+        expr = f"getByRole('{role}')"
+        matches = scope.get_by_role(role)
+    try:
+        count = await matches.count()
+    except Exception:
+        count = 0
+    if count > GENERATE_LOCATOR_MAX_MATCHES:
+        return {"success": True, "output": f"{prefix}{expr}  # ambiguous: {count} matches"}
+    if count > 1:
+        handle = await locator.element_handle(timeout=2000)
+        try:
+            for i in range(count):
+                with contextlib.suppress(Exception):
+                    if await matches.nth(i).evaluate("(el, target) => el === target", handle, timeout=1000):
+                        expr += f".nth({i})"
+                        break
+        finally:
+            with contextlib.suppress(Exception):
+                await handle.dispose()
+    return {"success": True, "output": prefix + expr}
+
+
+# generate-locator finds its .nth() index with one identity check per match.
+GENERATE_LOCATOR_MAX_MATCHES = 20
+_ENTER_FRAME = " >> internal:control=enter-frame >> "
+
+
+def _js_string(value: str) -> str:
+    """A single-quoted JavaScript string literal."""
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+# `pick-locator` waits on a person clicking in the headed window. A minute is
+# long enough to find an element and short enough that a forgotten pick does
+# not hold the page in pick mode for long. The CLI stretches its socket
+# timeout to match.
+DEFAULT_PICK_WAIT = 60.0
+# Pages with a pick in progress. `pick-locator --cancel` reports whether there
+# was one; Patchright's cancel is a silent no-op either way.
+_active_picks: weakref.WeakSet = weakref.WeakSet()
+
+
+async def _cancel_pick(page, task: asyncio.Future) -> None:
+    """Leave pick mode in the page and let the pending pick finish."""
+    with contextlib.suppress(Exception):
+        await page.cancel_pick_locator()
+    with contextlib.suppress(BaseException):
+        await asyncio.wait_for(task, 5)
+
+
+@register("pick-locator")
+async def cmd_pick_locator(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    """Wait for a person to click an element in the page, and print its locator."""
+    if options.get("cancel"):
+        if page not in _active_picks:
+            return {"success": True, "output": "No pick-locator in progress on this tab (no-op)"}
+        await page.cancel_pick_locator()
+        return {"success": True, "output": "Cancelled the pick-locator in progress."}
+
+    raw_wait = options.get("wait", DEFAULT_PICK_WAIT)
+    # A valueless `--wait` arrives as True, which float() reads as 1 second.
+    if isinstance(raw_wait, bool):
+        return {"success": False, "output": "Give --wait a value in seconds, e.g. --wait=120."}
+    try:
+        wait_seconds = float(raw_wait)
+    except (TypeError, ValueError):
+        return {"success": False, "output": f"Invalid --wait value: {raw_wait!r}. Expected seconds."}
+    if not wait_seconds > 0 or wait_seconds == float("inf"):
+        return {"success": False, "output": f"Invalid --wait value: {raw_wait!r}. Expected seconds above 0."}
+    if page in _active_picks:
+        return {
+            "success": False,
+            "output": "A pick-locator is already waiting on this tab. Finish it, or run `pick-locator --cancel`.",
+        }
+
+    _active_picks.add(page)
+    try:
+        reply = await _wait_for_pick(session, page, wait_seconds)
+    finally:
+        _active_picks.discard(page)
+        await _clean_after_pick(session, page)
+    reply["output"] = "\n".join([reply["output"], PICK_TRACES_NOTE, PICK_TRACES_HELP])
+    return reply
+
+
+# What pick-locator leaves behind that the isolated world cannot remove: the
+# recorder runs in the page's own world, re-adds its overlay every 500ms, and is
+# installed into every later document of the browser context (reloads, new tabs).
+PICK_TRACES_NOTE = (
+    "note: every page of this session now carries window.playwright, __pw_* globals and an <x-pw-glass> "
+    "element, until the session closes"
+)
+PICK_TRACES_HELP = "help: run `patchright-cli close`, then `open` again, to drop them"
+
+# The recorder's own traces that do stay gone once removed: the cursor attribute
+# on <body> and its adopted stylesheet. Run in the isolated world.
+_PICK_CLEANUP = """(removeGlass) => {
+  if (document.body) document.body.removeAttribute('data-pw-cursor');
+  const isRecorderSheet = (sheet) => {
+    try { return [...sheet.cssRules].some((rule) => rule.cssText.includes('data-pw-cursor')); }
+    catch { return false; }
+  };
+  const sheets = document.adoptedStyleSheets;
+  if (sheets.some(isRecorderSheet)) document.adoptedStyleSheets = sheets.filter((s) => !isRecorderSheet(s));
+  if (removeGlass) for (const el of document.querySelectorAll('x-pw-glass')) el.remove();
+}"""
+
+
+async def _clean_after_pick(session: Session, page) -> None:
+    """Undo what pick mode left in the DOM, from the isolated world; keep the glass while highlights show."""
+    remove_glass = not (getattr(session, "highlights", None) or {}).get(id(page))
+    for frame in list(getattr(page, "frames", None) or [page.main_frame]):
+        with contextlib.suppress(Exception):
+            await frame.evaluate(_PICK_CLEANUP, remove_glass, isolated_context=True)
+
+
+async def _wait_for_pick(session: Session, page, wait_seconds: float) -> dict:
+    task = asyncio.ensure_future(page.pick_locator())
+    try:
+        done, _ = await asyncio.wait({task}, timeout=wait_seconds)
+        if not done:
+            await _cancel_pick(page, task)
+            return {
+                "success": False,
+                "output": (
+                    f"No element was picked within {wait_seconds:g}s; pick mode was cancelled.\n"
+                    "Wait longer with `pick-locator --wait=<seconds>`."
+                ),
+            }
+        try:
+            picked = task.result()
+        except Exception as exc:
+            if "cancelled" in str(exc).lower():
+                return {"success": False, "output": "The pick was cancelled before an element was clicked."}
+            raise
+    except asyncio.CancelledError:
+        await _cancel_pick(page, task)
+        raise
+
+    selector = getattr(picked, "_impl_obj", picked)._selector
+    (ref,) = await _refs_of(session, page, [picked])
+    lines = [selector]
+    if ref:
+        lines += ["### Ref", f"- {ref} (in the last snapshot; use it with click, fill, ...)"]
+    return {"success": True, "output": "\n".join(lines), "data": {"locator": selector, "ref": ref}}
+
+
+# Playwright's highlight overlay lives in an <x-pw-glass> element under <html>,
+# and hide_highlight() only empties it: the element stays where any page script
+# can find it. Removed from the isolated world, so no page-visible script runs;
+# Playwright re-inserts it on the next highlight.
+_REMOVE_GLASS = "() => { for (const el of document.querySelectorAll('x-pw-glass')) el.remove(); }"
+
+
+async def _remove_glass(page) -> None:
+    """Take Playwright's overlay element out of every frame of `page`, unless a pick is using it."""
+    if page in _active_picks:
+        return
+    for frame in list(getattr(page, "frames", None) or [page.main_frame]):
+        with contextlib.suppress(Exception):
+            await frame.evaluate(_REMOVE_GLASS, isolated_context=True)
 
 
 @register("highlight")
 async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    """Draw or remove a persistent overlay over an element.
+    """Show or hide Playwright's native highlight overlay on an element.
 
-    `highlight <ref>` shows it; `highlight <ref> --hide` hides it; `highlight --hide`
-    clears all highlights on the page.
+    `highlight <ref>` shows it (`--style` adds inline CSS to the overlay);
+    `highlight <ref> --hide` hides it; `highlight --hide` clears every
+    highlight on the page.
     """
     hide = bool(options.get("hide"))
-    style = options.get("style") or "outline: 2px solid #ff3366; outline-offset: 2px;"
+    style = options.get("style")
+    if style is not None and not isinstance(style, str):
+        return {"success": False, "output": 'Give --style some CSS, e.g. --style="outline: 2px dashed red".'}
+    shown = session.highlights.setdefault(id(page), set())
 
     if hide and not args:
-        removed = await page.evaluate(
-            "() => { const els = document.querySelectorAll('[data-patchright-highlight]');"
-            " els.forEach(el => el.remove()); return els.length; }"
-        )
-        if not removed:
+        had = bool(shown)
+        shown.clear()
+        await page.hide_highlight()
+        await _remove_glass(page)
+        if not had:
             return {"success": True, "output": "No highlights on the page (no-op)"}
         return {"success": True, "output": "All highlights cleared."}
 
     if not args:
         return {"success": False, "output": "Usage: highlight <ref> [--style=...] [--hide]"}
-    elem = await _resolve_ref(session, page, args[0])
+    ref = _parse_ref(args[0])
+    elem = await _resolve_ref(session, page, ref)
 
     if hide:
-        had = await elem.evaluate(
-            "el => { const id = el.getAttribute('data-patchright-hl-id');"
-            " if (!id) return false;"
-            ' const o = document.querySelector(`[data-patchright-highlight="${id}"]`);'
-            " if (o) o.remove();"
-            " el.removeAttribute('data-patchright-hl-id');"
-            " return !!o; }"
-        )
-        if not had:
-            return {"success": True, "output": f"{args[0]} is not highlighted (no-op)"}
-        return {"success": True, "output": f"Hid highlight on {args[0]}."}
+        if ref not in shown:
+            return {"success": True, "output": f"{ref} is not highlighted (no-op)"}
+        await elem.hide_highlight()
+        shown.discard(ref)
+        if not shown:
+            await _remove_glass(page)
+        return {"success": True, "output": f"Hid highlight on {ref}."}
 
-    js = """
-    (el, { style }) => {
-      const rect = el.getBoundingClientRect();
-      const id = el.getAttribute('data-patchright-hl-id') || ('h' + Math.random().toString(36).slice(2));
-      el.setAttribute('data-patchright-hl-id', id);
-      let overlay = document.querySelector(`[data-patchright-highlight="${id}"]`);
-      if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.setAttribute('data-patchright-highlight', id);
-        overlay.style.cssText = 'position: fixed; pointer-events: none; z-index: 2147483647;';
-        document.documentElement.appendChild(overlay);
-      }
-      overlay.style.left = rect.left + 'px';
-      overlay.style.top = rect.top + 'px';
-      overlay.style.width = rect.width + 'px';
-      overlay.style.height = rect.height + 'px';
-      overlay.style.cssText += '; ' + style;
-    }
-    """
-    await elem.evaluate(js, {"style": style})
-    return {"success": True, "output": f"Highlighted {args[0]}."}
+    await elem.highlight(style=style or None)
+    shown.add(ref)
+    return {"success": True, "output": f"Highlighted {ref}."}
 
 
 # -- Eval / Screenshot -------------------------------------------------------
@@ -1901,11 +2410,15 @@ async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: 
 
 @register("eval")
 async def cmd_eval(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    import re
-
-    if len(args) >= 2 and re.fullmatch(r"e\d+", args[-1]) and session.ref_registry is not None:
-        expr = " ".join(args[:-1])
-        ref = args[-1]
+    if len(args) > 2 or (len(args) == 2 and not normalize_ref(args[1])):
+        # The CLI rejects these first; an MCP or raw client lands here.
+        return {
+            "success": False,
+            "output": f"eval takes <expr> [ref]; `{args[-1]}` is not a ref. Quote the expression as one argument.",
+            "exit_code": 2,
+        }
+    if len(args) == 2:
+        expr, ref = args
         elem = await _resolve_ref(session, page, ref)
         result = await elem.evaluate(expr)
     else:
@@ -1919,14 +2432,101 @@ async def cmd_text(session: Session, page, args: list, options: dict, cwd: str |
     target = args[0] if args else ""
     if not target:
         return {"success": False, "output": "Usage: text <ref|selector>"}
-    import re
-
-    if re.fullmatch(r"e\d+", target) and session.ref_registry is not None:
+    if normalize_ref(target):
         elem = await _resolve_ref(session, page, target)
     else:
         elem = page.locator(target)
     text = (await elem.text_content()) or ""
     return {"success": True, "output": text}
+
+
+# `html` prints at most this many characters unless --max-chars says otherwise;
+# the same cut as `request --body`. --filename always gets the whole document.
+DEFAULT_HTML_MAX_CHARS = 8000
+
+# An element's outerHTML; with `shadow`, its open shadow roots (its own and
+# nested ones) as declarative `<template shadowrootmode="open">`, the way
+# Page.content(include_shadow=True) writes them for the whole page.
+_ELEMENT_HTML_JS = """(el, shadow) => {
+  if (!shadow) return el.outerHTML;
+  const roots = [];
+  const walk = (node) => {
+    for (const child of node.querySelectorAll('*')) {
+      if (child.shadowRoot) { roots.push(child.shadowRoot); walk(child.shadowRoot); }
+    }
+  };
+  if (el.shadowRoot) { roots.push(el.shadowRoot); walk(el.shadowRoot); }
+  walk(el);
+  const inner = el.getHTML({ serializableShadowRoots: true, shadowRoots: roots });
+  const shell = el.cloneNode(false).outerHTML;
+  const close = `</${el.localName}>`;
+  if (!shell.endsWith(close)) return shell;  // a void element has no content
+  return shell.slice(0, shell.length - close.length) + inner + close;
+}"""
+
+
+@register("html")
+async def cmd_html(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    """Print the page's HTML, or one element's, with open shadow roots on --include-shadow."""
+    ref = args[0] if args else None
+    selector = options.get("selector")
+    if selector is not None:
+        if not isinstance(selector, str) or not selector:
+            return {"success": False, "output": 'Give --selector a CSS selector, e.g. --selector="#main".'}
+        if ref:
+            return {"success": False, "output": "html takes either a ref or --selector=<css>, not both."}
+
+    raw_max = options.get("max-chars", DEFAULT_HTML_MAX_CHARS)
+    try:
+        if isinstance(raw_max, bool):
+            raise TypeError
+        max_chars = int(raw_max)
+    except (TypeError, ValueError):
+        max_chars = -1
+    if max_chars < 0:
+        return {
+            "success": False,
+            "output": f"Invalid --max-chars value: {raw_max!r}. Expected a whole number; 0 means no limit.",
+        }
+
+    fn = options.get("filename")
+    if fn is not None and (not isinstance(fn, str) or not fn):
+        return {"success": False, "output": "Give --filename a name, e.g. --filename=page.html."}
+
+    include_shadow = bool(options.get("include-shadow", False))
+    if selector:
+        scoped = page.locator(selector)
+        try:
+            matches = await scoped.count()
+        except Exception as exc:
+            return {"success": False, "output": f"Invalid selector {selector!r}: {exc}"}
+        if matches != 1:
+            if not matches:
+                return {"success": False, "output": f"No element matches {selector!r} on this page."}
+            return {
+                "success": False,
+                "output": f"{selector!r} matches {matches} elements; html needs exactly one. Narrow the selector.",
+            }
+        html = await scoped.evaluate(_ELEMENT_HTML_JS, include_shadow)
+    elif ref:
+        elem = await _resolve_ref(session, page, ref)
+        html = await elem.evaluate(_ELEMENT_HTML_JS, include_shadow)
+    else:
+        html = await page.content(include_shadow=include_shadow)
+
+    if fn:
+        base = Path(cwd) if cwd else Path.cwd()
+        filepath = base / ".patchright-cli" / fn
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        filepath.write_text(html, encoding="utf-8")
+        return {"success": True, "output": f"HTML saved to {filepath} ({len(html)} chars)"}
+
+    if max_chars and len(html) > max_chars:
+        html = (
+            html[:max_chars] + f"\n... (truncated: {max_chars} of {len(html)} chars; "
+            "--filename=<name> saves it all, --max-chars=0 prints it all)"
+        )
+    return {"success": True, "output": html}
 
 
 @register("screenshot")
@@ -1942,7 +2542,7 @@ async def cmd_screenshot(
     # pixel ratio instead. They only differ under --mobile / --device, where a
     # dpr of 2-3 makes the default capture several times larger.
     scale = "device" if options.get("hires") else "css"
-    if args and args[0].startswith("e"):
+    if args and normalize_ref(args[0]):
         elem = await _resolve_ref(session, page, args[0])
         filepath = snap_dir / (fn or f"element-{ts}.png")
         await elem.screenshot(path=str(filepath), scale=scale)
@@ -2204,65 +2804,83 @@ async def cmd_cookie_export(
 # -- LocalStorage ------------------------------------------------------------
 
 
-def _storage_list(store: str, raw: str) -> dict:
-    """Reply for `localstorage-list` / `sessionstorage-list` from the page's JSON dump of the store."""
-    try:
-        items = json.loads(raw) if raw else {}
-    except (TypeError, ValueError):
-        items = {}
-    if not isinstance(items, dict):
-        items = {}
-    data = [{"key": k, "value": v} for k, v in items.items()]
+def _storage_list(store: str, items: list[dict]) -> dict:
+    """Reply for `localstorage-list` / `sessionstorage-list` from `WebStorage.items()` name/value pairs.
+
+    The text output stays the compact JSON object `JSON.stringify(localStorage)` used to print.
+    """
+    data = [{"key": item["name"], "value": item["value"]} for item in items]
     if not data:
         return {"success": True, "output": f"0 {store} keys on this page", "data": data}
+    raw = json.dumps({d["key"]: d["value"] for d in data}, separators=(",", ":"), ensure_ascii=False)
     return {"success": True, "output": raw, "data": data}
+
+
+def _web_storage(page, store: str):
+    """The page's native `WebStorage` for `localStorage` or `sessionStorage`."""
+    return page.local_storage if store == "localStorage" else page.session_storage
+
+
+async def _storage_list_cmd(page, store: str) -> dict:
+    return _storage_list(store, await _web_storage(page, store).items())
+
+
+async def _storage_get(page, store: str, key: str) -> dict:
+    result = await _web_storage(page, store).get_item(key)
+    return {"success": True, "output": json.dumps(result, default=str)}
+
+
+async def _storage_set(page, store: str, key: str, value: str) -> dict:
+    await _web_storage(page, store).set_item(key, value)
+    return {"success": True, "output": f"{store}['{key}'] set."}
+
+
+async def _storage_delete(page, store: str, key: str) -> dict:
+    storage = _web_storage(page, store)
+    if await storage.get_item(key) is None:
+        return {"success": True, "output": f"{store} has no key '{key}' (no-op)"}
+    await storage.remove_item(key)
+    return {"success": True, "output": f"{store}['{key}'] deleted."}
+
+
+async def _storage_clear(page, store: str) -> dict:
+    await _web_storage(page, store).clear()
+    return {"success": True, "output": f"{store} cleared."}
 
 
 @register("localstorage-list")
 async def cmd_localstorage_list(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    return _storage_list("localStorage", await page.evaluate("() => JSON.stringify(localStorage)"))
+    return await _storage_list_cmd(page, "localStorage")
 
 
 @register("localstorage-get")
 async def cmd_localstorage_get(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key = args[0]
-    result = await page.evaluate(f"() => localStorage.getItem({json.dumps(key)})")
-    return {"success": True, "output": json.dumps(result, default=str)}
+    return await _storage_get(page, "localStorage", args[0])
 
 
 @register("localstorage-set")
 async def cmd_localstorage_set(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key, value = args[0], args[1]
-    await page.evaluate(f"() => localStorage.setItem({json.dumps(key)}, {json.dumps(value)})")
-    return {"success": True, "output": f"localStorage['{key}'] set."}
+    return await _storage_set(page, "localStorage", args[0], args[1])
 
 
 @register("localstorage-delete")
 async def cmd_localstorage_delete(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key = args[0]
-    existed = await page.evaluate(
-        f"() => {{ const had = localStorage.getItem({json.dumps(key)}) !== null;"
-        f" localStorage.removeItem({json.dumps(key)}); return had; }}"
-    )
-    if not existed:
-        return {"success": True, "output": f"localStorage has no key '{key}' (no-op)"}
-    return {"success": True, "output": f"localStorage['{key}'] deleted."}
+    return await _storage_delete(page, "localStorage", args[0])
 
 
 @register("localstorage-clear")
 async def cmd_localstorage_clear(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    await page.evaluate("() => localStorage.clear()")
-    return {"success": True, "output": "localStorage cleared."}
+    return await _storage_clear(page, "localStorage")
 
 
 # -- DevTools / Network ------------------------------------------------------
@@ -2281,7 +2899,10 @@ async def cmd_console(session: Session, page, args: list, options: dict, cwd: st
     lines = [f"[{m['type']}] {m['text']}" for m in shown]
     if options.get("clear"):
         session.console_messages.clear()
-    result = {"success": True, "data": [{"level": m["type"], "text": m["text"]} for m in shown]}
+    result = {
+        "success": True,
+        "data": [{"level": m["type"], "text": m["text"], "timestamp": m["timestamp"]} for m in shown],
+    }
     if len(matching) > len(shown):
         result["total"] = len(matching)
     if not lines:
@@ -2349,6 +2970,13 @@ async def cmd_request(session: Session, page, args: list, options: dict, cwd: st
     if status is not None:
         status_text = entry.get("status_text") or ""
         lines.append(f"- Status: {status} {status_text}".rstrip())
+    resp = entry.get("_response")
+    if resp is not None:
+        # Asked on demand: it is a protocol round trip, too costly for every response.
+        try:
+            lines.append(f"- HTTP version: {await resp.http_version()}")
+        except Exception:
+            pass
 
     req_headers = entry.get("request_headers") or {}
     if req_headers:
@@ -2367,15 +2995,13 @@ async def cmd_request(session: Session, page, args: list, options: dict, cwd: st
         for k, v in resp_headers.items():
             lines.append(f"- {k}: {v}")
 
-    if options.get("body"):
-        resp = entry.get("_response")
-        if resp is not None:
-            try:
-                body = await resp.text()
-                lines.append("### Response Body")
-                lines.append(body if len(body) < 8000 else body[:8000] + "\n... (truncated)")
-            except Exception as e:
-                lines.append(f"### Response Body\n(could not read: {e})")
+    if options.get("body") and resp is not None:
+        try:
+            body = await resp.text()
+            lines.append("### Response Body")
+            lines.append(body if len(body) < 8000 else body[:8000] + "\n... (truncated)")
+        except Exception as e:
+            lines.append(f"### Response Body\n(could not read: {e})")
 
     return {"success": True, "output": "\n".join(lines)}
 
@@ -2534,26 +3160,14 @@ async def cmd_state_load(
     filepath = args[0] if args else ""
     if not filepath or not Path(filepath).exists():
         return {"success": False, "output": f"File not found: {filepath}"}
-    state_data = json.loads(Path(filepath).read_text(encoding="utf-8"))
-    if state_data.get("cookies"):
-        await session.context.add_cookies(state_data["cookies"])
-    ls_applied = 0
-    ls_skipped = 0
-    for origin_data in state_data.get("origins", []):
-        origin = origin_data.get("origin", "")
-        ls = origin_data.get("localStorage", [])
-        if ls and page.url.startswith(origin):
-            for item in ls:
-                await page.evaluate(
-                    f"() => localStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])})"
-                )
-            ls_applied += len(ls)
-        elif ls:
-            ls_skipped += len(ls)
-    msg = f"State loaded from {filepath}"
-    if ls_skipped:
-        msg += f" (note: {ls_skipped} localStorage item(s) skipped — navigate to the matching origin first)"
-    return {"success": True, "output": msg}
+    # One native call: clears the context's cookies, storage, IndexedDB, OPFS and virtual
+    # WebAuthn credentials, then applies the file's state to every origin it lists.
+    # With no credentials in the file it also uninstalls the virtual authenticator,
+    # so the next passkey-* command installs it again (a no-op if it is still there).
+    async with session._passkey_lock:
+        await session.context.set_storage_state(filepath)
+        session._passkeys_installed = False
+    return {"success": True, "output": f"State loaded from {filepath}"}
 
 
 # -- Session storage ---------------------------------------------------------
@@ -2563,47 +3177,184 @@ async def cmd_state_load(
 async def cmd_sessionstorage_list(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    return _storage_list("sessionStorage", await page.evaluate("() => JSON.stringify(sessionStorage)"))
+    return await _storage_list_cmd(page, "sessionStorage")
 
 
 @register("sessionstorage-get")
 async def cmd_sessionstorage_get(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key = args[0]
-    result = await page.evaluate(f"() => sessionStorage.getItem({json.dumps(key)})")
-    return {"success": True, "output": json.dumps(result, default=str)}
+    return await _storage_get(page, "sessionStorage", args[0])
 
 
 @register("sessionstorage-set")
 async def cmd_sessionstorage_set(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key, value = args[0], args[1]
-    await page.evaluate(f"() => sessionStorage.setItem({json.dumps(key)}, {json.dumps(value)})")
-    return {"success": True, "output": f"sessionStorage['{key}'] set."}
+    return await _storage_set(page, "sessionStorage", args[0], args[1])
 
 
 @register("sessionstorage-delete")
 async def cmd_sessionstorage_delete(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    key = args[0]
-    existed = await page.evaluate(
-        f"() => {{ const had = sessionStorage.getItem({json.dumps(key)}) !== null;"
-        f" sessionStorage.removeItem({json.dumps(key)}); return had; }}"
-    )
-    if not existed:
-        return {"success": True, "output": f"sessionStorage has no key '{key}' (no-op)"}
-    return {"success": True, "output": f"sessionStorage['{key}'] deleted."}
+    return await _storage_delete(page, "sessionStorage", args[0])
 
 
 @register("sessionstorage-clear")
 async def cmd_sessionstorage_clear(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    await page.evaluate("() => sessionStorage.clear()")
-    return {"success": True, "output": "sessionStorage cleared."}
+    return await _storage_clear(page, "sessionStorage")
+
+
+# -- Passkeys (virtual WebAuthn authenticator) -------------------------------
+
+# Fields of a VirtualCredential that passkey-list shows; the keys stay out of it
+# and only leave the daemon through passkey-export.
+_PASSKEY_LIST_FIELDS = ("id", "rpId", "userHandle", "signCount")
+# passkey-add flag -> Credentials.create() keyword.
+_PASSKEY_ADD_FLAGS = {
+    "id": "id",
+    "user-handle": "user_handle",
+    "private-key": "private_key",
+    "public-key": "public_key",
+}
+
+
+async def _ensure_passkeys(session: Session) -> bool:
+    """Install the session's virtual authenticator once. Returns True when this call installed it.
+
+    Installing overrides navigator.credentials in every page of the context, which a
+    page could notice, so it only happens once a passkey-* command asks for it.
+    """
+    async with session._passkey_lock:
+        if session._passkeys_installed:
+            return False
+        await session.context.credentials.install()
+        session._passkeys_installed = True
+        return True
+
+
+def _passkey_notice(installed: bool) -> str:
+    return "Virtual passkey authenticator installed in this session.\n" if installed else ""
+
+
+def _user_file(cwd: str | None, filepath: str) -> Path:
+    path = Path(filepath)
+    return path if path.is_absolute() or not cwd else Path(cwd) / path
+
+
+@register("passkey-list")
+async def cmd_passkey_list(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    installed = await _ensure_passkeys(session)
+    creds = await session.context.credentials.get(id=options.get("id"), rp_id=options.get("rp-id"))
+    data = [{k: c.get(k) for k in _PASSKEY_LIST_FIELDS} for c in creds]
+    if not data:
+        filters = "".join(f" --{k}={options[k]}" for k in ("rp-id", "id") if options.get(k))
+        output = "0 passkeys in this session" + (f" matching{filters}" if filters else "")
+        rp_id = options.get("rp-id") if isinstance(options.get("rp-id"), str) else "example.com"
+        output += f"\nhelp: add one with `passkey-add <rp-id>`, e.g. passkey-add {rp_id}"
+    else:
+        output = json.dumps(data, indent=2)
+    return {"success": True, "output": _passkey_notice(installed) + output, "data": data}
+
+
+@register("passkey-add")
+async def cmd_passkey_add(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    kwargs = {kw: str(options[flag]) for flag, kw in _PASSKEY_ADD_FLAGS.items() if options.get(flag) is not None}
+    # The API takes a lone private key without complaint, leaving a keypair that may not
+    # match; a supplied key is only usable with its public half.
+    if ("private_key" in kwargs) != ("public_key" in kwargs):
+        return {"success": False, "output": "Pass --private-key and --public-key together (or neither)."}
+    if options.get("sign-count") is not None:
+        kwargs["sign_count"] = int(options["sign-count"])  # shape checked in values.FLAG_KINDS
+    installed = await _ensure_passkeys(session)
+    cred = await session.context.credentials.create(args[0], **kwargs)
+    data = {k: cred.get(k) for k in _PASSKEY_LIST_FIELDS}
+    return {
+        "success": True,
+        "output": _passkey_notice(installed) + f"Passkey '{cred['id']}' added for {cred['rpId']}.",
+        "data": data,
+    }
+
+
+@register("passkey-delete")
+async def cmd_passkey_delete(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    installed = await _ensure_passkeys(session)
+    cred_id = args[0]
+    if not await session.context.credentials.get(id=cred_id):
+        return {"success": True, "output": _passkey_notice(installed) + f"No passkey with id '{cred_id}' (no-op)"}
+    await session.context.credentials.delete(cred_id)
+    return {"success": True, "output": _passkey_notice(installed) + f"Passkey '{cred_id}' deleted."}
+
+
+@register("passkey-clear")
+async def cmd_passkey_clear(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    installed = await _ensure_passkeys(session)
+    creds = await session.context.credentials.get(rp_id=options.get("rp-id"))
+    for cred in creds:
+        await session.context.credentials.delete(cred["id"])
+    scope = f" for {options['rp-id']}" if options.get("rp-id") else ""
+    return {"success": True, "output": _passkey_notice(installed) + f"Deleted {len(creds)} passkey(s){scope}."}
+
+
+@register("passkey-export")
+async def cmd_passkey_export(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    installed = await _ensure_passkeys(session)
+    creds = await session.context.credentials.get(rp_id=options.get("rp-id"))
+    if args:
+        filepath = _user_file(cwd, args[0])
+    else:
+        filepath = (Path(cwd) if cwd else Path.cwd()) / ".patchright-cli" / f"passkeys-{int(time.time() * 1000)}.json"
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    # The file holds private keys: owner-only, like the daemon token.
+    _write_owner_only(filepath, json.dumps([dict(c) for c in creds], indent=2))
+    return {
+        "success": True,
+        "output": _passkey_notice(installed)
+        + f"Exported {len(creds)} passkey(s) to {filepath} (contains private keys; keep it out of version control)",
+    }
+
+
+@register("passkey-import")
+async def cmd_passkey_import(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    filepath = _user_file(cwd, args[0])
+    if not filepath.is_file():
+        return {"success": False, "output": f"File not found: {filepath}"}
+    try:
+        creds = json.loads(filepath.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        return {"success": False, "output": f"Invalid passkey file {filepath}: {exc}"}
+    required = ("id", "rpId", "userHandle", "privateKey", "publicKey")
+    if not isinstance(creds, list) or not all(isinstance(c, dict) and all(c.get(k) for k in required) for c in creds):
+        return {
+            "success": False,
+            "output": f"Invalid passkey file {filepath}: expected a passkey-export list, each with {', '.join(required)}",
+        }
+    installed = await _ensure_passkeys(session)
+    for c in creds:
+        await session.context.credentials.create(
+            c["rpId"],
+            id=c["id"],
+            user_handle=c["userHandle"],
+            private_key=c["privateKey"],
+            public_key=c["publicKey"],
+            sign_count=int(c.get("signCount") or 0),
+        )
+    return {"success": True, "output": _passkey_notice(installed) + f"Imported {len(creds)} passkey(s) from {filepath}"}
 
 
 # -- Route (request interception) --------------------------------------------
@@ -2717,27 +3468,81 @@ async def cmd_tracing_stop(
 # -- Video recording ---------------------------------------------------------
 
 
+# Chrome composites at the display refresh rate, so more than 60 fps only
+# repeats frames.
+MAX_VIDEO_FPS = 60
+# playwright-cli's default frame rate.
+DEFAULT_VIDEO_FPS = 25
+
+
+def _parse_video_fps(raw) -> int | None:
+    """A `video-start --fps` value as a whole number of frames per second, or None if invalid."""
+    if isinstance(raw, bool):
+        return None
+    try:
+        fps = int(str(raw))
+    except ValueError:
+        return None
+    return fps if 1 <= fps <= MAX_VIDEO_FPS else None
+
+
+def _video_length(times: list[float], stopped_at: float, fps: int) -> float:
+    """Seconds from the first captured frame until the recording stopped (at least one frame)."""
+    return max(stopped_at, times[-1] + 1 / fps) - times[0]
+
+
+def _video_concat_list(times: list[float], stopped_at: float, fps: int) -> str:
+    """An ffmpeg concat-demuxer script showing frame i from times[i] until times[i+1].
+
+    The last frame lasts until the recording stopped (and at least one output
+    frame). It is listed twice: some ffmpeg versions drop the last entry's
+    duration, others add it again, so the caller cuts the output at
+    _video_length() with -t.
+    """
+    lines = []
+    for i, start in enumerate(times):
+        end = times[i + 1] if i + 1 < len(times) else max(stopped_at, start + 1 / fps)
+        lines.append(f"file 'frame-{i:06d}.jpg'")
+        lines.append(f"duration {max(end - start, 0):.6f}")
+    lines.append(f"file 'frame-{len(times) - 1:06d}.jpg'")
+    return "\n".join(lines) + "\n"
+
+
 @register("video-start")
 async def cmd_video_start(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
     if session._video_recording:
         return {"success": True, "output": "Video recording already in progress (no-op)"}
+    fps = DEFAULT_VIDEO_FPS
+    if options.get("fps") is not None:
+        fps = _parse_video_fps(options["fps"])
+        if fps is None:
+            return {
+                "success": False,
+                "output": f"Invalid --fps value: {options['fps']!r}. Expected a whole number from 1 to {MAX_VIDEO_FPS}.",
+            }
     cdp = await page.context.new_cdp_session(page)
     session._video_cdp = cdp
     session._video_page = page
     session._video_frames = []
+    session._video_times = []
+    session._video_fps = fps
     session._video_recording = True
 
     def _on_frame(event):
         import base64
 
         session._video_frames.append(base64.b64decode(event["data"]))
+        # Arrival time, not metadata.timestamp: the first frame's timestamp is
+        # when it was painted, possibly long before video-start, and a remote
+        # (attached) Chrome's clock is not this one.
+        session._video_times.append(time.time())
         asyncio.ensure_future(cdp.send("Page.screencastFrameAck", {"sessionId": event["sessionId"]}))
 
     cdp.on("Page.screencastFrame", _on_frame)
     await cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 80, "maxWidth": 1280, "maxHeight": 720})
-    return {"success": True, "output": "Video recording started."}
+    return {"success": True, "output": f"Video recording started at {fps} fps."}
 
 
 @register("video-stop")
@@ -2751,8 +3556,13 @@ async def cmd_video_stop(
     except Exception:
         pass
     session._video_recording = False
+    stopped_at = time.time()
     frames = session._video_frames
+    times = list(getattr(session, "_video_times", None) or [])
+    fps = getattr(session, "_video_fps", None) or DEFAULT_VIDEO_FPS
     session._video_frames = []
+    session._video_times = []
+    session._video_fps = None
     session._video_cdp = None
     session._video_page = None
     chapters = list(session._video_chapters)
@@ -2775,44 +3585,67 @@ async def cmd_video_stop(
 
     fn = options.get("filename")
     video_path = snap_dir / (fn or f"video-{ts}.webm")
-    try:
-        import shutil
-        import tempfile
+    import shutil
+    import tempfile
 
-        if not shutil.which("ffmpeg"):
-            raise FileNotFoundError("ffmpeg not found")
-
+    if shutil.which("ffmpeg"):
         with tempfile.TemporaryDirectory() as tmpdir:
             for i, frame_data in enumerate(frames):
                 Path(tmpdir, f"frame-{i:06d}.jpg").write_bytes(frame_data)
-            proc = await asyncio.create_subprocess_exec(
-                "ffmpeg",
-                "-y",
-                "-framerate",
-                "5",
-                "-i",
-                str(Path(tmpdir, "frame-%06d.jpg")),
-                "-c:v",
-                "libvpx",
-                "-b:v",
-                "1M",
-                str(video_path),
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.wait()
-            if proc.returncode != 0:
-                raise RuntimeError("ffmpeg failed")
-        return {"success": True, "output": f"Video saved to {video_path} ({len(frames)} frames)"}
-    except (FileNotFoundError, RuntimeError):
-        frames_dir = snap_dir / f"video-{ts}-frames"
-        frames_dir.mkdir(parents=True, exist_ok=True)
-        for i, frame_data in enumerate(frames):
-            (frames_dir / f"frame-{i:04d}.jpg").write_bytes(frame_data)
-        return {
-            "success": True,
-            "output": f"Saved {len(frames)} frames to {frames_dir}/ (install ffmpeg for video output)",
-        }
+            if len(times) == len(frames):
+                # Real time: each frame stays on screen until the next one arrived,
+                # resampled to a constant `fps`.
+                concat = Path(tmpdir, "frames.txt")
+                concat.write_text(_video_concat_list(times, stopped_at, fps), encoding="utf-8")
+                length = f"{_video_length(times, stopped_at, fps):.3f}"
+                source = ["-f", "concat", "-safe", "0", "-i", str(concat), "-vf", f"fps={fps}", "-t", length]
+                if await _encode_video(source, video_path):
+                    return {
+                        "success": True,
+                        "output": f"Video saved to {video_path} ({len(frames)} frames, {fps} fps)",
+                    }
+                warning = "Warning: real-time resampling failed, so this video plays each frame once at 5 fps"
+            else:
+                warning = "Warning: frame times are missing, so this video plays each frame once at 5 fps"
+            # Each captured frame once at 5 fps: not real time, as Chrome sends a
+            # frame only when the page changes, but the recording is kept.
+            source = ["-framerate", "5", "-i", str(Path(tmpdir, "frame-%06d.jpg"))]
+            if await _encode_video(source, video_path):
+                return {
+                    "success": True,
+                    "output": f"Video saved to {video_path} ({len(frames)} frames)\n{warning} "
+                    "(too fast or slow compared with the recording).",
+                }
+
+    frames_dir = snap_dir / f"video-{ts}-frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    for i, frame_data in enumerate(frames):
+        (frames_dir / f"frame-{i:04d}.jpg").write_bytes(frame_data)
+    return {
+        "success": True,
+        "output": f"Saved {len(frames)} frames to {frames_dir}/ (install ffmpeg for video output)",
+    }
+
+
+async def _encode_video(source: list[str], video_path: Path) -> bool:
+    """Run ffmpeg on `source` input options into a VP8 webm; whether it succeeded."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-y",
+            *source,
+            "-c:v",
+            "libvpx",
+            "-b:v",
+            "1M",
+            str(video_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+    except OSError:
+        return False
+    return proc.returncode == 0
 
 
 @register("video-chapter")
@@ -2901,18 +3734,19 @@ async def _draw_action_callout(session: Session, page, cmd: str, args: list) -> 
         return
 
     box = None
-    ref = args[0] if args and re.fullmatch(r"e\d+", str(args[0])) else None
-    if ref and session.ref_registry is not None:
-        entry = session.ref_registry.entries.get(ref)
-        if entry is not None:
-            label = f"{label} {entry.role}" + (f' "{entry.name}"' if entry.name else "")
-            try:
-                # Short timeout on purpose: this is decoration. Without one an
-                # unmatched ref blocked the action it was meant to annotate for
-                # the full action timeout.
-                box = await session.ref_registry.resolve(page, ref).bounding_box(timeout=1000)
-            except Exception:
-                box = None
+    ref = normalize_ref(args[0]) if args else None
+    line = snapshot_text.line_of(session.last_raw or "", ref) if ref else None
+    node = snapshot_text.parse_node(line) if line else None
+    if node is not None:
+        role, name = node
+        label = f"{label} {role}" + (f' "{name}"' if name else "")
+        try:
+            # Short timeout on purpose: this is decoration. Without one an
+            # unmatched ref blocked the action it was meant to annotate for
+            # the full action timeout.
+            box = await page.get_by_ref(ref).bounding_box(timeout=1000)
+        except Exception:
+            box = None
 
     try:
         await page.evaluate(
@@ -3049,8 +3883,19 @@ async def cmd_wait(session: Session, page, args: list, options: dict, cwd: str |
 
 @register("wait-for")
 async def cmd_wait_for(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
-    elem = await _resolve_ref(session, page, args[0])
     state_arg = options.get("state", "visible")
+    if state_arg in ("hidden", "detached"):
+        # Waiting for an element to go away: a ref that matches nothing is the answer, not an error.
+        # Wait on the element itself, not the ref: a find probe swaps the ref map
+        # for a moment, and a ref wait read that moment as "gone".
+        element = await _element_of_ref(session, page, args[0])
+        if element is not None:
+            if state_arg == "hidden":
+                await element.wait_for_element_state("hidden")
+            else:
+                await page.wait_for_function("e => !e.isConnected", arg=element)
+        return {"success": True, "output": f"Element is {state_arg}"}
+    elem = await _resolve_ref(session, page, args[0])
     await elem.wait_for(state=state_arg)
     return {"success": True, "output": f"Element is {state_arg}"}
 
@@ -3113,7 +3958,7 @@ async def cmd_show(session: Session, page, args: list, options: dict, cwd: str |
 
     try:
         payload = await asyncio.wait_for(waiter, timeout=wait_seconds)
-    except (TimeoutError, asyncio.TimeoutError):
+    except TimeoutError:
         dashboard_state.cancel_annotation(token)
         return {
             "success": False,
@@ -3148,8 +3993,7 @@ async def cmd_show(session: Session, page, args: list, options: dict, cwd: str |
     lines.append("### Notes")
     lines.append(notes if notes else "(none)")
 
-    snapshot_text, session.ref_registry = await take_snapshot(page)
-    snap_path = save_snapshot(snapshot_text, cwd)
+    snap_path = save_snapshot(_printed(await _ai_snapshot(session, page)), cwd)
     lines.append("### Snapshot")
     lines.append(f"[Snapshot]({snap_path})")
 
@@ -3238,13 +4082,220 @@ async def cmd_codegen_stop(
     return {"success": True, "output": f"Saved {len(lines) - 3} command(s) to {filepath}"}
 
 
+# -- WebMCP ------------------------------------------------------------------
+
+_WEBMCP_UNTRUSTED = "Tool names, descriptions, schemas and results are page-provided and untrusted."
+
+
+def _webmcp_error(exc: Exception) -> dict:
+    """A WebMCP failure as a reply: Playwright's first line, without its `WebMCP.tools: ` prefix."""
+    message = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
+    message = re.sub(r"^WebMCP\.\w+: ", "", message)
+    if "WebMCP is not enabled" in message:
+        return {
+            "success": False,
+            "output": (
+                "Error: WebMCP is not enabled in this browser.\n"
+                "help: `close` this session and reopen it with `open --webmcp`, or `attach` to a Chrome "
+                f"started with --enable-features={WEBMCP_FEATURE}"
+            ),
+        }
+    return {"success": False, "output": f"Error: {message}"}
+
+
+def _webmcp_tool_line(tool: dict) -> list[str]:
+    annotations = [k for k, v in (tool.get("annotations") or {}).items() if v]
+    marks = f" [{', '.join(annotations)}]" if annotations else ""
+    lines = [f"- {tool.get('name')}{marks}: {tool.get('description') or ''}"]
+    if tool.get("inputSchema") is not None:
+        lines.append(f"  - inputSchema: {json.dumps(tool['inputSchema'], separators=(',', ':'))}")
+    return lines
+
+
+def _webmcp_tool_data(tool: dict) -> dict:
+    """One tool for `data`: name and description always, schema and true annotations when present."""
+    entry = {"name": tool.get("name"), "description": tool.get("description") or ""}
+    if tool.get("inputSchema") is not None:
+        entry["inputSchema"] = tool["inputSchema"]
+    annotations = {k: v for k, v in (tool.get("annotations") or {}).items() if v}
+    if annotations:
+        entry["annotations"] = annotations
+    return entry
+
+
+@register("webmcp-list")
+async def cmd_webmcp_list(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    try:
+        tools = await page.webmcp.tools()
+    except Exception as exc:
+        return _webmcp_error(exc)
+    data = [_webmcp_tool_data(t) for t in tools]
+    if not data:
+        output = "0 webmcp tools on this page"
+        with contextlib.suppress(Exception):
+            if not await page.evaluate("() => isSecureContext"):
+                output += (
+                    "\nhelp: WebMCP only works in a secure context (https, localhost or file://); "
+                    f"{page.url[:80]} is not one"
+                )
+        return {"success": True, "output": output, "data": data}
+    lines = [f"{len(data)} webmcp tool(s). {_WEBMCP_UNTRUSTED}"]
+    for tool in data:
+        lines.extend(_webmcp_tool_line(tool))
+    return {"success": True, "output": "\n".join(lines), "data": data}
+
+
+def _webmcp_input(args: list, options: dict) -> dict:
+    """The tool input from `[json]` or `--params=<json>`: a JSON object, `{}` when neither is given."""
+    flag = options.get("params")
+    # `--params '{...}'` (space, not `=`) arrives as a bare flag plus a positional.
+    flag = flag if isinstance(flag, str) else None
+    positional = args[1:]
+    if flag is not None and positional:
+        raise ValueError("pass the tool input once: either [json] or --params=<json>, not both")
+    if len(positional) > 1:
+        raise ValueError(f"expected one JSON argument after the tool name, got {len(positional)}; quote the JSON")
+    raw = flag if flag is not None else (positional[0] if positional else None)
+    if raw is None or not raw.strip():
+        return {}
+    try:
+        value = json.loads(raw)
+    except ValueError as exc:
+        raise ValueError(f"tool input is not valid JSON ({exc}): {raw[:80]}") from None
+    if not isinstance(value, dict):
+        raise ValueError(f"tool input must be a JSON object, got {type(value).__name__}: {raw[:80]}")
+    return value
+
+
+@register("webmcp-call")
+async def cmd_webmcp_call(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    name = args[0] if args else ""
+    if not name:
+        return {"success": False, "output": "Usage: webmcp-call <name> [json]"}
+    try:
+        tool_input = _webmcp_input(args, options)
+    except ValueError as exc:
+        return {
+            "success": False,
+            "output": f'Error: {exc}\nhelp: patchright-cli webmcp-call {name} \'{{"key":"value"}}\'',
+        }
+    try:
+        result = await page.webmcp.call_tool(name, tool_input)
+    except Exception as exc:
+        reply = _webmcp_error(exc)
+        if "No WebMCP tool named" in reply["output"]:
+            reply["output"] += "\nhelp: run `patchright-cli webmcp-list` to see the page's tools"
+        return reply
+    pretty = json.dumps(result, indent=2, default=str)
+    # A tool reports its own failure as `isError: true` instead of throwing.
+    failed = isinstance(result, dict) and result.get("isError") is True
+    header = f'{"WebMCP tool failed" if failed else "Called WebMCP tool"} "{name}". {_WEBMCP_UNTRUSTED}'
+    return {"success": not failed, "output": f"{header}\n{pretty}", "data": result}
+
+
 # ---------------------------------------------------------------------------
 # Command dispatch
 # ---------------------------------------------------------------------------
 
 
+# -- Debugger ----------------------------------------------------------------
+
+_DEBUGGER_NOTICE = (
+    "Pausing is session-wide and holds patchright-cli's own browser calls inside the Playwright driver; "
+    "it sends nothing to Chrome, so pages cannot detect it. A paused command replies at once and finishes "
+    "on `debugger-step` or `debugger-resume`."
+)
+
+
+def _debugger_reply(debugger: SessionDebugger, output: str, success: bool = True) -> dict:
+    return {"success": success, "output": output, "data": debugger.status_data()}
+
+
+@register("debugger-pause")
+async def cmd_debugger_pause(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    debugger, _ = session.get_debugger()
+    first_call = not debugger.announced
+    debugger.announced = True
+    if debugger.paused:
+        return _debugger_reply(
+            debugger, f"{debugger.describe()}\nAlready paused; `debugger-step` or `debugger-resume` first.", False
+        )
+    if not debugger.armed:
+        await debugger.request_pause()
+    lines = [debugger.describe()]
+    if first_call:
+        lines.append(_DEBUGGER_NOTICE)
+    return _debugger_reply(debugger, "\n".join(lines))
+
+
+def _nothing_to_step(debugger: SessionDebugger) -> str:
+    if debugger.armed:
+        return "Armed, nothing paused yet: run a command to pause it, or `debugger-resume` to disarm."
+    return "Not paused: run `debugger-pause`, then a command."
+
+
+@register("debugger-step")
+async def cmd_debugger_step(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    debugger, _ = session.get_debugger()
+    if not debugger.paused:
+        return _debugger_reply(debugger, _nothing_to_step(debugger), False)
+    return await debugger.step()
+
+
+@register("debugger-resume")
+async def cmd_debugger_resume(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    debugger, _ = session.get_debugger()
+    if debugger.paused:
+        return await debugger.resume()
+    if debugger.armed:
+        # A harmless isolated-world evaluate walks into the armed pause and is resumed at once.
+        await debugger.disarm(page.evaluate("0"))
+        return _debugger_reply(debugger, "Pause request cancelled. Debugger off.")
+    return _debugger_reply(debugger, "Not paused (no-op).")
+
+
+@register("debugger-status")
+async def cmd_debugger_status(
+    session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
+) -> dict:
+    debugger, _ = session.get_debugger()
+    return _debugger_reply(debugger, debugger.describe())
+
+
+# Commands that end a Session run its teardown unattended (see SessionDebugger),
+# so they must not be held at a pause themselves.
+_NOT_HELD = {"close", "close-all", "kill-all", "detach", "delete-data", "list", "profile-list"}
+
+
 async def handle_command(state: DaemonState, msg: dict) -> dict:
-    """Dispatch a single command and return a JSON-serialisable response."""
+    """Dispatch a single command and return a JSON-serialisable response.
+
+    Once a Session's debugger is armed, its commands run through it: one that
+    pauses replies straight away and is held until `debugger-step`/`-resume`.
+    """
+    cmd = msg.get("command", "")
+    options = msg.get("options") or {}
+    session = state.sessions.get(options.get("session") or "default") if isinstance(options, dict) else None
+    debugger = getattr(session, "debugger", None)
+    if not isinstance(debugger, SessionDebugger) or cmd.startswith("debugger-") or cmd in _NOT_HELD:
+        return await _dispatch_command(state, msg)
+    label = " ".join([cmd, *(str(a) for a in msg.get("args") or [])])
+    if len(label) > 80:
+        label = label[:77] + "..."
+    return await debugger.run(label, _dispatch_command(state, msg))
+
+
+async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
     cmd = msg.get("command", "")
     args = msg.get("args", [])
     options = dict(msg.get("options", {}))
@@ -3253,6 +4304,13 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
     # `requests` is an alias for `network` (matches playwright-cli naming).
     if cmd == "requests":
         cmd = "network"
+
+    try:
+        # The CLI ran these already; clients that skip it, and config-file values, meet them here.
+        values.check_command(cmd, args, options)
+    except values.ValueProblem as exc:
+        output = "\n".join([f"Error: {exc.message}", *exc.help_lines])
+        return {"success": False, "output": output, "exit_code": 2}
 
     session_name = options.pop("session", "default") or "default"
 
@@ -3294,6 +4352,7 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
                 grant_permissions=options.get("grant-permissions") or options.get("grantPermissions"),
                 block_networks=options.get("block-networks"),
                 web_only=_web_only(options),
+                webmcp=bool(options.get("webmcp")),
             )
             if named_tab:
                 if not existed:
@@ -3510,9 +4569,13 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
             session._codegen.append(cmd_line)
         return result
 
+    except RefFormatError as e:
+        # A malformed ref is a usage error, like an unknown flag: exit 2.
+        return {"success": False, "output": f"Error: {e}", "exit_code": 2}
     except Exception as e:
+        # The full Playwright message, call log included, stays in the daemon log.
         logger.error("Command %s failed: %s", cmd, traceback.format_exc())
-        return {"success": False, "output": f"Error: {e}"}
+        return _error_reply(cmd, args, options, e)
 
 
 # ---------------------------------------------------------------------------
@@ -3593,19 +4656,28 @@ def write_daemon_token(port: int) -> str:
     token = secrets.token_urlsafe(32)
     path = token_path(port)
     path.parent.mkdir(parents=True, exist_ok=True)
+    _write_owner_only(path, token)
+    return token
+
+
+def _write_owner_only(path: Path, text: str) -> None:
+    """Write `text` to `path`, replacing it, as a file only this user can read.
+
+    Goes through an owner-only temp file (see _create_owner_only_file) and
+    os.replace, so the content is never readable by others, not even briefly.
+    """
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     with contextlib.suppress(FileNotFoundError):
         tmp.unlink()
     fd = _create_owner_only_file(tmp)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(token)
+            f.write(text)
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):
             tmp.unlink()
         raise
-    return token
 
 
 def remove_daemon_token(port: int, token: str) -> None:
@@ -3737,7 +4809,7 @@ async def _handle_client(
     try:
         try:
             msg = await asyncio.wait_for(_read_message(reader), REQUEST_READ_TIMEOUT)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Closed connection from %s: request not received within %ss", addr, REQUEST_READ_TIMEOUT)
             return
         except RequestTooLarge as e:

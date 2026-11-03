@@ -28,7 +28,7 @@ patchright-cli screenshot                    # capture the page
 patchright-cli close                         # done
 ```
 
-Every interaction follows: **open -> snapshot -> read refs -> interact -> snapshot again -> repeat**. Refs are ephemeral -- they change on every page update. If a ref fails, re-snapshot.
+Every interaction follows: **open -> snapshot -> read refs -> interact -> snapshot again -> repeat**. A ref (`e5`, or `f3e5` inside an iframe and after a navigation) names one element until it leaves the page; a ref whose element is gone fails fast with `no longer matches an element` -- re-snapshot then. Refs are per tab: after `tab-select`, use the snapshot it prints. A click that opens a popup makes the popup current, and the popup's first-document refs (`e1`, `e2`, ...) can reuse numbers from the opener, so use the snapshot printed after the click.
 
 ## Command chaining
 
@@ -149,9 +149,9 @@ snapshot <ref>                # Subtree of a specific element
 snapshot --selector="#main"   # Subtree of a CSS selector -- must match exactly
                               # one element. No ref needed, so
                               # this works before the first snapshot
-snapshot --depth=N            # Limit depth
-snapshot -i                   # Interactive elements only
-snapshot --boxes              # Append [box=x,y,w,h] to each [ref=eN] line
+snapshot --depth=N            # Levels 0..N; a cut node ends in `# +N refs`
+snapshot -i                   # Interactive elements (and named landmarks around them)
+snapshot --boxes              # Append [box=x,y,w,h] (page coordinates, iframes too)
 ```
 
 ### Searching instead of snapshotting
@@ -165,7 +165,13 @@ patchright-cli find --regex "sign (in|up)" # regex, case-insensitive
 patchright-cli find --regex "/Sign In/"    # slash form carries flags (i, m, s)
 patchright-cli find "price" --all          # include text/paragraph nodes
 patchright-cli find "hide" --limit=50      # default limit is 20
+patchright-cli find --role=button --description="Deletes"  # role + accessible description
 ```
+
+The snapshot never shows accessible descriptions (`aria-describedby`,
+`aria-description`, a `title` that is not the name). To target an element by
+one, use `find --role=<role>` with `--name` and/or `--description`: substring
+and case-insensitive, `/regex/i`, or whole with `--exact`. It returns refs.
 
 `find` searches links, buttons, inputs and headings by default — the things
 you can act on. Use `--all` when you are looking for page *content* rather
@@ -176,13 +182,13 @@ controls stay distinguishable:
 
 ```
   # table > rowgroup > cell "407 points by pluc 4 hours ago | hide | 321 ..."
-- link "hide": [ref=e49]
+- link "hide" [ref=e49]:
   - /url: hide?id=49489982
 ```
 
-Refs from `find` are numbered across the whole page and are immediately
-usable with `click`, `fill`, and the rest. They stay valid until the next
-`snapshot` or `find`.
+Refs from `find` are the same refs `snapshot` prints and are immediately
+usable with `click`, `fill`, and the rest. A hit with no ref of its own (a
+`text:` line or an `option`) names the element to act on as `[in=e12]`.
 
 When output says `Found 20 of 340 matches`, narrow the query rather than
 raising `--limit`.
@@ -199,6 +205,8 @@ drag <ref> <target-ref>       # Drag element to target
 drop <ref> --path=./file.png  # Drop file onto element (HTML5 drop from outside)
 drop <ref> --data="text/plain=hello"  # Drop arbitrary MIME data
 ```
+
+`drop` fails (exit 1) when the target does not accept drops, meaning its `dragover` handler does not call `preventDefault()`. Before, it reported success without anything being dropped. Drop onto the element that handles the drop, not onto a wrapper around it.
 
 ### Form input
 
@@ -317,6 +325,33 @@ and future pages, including popups. Earlier messages are unavailable: call it
 before reproducing an issue, then again to read messages. Capture makes CDP
 detectable until the session closes; `console --clear` only clears the buffer.
 
+A highlight is page-visible while shown (an `<x-pw-glass>` element under `<html>`);
+`--hide` removes the element once no highlight is left. `pick-locator` refuses to
+run without `--detectable`: Playwright's recorder then stays in every page of the
+session (`window.playwright`, `__pw_*` globals, an `<x-pw-glass>` element it
+re-adds) until the session closes, so use a throwaway session for it.
+
+### Debugger (step through a command's browser calls)
+
+```bash
+debugger-pause                # Arm: the next page action, navigation or eval pauses
+click e3                      # Replies at once: "Paused before: Evaluate (held: `click e3`)"
+snapshot                      # Other commands still run while paused, actions included
+debugger-step                 # Run that call, pause before the next ("Click ...")
+debugger-resume               # Let the held command finish, turn the debugger off
+debugger-status               # off | armed | paused + call title and held command
+```
+
+This is Playwright's action debugger, not a JavaScript debugger: it holds
+patchright-cli's own calls in the driver, sends nothing to Chrome, and page
+scripts keep running, so pages cannot detect it. Only page actions, navigation,
+`eval` and element getters pause; `snapshot`, `title`, cookies, `state-save`,
+`tab-new` and `highlight` run straight through (the reply says so) and leave it
+armed. While one call is held, other commands, actions included, run at once,
+so their side effects can land before the held one's. After `debugger-step` the
+debugger stays armed until `debugger-resume`, which also cancels an armed pause
+nothing has hit. `close` while paused resumes and closes.
+
 ### Recording and capture
 
 ```bash
@@ -357,6 +392,15 @@ clear-media
 `--content-type`, `--header`); `route-list` and `unroute` manage them, and
 `network-state-set offline|online` simulates connectivity.
 
+### Passkeys (WebAuthn)
+
+Run a `passkey-*` command, such as `passkey-list`, BEFORE the page calls
+`navigator.credentials.create()` or `.get()`. The first one installs a virtual
+authenticator in the session; until then the page gets Chrome's native OS
+passkey dialog and the ceremony hangs. Then `passkey-list` shows what the page
+registered, `passkey-add <rp-id>` seeds one, and `passkey-export` /
+`passkey-import` keep passkeys across sessions (the export holds private keys).
+
 ## Command reference
 
 Every command, its flags and what it does. `patchright-cli <command> --help`
@@ -366,24 +410,25 @@ arguments shows whether the daemon is up and which sessions are open.
 <!-- BEGIN GENERATED: commands (scripts/gen_skill.py from COMMAND_SPECS; do not edit by hand) -->
 ```bash
 # Core
-open [url] [--block-networks] [--headed]  # Open browser (starts daemon if needed)
+open [url] [--block-networks] [--headed] [--webmcp]  # Open browser (starts daemon if needed)
 attach --cdp=<url> [--cdp-headers] [--cdp-timeout] [--block-networks]  # Attach to running Chrome via CDP
 goto <url>                              # Navigate to URL
-click <ref> [button] [--modifiers]      # Click element
+click <ref> [button] [--modifiers] [--scroll]  # Click element
 dblclick <ref> [button] [--modifiers]   # Double-click element
 fill <ref> <value> [--submit]           # Fill text into element
 type <text> [--submit]                  # Type text via keyboard
-hover <ref>                             # Hover over element
+hover <ref> [--scroll]                  # Hover over element
 select <ref> <value>                    # Select dropdown option
-check <ref>                             # Check checkbox/radio
+check <ref> [--scroll]                  # Check checkbox/radio
 uncheck <ref>                           # Uncheck checkbox/radio
 snapshot [ref] [--selector] [--filename] [--depth] [--interactive] [--boxes]  # Take accessibility snapshot
-find <text> [--regex] [--all] [--limit]  # Search the snapshot for matching elements
+find <text> [--regex] [--all] [--limit] [--role] [--name] [--description] [--exact]  # Search the snapshot for matching elements
 eval <expr> [ref] [--file]              # Evaluate JavaScript (expression, --file or stdin)
 text <ref|selector>                     # Get text content of element
+html [ref] [--selector] [--include-shadow] [--filename] [--max-chars]  # Print page HTML, or one element's outerHTML
 screenshot [ref] [--full-page] [--hires] [--filename]  # Save screenshot
-drag <from> <to>                        # Drag element to target
-drop <ref> [--path] [--data]            # Drop file/data onto element
+drag <from> <to> [--scroll]             # Drag element to target
+drop <ref> [--path] [--data]            # Drop file/data onto element (fails if it does not accept drops)
 close                                   # Close browser session (or the --tab it is addressed to)
 detach                                  # Detach attached session (keep external browser running)
 
@@ -460,6 +505,14 @@ sessionstorage-set <key> <value>        # Set sessionStorage item
 sessionstorage-delete <key>             # Delete sessionStorage item
 sessionstorage-clear                    # Clear sessionStorage
 
+# Passkeys
+passkey-list [--rp-id] [--id]           # List virtual passkeys; run before the page uses WebAuthn
+passkey-add <rp-id> [--id] [--user-handle] [--private-key] [--public-key] [--sign-count]  # Seed a virtual passkey
+passkey-delete <id>                     # Delete a virtual passkey by credential id
+passkey-clear [--rp-id]                 # Delete all virtual passkeys
+passkey-export [file] [--rp-id]         # Export virtual passkeys with private keys to an owner-only JSON
+passkey-import <file>                   # Seed virtual passkeys from a passkey-export file
+
 # Permissions
 grant-permissions <perms> [--origin]    # Grant comma-separated permissions
 
@@ -477,7 +530,7 @@ tracing-start                           # Start Playwright tracing
 tracing-stop                            # Stop tracing and save
 
 # Video
-video-start                             # Start video recording
+video-start [--fps]                     # Start video recording
 video-stop [--filename]                 # Stop recording and save
 video-chapter <title>                   # Add chapter marker to video
 video-show-actions [--duration] [--position]  # Annotate actions in the recording
@@ -492,7 +545,18 @@ network [--static] [--clear]            # Show network requests
 requests [--static] [--clear]           # Alias for `network`
 request <id> [--body]                   # Show full detail for a network request
 generate-locator <ref>                  # Emit Playwright locator expression for a ref
-highlight <ref> [--style] [--hide]      # Show overlay on element
+pick-locator [--detectable] [--wait] [--cancel]  # Wait for a person to click an element; print its locator (page-detectable: needs --detectable)
+highlight <ref> [--style] [--hide]      # Show overlay on element (page-detectable while shown; removed on --hide)
+
+# Debugger
+debugger-pause                          # Pause before the next page action, navigation or eval; that command replies at once, held
+debugger-step                           # Run the paused call and pause before the next one; prints the held command's result
+debugger-resume                         # Let the held command finish and print its result (or cancel an unhit pause)
+debugger-status                         # Show the debugger state: off, armed, or the paused call and held command
+
+# WebMCP
+webmcp-list                             # List the WebMCP tools the page registers
+webmcp-call <name> [json] [--params]    # Call a WebMCP tool the page registers
 
 # Session
 list                                    # List sessions

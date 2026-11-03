@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
+import shlex
 import socket
 import struct
 import sys
@@ -18,8 +20,15 @@ from pathlib import Path
 
 import click
 
-from patchright_cli import __version__
-from patchright_cli.daemon import DEFAULT_PORT, PROTOCOL_VERSION, ensure_daemon_running, read_daemon_token, token_path
+from patchright_cli import __version__, values
+from patchright_cli.daemon import (
+    DEFAULT_PICK_WAIT,
+    DEFAULT_PORT,
+    PROTOCOL_VERSION,
+    ensure_daemon_running,
+    read_daemon_token,
+    token_path,
+)
 
 
 def _soften_output_encoding(*streams) -> None:
@@ -444,25 +453,47 @@ KILL_ALL_PROBE_TIMEOUT = 5
 def _socket_timeout(command: str, options: dict) -> float:
     """How long to wait on the daemon for this command.
 
-    `show --annotate` blocks on a person, so the default would hang up while
-    they are still drawing. Everything else keeps the generous-but-finite
-    default, which is what catches a wedged daemon.
+    `show --annotate` and `pick-locator` block on a person, so the default
+    would hang up while they are still drawing or looking for the element.
+    Everything else keeps the generous-but-finite default, which is what
+    catches a wedged daemon.
     """
     if command == "kill-all":
         return KILL_ALL_SOCKET_TIMEOUT
-    if command != "show" or not options.get("annotate"):
+    if command == "pick-locator" and not options.get("cancel"):
+        default_wait = DEFAULT_PICK_WAIT
+    elif command == "show" and options.get("annotate"):
+        default_wait = 300
+    else:
         return DEFAULT_SOCKET_TIMEOUT
     try:
-        wait = float(options.get("wait", 300))
+        wait = float(options.get("wait", default_wait))
     except (TypeError, ValueError):
         return DEFAULT_SOCKET_TIMEOUT
+    if not math.isfinite(wait):
+        return DEFAULT_SOCKET_TIMEOUT  # the daemon rejects it straight away
     return max(DEFAULT_SOCKET_TIMEOUT, wait + ANNOTATE_SOCKET_MARGIN)
 
 
+# A blocking recv() is not interrupted by Ctrl-C on Windows, so a command that
+# waits on a person reads the reply in slices this long and the interrupt lands
+# between them.
+INTERRUPT_POLL = 0.25
+
+
 def _send_command(
-    command: str, args: list, options: dict, port: int = DEFAULT_PORT, timeout: float | None = None
+    command: str,
+    args: list,
+    options: dict,
+    port: int = DEFAULT_PORT,
+    timeout: float | None = None,
+    interruptible: bool = False,
 ) -> dict:
-    """Connect to daemon, send command, receive response."""
+    """Connect to daemon, send command, receive response.
+
+    `interruptible` keeps the wait responsive to Ctrl-C for commands that can
+    block for minutes; the overall timeout is the same either way.
+    """
     msg = {
         "command": command,
         "args": args,
@@ -477,15 +508,20 @@ def _send_command(
     data = json.dumps(msg).encode("utf-8")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(timeout if timeout is not None else _socket_timeout(command, options))
+    wait = timeout if timeout is not None else _socket_timeout(command, options)
+    sock.settimeout(wait)
     try:
         sock.connect(("127.0.0.1", port))
         sock.sendall(struct.pack("!I", len(data)) + data)
 
+        deadline = None
+        if interruptible:
+            sock.settimeout(INTERRUPT_POLL)
+            deadline = time.monotonic() + wait
         # Read length-prefixed response
-        header = _recv_exact(sock, 4)
+        header = _recv_exact(sock, 4, deadline)
         length = struct.unpack("!I", header)[0]
-        resp_data = _recv_exact(sock, length)
+        resp_data = _recv_exact(sock, length, deadline)
         return json.loads(resp_data.decode("utf-8"))
     finally:
         sock.close()
@@ -571,6 +607,8 @@ def _ensure_and_send(command: str, args: list, options: dict, port: int, headles
         )
         sys.exit(1)
     try:
+        if command == "pick-locator" and not options.get("cancel"):
+            return _send_pick_locator(args, options, port)
         return _send_command(command, args, options, port)
     except (ConnectionError, OSError) as e:
         _print_error(
@@ -581,11 +619,37 @@ def _ensure_and_send(command: str, args: list, options: dict, port: int, headles
         sys.exit(1)
 
 
-def _recv_exact(sock: socket.socket, n: int) -> bytes:
-    """Receive exactly n bytes from socket."""
+def _send_pick_locator(args: list, options: dict, port: int) -> dict:
+    """Run `pick-locator`, cancelling the pick in the page when the user presses Ctrl-C.
+
+    Closing the socket alone would leave the page in pick mode until --wait
+    ran out, so a separate `pick-locator --cancel` ends it.
+    """
+    try:
+        return _send_command("pick-locator", args, options, port, interruptible=True)
+    except KeyboardInterrupt:
+        try:
+            _send_command("pick-locator", [], {**options, "cancel": True}, port, timeout=10)
+        except (ConnectionError, OSError):
+            pass
+        _print_error("pick-locator interrupted; pick mode was cancelled")
+        sys.exit(130)
+
+
+def _recv_exact(sock: socket.socket, n: int, deadline: float | None = None) -> bytes:
+    """Receive exactly n bytes from socket.
+
+    With a `deadline` the socket has a short timeout of its own: each one that
+    expires is retried until the deadline passes.
+    """
     buf = bytearray()
     while len(buf) < n:
-        chunk = sock.recv(n - len(buf))
+        try:
+            chunk = sock.recv(n - len(buf))
+        except TimeoutError:
+            if deadline is None or time.monotonic() >= deadline:
+                raise
+            continue
         if not chunk:
             raise ConnectionError("Connection closed by daemon")
         buf.extend(chunk)
@@ -600,7 +664,9 @@ def _recv_exact(sock: socket.socket, n: int) -> bytes:
 # ones its daemon handler reads -- mapped to a description that states the
 # default. Anything else after the command, beyond GLOBAL_FLAGS, is rejected
 # before the daemon is contacted. `min_args` defaults to the number of
-# `<required>` positionals in `usage`.
+# `<required>` positionals in `usage`, `max_args` to the number of `<required>`
+# and `[optional]` ones; more positionals than that exit 2 rather than being
+# dropped (`extra_args_hint` adds a command-specific help line to that error).
 COMMAND_SPECS: dict[str, dict] = {
     # Core
     "open": {
@@ -609,8 +675,10 @@ COMMAND_SPECS: dict[str, dict] = {
         "flags": {
             "block-networks": "Refuse navigation to link-local|private addresses (default: allow all)",
             "headed": "Force a headed window even with --headless (default: off)",
+            "webmcp": "Launch Chrome with WebMCP on, for webmcp-list/webmcp-call; exposes "
+            "document.modelContext, which stock Chrome lacks (default: off)",
         },
-        "examples": ["open https://example.com", "--headless open https://example.com", "-s=work open --profile=work"],
+        "examples": ["open https://example.com", "-s=work open --profile=work", "open --webmcp https://example.com"],
     },
     "attach": {
         "usage": "attach --cdp=<url>",
@@ -626,8 +694,11 @@ COMMAND_SPECS: dict[str, dict] = {
     "click": {
         "usage": "click <ref> [button]",
         "summary": "Click element",
-        "flags": {"modifiers": "Comma-separated modifier keys held during the click, e.g. Alt,Shift (default: none)"},
-        "examples": ["click e5", "click e5 right", "click e5 --modifiers=Control"],
+        "flags": {
+            "modifiers": "Comma-separated modifier keys held during the click, e.g. Alt,Shift (default: none)",
+            "scroll": "auto: scroll the element into view; none: fail if the element is off-screen (default: auto)",
+        },
+        "examples": ["click e5", "click e5 right --modifiers=Control", "click e5 --scroll=none"],
     },
     "dblclick": {
         "usage": "dblclick <ref> [button]",
@@ -647,9 +718,23 @@ COMMAND_SPECS: dict[str, dict] = {
         "flags": {"submit": "Press Enter after typing (default: off)"},
         "examples": ['type "hello"', 'type "query" --submit'],
     },
-    "hover": {"usage": "hover <ref>", "summary": "Hover over element", "examples": ["hover e4"]},
+    "hover": {
+        "usage": "hover <ref>",
+        "summary": "Hover over element",
+        "flags": {
+            "scroll": "auto: scroll the element into view; none: fail if the element is off-screen (default: auto)"
+        },
+        "examples": ["hover e4", "hover e4 --scroll=none"],
+    },
     "select": {"usage": "select <ref> <value>", "summary": "Select dropdown option", "examples": ["select e9 blue"]},
-    "check": {"usage": "check <ref>", "summary": "Check checkbox/radio", "examples": ["check e12"]},
+    "check": {
+        "usage": "check <ref>",
+        "summary": "Check checkbox/radio",
+        "flags": {
+            "scroll": "auto: scroll the element into view; none: fail if the element is off-screen (default: auto)"
+        },
+        "examples": ["check e12", "check e12 --scroll=none"],
+    },
     "uncheck": {"usage": "uncheck <ref>", "summary": "Uncheck checkbox/radio", "examples": ["uncheck e12"]},
     "snapshot": {
         "usage": "snapshot [ref]",
@@ -670,10 +755,26 @@ COMMAND_SPECS: dict[str, dict] = {
             "regex": "Treat <text> as a regular expression (default: off)",
             "all": "Match every role, not just interactive ones (default: off)",
             "limit": "Maximum matches (default: 20)",
+            "role": "Find by ARIA role instead of <text>, e.g. button (default: off)",
+            "name": "With --role: accessible name, substring or /regex/i (default: any)",
+            "description": "With --role: accessible description (aria-describedby, aria-description, "
+            "title), substring or /regex/i (default: any)",
+            "exact": "With --role: --name/--description match whole and case-sensitive (default: off)",
         },
         # `find --regex=<pattern>` carries its text in the flag value.
         "args_from_flag_value": "regex",
-        "examples": ['find "Sign in"', 'find "^Item \\d+" --regex --limit=50'],
+        # `find --role=<role>` needs no <text>.
+        "optional_args_with": "role",
+        "missing_args": (
+            "`find` requires <text> or --role=<role>",
+            "help: --name, --description and --exact only apply with --role, "
+            'e.g. find --role=button --description="Deletes"',
+        ),
+        "examples": [
+            'find "Sign in"',
+            'find "^Item \\d+" --regex --limit=50',
+            'find --role=button --description="Deletes the file"',
+        ],
     },
     "eval": {
         "usage": "eval <expr> [ref]",
@@ -683,6 +784,18 @@ COMMAND_SPECS: dict[str, dict] = {
         "min_args": 0,
     },
     "text": {"usage": "text <ref|selector>", "summary": "Get text content of element", "examples": ["text e5"]},
+    "html": {
+        "usage": "html [ref]",
+        "summary": "Print page HTML, or one element's outerHTML",
+        "flags": {
+            "selector": "CSS selector of the one element to print (default: whole page)",
+            "include-shadow": "Include open shadow roots as <template shadowrootmode=open>; "
+            "closed shadow roots are never included (default: off)",
+            "filename": "Save the whole HTML under .patchright-cli/<name> (default: print it)",
+            "max-chars": "Cut printed HTML after this many characters, 0 for no limit (default: 8000)",
+        },
+        "examples": ["html", "html --include-shadow --filename=page.html", "html e5 --max-chars=0"],
+    },
     "screenshot": {
         "usage": "screenshot [ref]",
         "summary": "Save screenshot",
@@ -693,10 +806,17 @@ COMMAND_SPECS: dict[str, dict] = {
         },
         "examples": ["screenshot", "screenshot --full-page --filename=page.png", "screenshot e5"],
     },
-    "drag": {"usage": "drag <from> <to>", "summary": "Drag element to target", "examples": ["drag e3 e7"]},
+    "drag": {
+        "usage": "drag <from> <to>",
+        "summary": "Drag element to target",
+        "flags": {
+            "scroll": "auto: scroll the element into view; none: fail if the element is off-screen (default: auto)"
+        },
+        "examples": ["drag e3 e7", "drag e3 e7 --scroll=none"],
+    },
     "drop": {
         "usage": "drop <ref>",
-        "summary": "Drop file/data onto element",
+        "summary": "Drop file/data onto element (fails if it does not accept drops)",
         "flags": {
             "path": "File to drop (default: none)",
             "data": "Data to drop as mime=value (default: none)",
@@ -922,6 +1042,50 @@ COMMAND_SPECS: dict[str, dict] = {
         "summary": "Clear sessionStorage",
         "examples": ["sessionstorage-clear"],
     },
+    # Passkeys: every passkey-* command first installs the session's virtual WebAuthn authenticator.
+    "passkey-list": {
+        "usage": "passkey-list",
+        "summary": "List virtual passkeys; run before the page uses WebAuthn",
+        "flags": {
+            "rp-id": "Only passkeys for this relying party id (default: all)",
+            "id": "Only the passkey with this credential id (default: all)",
+        },
+        "examples": ["passkey-list", "passkey-list --rp-id=example.com"],
+    },
+    "passkey-add": {
+        "usage": "passkey-add <rp-id>",
+        "summary": "Seed a virtual passkey",
+        "flags": {
+            "id": "Base64url credential id (default: generated)",
+            "user-handle": "Base64url user handle (default: generated)",
+            "private-key": "Base64url PKCS#8 private key (default: new P-256 key)",
+            "public-key": "Base64url SPKI public key (default: derived from the new key)",
+            "sign-count": "Initial signature counter (default: 0)",
+        },
+        "examples": ["passkey-add example.com", "passkey-add example.com --sign-count=5"],
+    },
+    "passkey-delete": {
+        "usage": "passkey-delete <id>",
+        "summary": "Delete a virtual passkey by credential id",
+        "examples": ["passkey-delete rOcULsEhnOTidWZYElf2oA"],
+    },
+    "passkey-clear": {
+        "usage": "passkey-clear",
+        "summary": "Delete all virtual passkeys",
+        "flags": {"rp-id": "Only passkeys for this relying party id (default: all)"},
+        "examples": ["passkey-clear", "passkey-clear --rp-id=example.com"],
+    },
+    "passkey-export": {
+        "usage": "passkey-export [file]",
+        "summary": "Export virtual passkeys with private keys to an owner-only JSON",
+        "flags": {"rp-id": "Only passkeys for this relying party id (default: all)"},
+        "examples": ["passkey-export", "passkey-export passkeys.json"],
+    },
+    "passkey-import": {
+        "usage": "passkey-import <file>",
+        "summary": "Seed virtual passkeys from a passkey-export file",
+        "examples": ["passkey-import passkeys.json"],
+    },
     # Route
     "route": {
         "usage": "route <pattern>",
@@ -961,7 +1125,17 @@ COMMAND_SPECS: dict[str, dict] = {
     "tracing-start": {"usage": "tracing-start", "summary": "Start Playwright tracing", "examples": ["tracing-start"]},
     "tracing-stop": {"usage": "tracing-stop", "summary": "Stop tracing and save", "examples": ["tracing-stop"]},
     # Video
-    "video-start": {"usage": "video-start", "summary": "Start video recording", "examples": ["video-start"]},
+    "video-start": {
+        "usage": "video-start",
+        "summary": "Start video recording",
+        "flags": {
+            "fps": "Frame rate of the real-time video, 1-60; each frame lasts until the next (default: 25)",
+        },
+        "examples": ["video-start", "video-start --fps=60"],
+        # playwright-cli takes `video-start [filename]`; here the name comes at the end.
+        "extra_args_hint": "help: video-start takes no file name; name the file when you stop: "
+        "patchright-cli video-stop --filename=<name>.webm",
+    },
     "video-stop": {
         "usage": "video-stop",
         "summary": "Stop recording and save",
@@ -993,6 +1167,27 @@ COMMAND_SPECS: dict[str, dict] = {
         "summary": "Save page as PDF",
         "flags": {"filename": "Save under .patchright-cli/<name> (default: timestamped)"},
         "examples": ["pdf", "pdf --filename=page.pdf"],
+    },
+    # Debugger
+    "debugger-pause": {
+        "usage": "debugger-pause",
+        "summary": "Pause before the next page action, navigation or eval; that command replies at once, held",
+        "examples": ["debugger-pause", "click e3   # replies 'Paused before: Click ...'"],
+    },
+    "debugger-step": {
+        "usage": "debugger-step",
+        "summary": "Run the paused call and pause before the next one; prints the held command's result",
+        "examples": ["debugger-step"],
+    },
+    "debugger-resume": {
+        "usage": "debugger-resume",
+        "summary": "Let the held command finish and print its result (or cancel an unhit pause)",
+        "examples": ["debugger-resume"],
+    },
+    "debugger-status": {
+        "usage": "debugger-status",
+        "summary": "Show the debugger state: off, armed, or the paused call and held command",
+        "examples": ["debugger-status"],
     },
     # DevTools
     "console": {
@@ -1030,16 +1225,42 @@ COMMAND_SPECS: dict[str, dict] = {
         "summary": "Emit Playwright locator expression for a ref",
         "examples": ["generate-locator e5"],
     },
+    "pick-locator": {
+        "usage": "pick-locator",
+        "summary": "Wait for a person to click an element; print its locator (page-detectable: needs --detectable)",
+        "flags": {
+            "detectable": "Required: accept that Playwright's recorder stays in every page of the session "
+            "(window.playwright, __pw_* globals, an <x-pw-glass> element) until it closes (default: refuse)",
+            "wait": "Seconds to wait for the click before cancelling (default: 60)",
+            "cancel": "Cancel the pick-locator waiting on this tab; needs no --detectable (default: off)",
+        },
+        "examples": ["pick-locator --detectable", "pick-locator --detectable --wait=180", "pick-locator --cancel"],
+    },
     "highlight": {
         "usage": "highlight <ref>",
-        "summary": "Show overlay on element",
+        "summary": "Show overlay on element (page-detectable while shown; removed on --hide)",
         "flags": {
-            "style": "CSS for the overlay (default: 2px pink outline)",
+            "style": "Extra inline CSS for the overlay, e.g. outline: 2px dashed red (default: Playwright's highlight box)",
             "hide": "Remove the overlay instead; without a ref, clear every overlay (default: off)",
         },
         # `highlight --hide` with no ref clears every overlay on the page.
         "optional_args_with": "hide",
-        "examples": ["highlight e5", "highlight e5 --hide", "highlight --hide"],
+        "examples": ['highlight e5 --style="outline: 2px dashed red"', "highlight e5 --hide", "highlight --hide"],
+    },
+    # WebMCP
+    "webmcp-list": {
+        "usage": "webmcp-list",
+        "summary": "List the WebMCP tools the page registers",
+        "examples": ["webmcp-list", "--toon webmcp-list"],
+    },
+    "webmcp-call": {
+        "usage": "webmcp-call <name> [json]",
+        "summary": "Call a WebMCP tool the page registers",
+        "flags": {"params": "Tool input as a JSON object, instead of the [json] argument (default: {})"},
+        "examples": [
+            'webmcp-call search \'{"query":"cats"}\'',
+            'webmcp-call search --params=\'{"query":"cats"}\'',
+        ],
     },
     # Session
     "list": {"usage": "list", "summary": "List sessions", "examples": ["list"]},
@@ -1177,6 +1398,13 @@ def _min_args(spec: dict) -> int:
     return sum(1 for token in spec["usage"].split()[1:] if token.startswith("<"))
 
 
+def _max_args(spec: dict) -> int | None:
+    """Most positionals `usage` allows: one per `<x>` or `[x]`; None for no limit."""
+    if "max_args" in spec:
+        return spec["max_args"]
+    return sum(1 for token in spec["usage"].split()[1:] if token[:1] in "<[")
+
+
 def _manual_line(name: str) -> str:
     spec = COMMAND_SPECS[name]
     flags = " ".join(f"[--{f}]" for f in spec.get("flags", {}))
@@ -1253,12 +1481,23 @@ def _validate_positionals(command: str, args: list, flags: dict) -> None:
     else:
         need = _min_args(spec)
     if len(args) < need:
+        if "missing_args" in spec:
+            message, *hints = spec["missing_args"]
+            raise UsageError(message, *hints, f"help: run `patchright-cli {command} --help` for flags and examples")
         required = " ".join(t for t in spec["usage"].split()[1:] if t.startswith("<"))
         raise UsageError(
             f"`{command}` requires {required}",
             f"help: patchright-cli {spec['usage']}",
             f"help: run `patchright-cli {command} --help` for flags and examples",
         )
+    most = _max_args(spec)
+    if most is not None and len(args) > most:
+        extras = " ".join(shlex.quote(a) if a else "''" for a in args[most:])
+        hints = [spec["extra_args_hint"]] if "extra_args_hint" in spec else []
+        if most:
+            hints.append("help: quote an argument that contains spaces, so it stays one argument")
+        hints.append(f"help: patchright-cli {spec['usage']}")
+        raise UsageError(f"`{command}` takes at most {most} argument(s), got {len(args)}: {extras}", *hints)
 
 
 def _suggest_command(command: str) -> str | None:
@@ -1288,6 +1527,7 @@ COMMAND_CATEGORIES = [
             "find",
             "eval",
             "text",
+            "html",
             "screenshot",
             "drag",
             "drop",
@@ -1340,13 +1580,19 @@ COMMAND_CATEGORIES = [
             "sessionstorage-clear",
         ],
     ),
+    (
+        "Passkeys",
+        ["passkey-list", "passkey-add", "passkey-delete", "passkey-clear", "passkey-export", "passkey-import"],
+    ),
     ("Permissions", ["grant-permissions"]),
     ("Route", ["route", "route-list", "unroute", "network-state-set"]),
     ("Code", ["run-code"]),
     ("Tracing", ["tracing-start", "tracing-stop"]),
     ("Video", ["video-start", "video-stop", "video-chapter", "video-show-actions", "video-hide-actions"]),
     ("PDF", ["pdf"]),
-    ("DevTools", ["console", "network", "requests", "request", "generate-locator", "highlight"]),
+    ("DevTools", ["console", "network", "requests", "request", "generate-locator", "pick-locator", "highlight"]),
+    ("Debugger", ["debugger-pause", "debugger-step", "debugger-resume", "debugger-status"]),
+    ("WebMCP", ["webmcp-list", "webmcp-call"]),
     ("Session", ["list", "close-all", "kill-all", "delete-data"]),
     ("Profiles", ["profile-list", "profile-delete"]),
     ("Dashboard", ["show"]),
@@ -1567,6 +1813,8 @@ _TOON_NOUNS = {
     "requests": "requests",
     "profile-list": "profiles",
     "find": "matches",
+    "webmcp-list": "tools",
+    "passkey-list": "passkeys",
 }
 
 # What to do when a list reply was cut short (`total` > shown).
@@ -1593,6 +1841,15 @@ def _toon_lines(command: str, response: dict) -> list[str] | None:
     total = response.get("total")
     if isinstance(total, int):
         doc["total"] = total
+    empty_helps: list[str] = []
+    if data == []:
+        # A bare `items: []` says nothing about what was looked for; carry the
+        # text reply's explicit empty state ("0 passkeys in this session") and its hints.
+        text = [line.strip() for line in str(response.get("output") or "").splitlines() if line.strip()]
+        message = next((line for line in text if line.startswith(("0 ", "# "))), None)
+        if message:
+            doc["message"] = message
+        empty_helps = [line for line in text if line.startswith("help:")]
     try:
         encoded = toon.encode(doc)
     except (TypeError, ValueError):
@@ -1603,7 +1860,7 @@ def _toon_lines(command: str, response: dict) -> list[str] | None:
     if isinstance(total, int) and isinstance(data, list) and total > len(data):
         hint = _MORE_HINTS.get(command, "narrow the request to see the rest")
         lines.append(f"help: showing {len(data)} of {total}; {hint}")
-    return lines
+    return lines + empty_helps
 
 
 def _parse_port(value: str) -> int:
@@ -1636,6 +1893,80 @@ def _parse_geolocation(value: str) -> dict:
             f"invalid --geolocation value `{value}`", "help: use LAT,LON, e.g. --geolocation=37.77,-122.42"
         ) from None
     return {"lat": lat, "lon": lon}
+
+
+# A sentence that tells the reader what to do next: printed as a `help:` line.
+_NEXT_STEP = (
+    "Run",
+    "Use",
+    "Close",
+    "Finish",
+    "Narrow",
+    "Quote",
+    "Drop",
+    "Pass",
+    "Give",
+    "Try",
+    "Open",
+    "Call",
+    "Start",
+    "Navigate",
+    "Goto",
+    "Reload",
+    "Wait",
+    "Check",
+    "Raise",
+)
+_NEXT_STEP_SPLIT = re.compile(r"(?<=[.!?])\s+(?=(?:" + "|".join(_NEXT_STEP) + r")\b)")
+_ERROR_PREFIX = re.compile(r"^(?:error|Error|ERROR)\s*:\s*")
+_USAGE_TAIL = re.compile(r"(?:^|\s)Usage: (.+)$")
+
+
+def _lower_first(text: str) -> str:
+    """`Tab 'x' is not open` -> `tab 'x' is not open`; acronyms (`WebMCP`, `URL`) stay."""
+    word = re.match(r"[A-Za-z]+", text)
+    if word and word.group()[0].isupper() and (word.group()[1:].islower() or word.group() == "A"):
+        return text[0].lower() + text[1:]
+    return text
+
+
+def _drop_period(text: str) -> str:
+    return text[:-1] if text.endswith(".") and not text.endswith("..") else text
+
+
+def _as_help(sentence: str) -> str:
+    sentence = sentence.strip()
+    if sentence.startswith("help:"):
+        return sentence
+    return f"help: {_lower_first(_drop_period(sentence))}"
+
+
+def _failure_lines(command: str, output: str) -> tuple[str, list[str], list[str]]:
+    """A failed daemon reply as (message, detail lines, help lines), whatever its wording.
+
+    The daemon's messages grew in several styles (`Error: ...`, bare sentences,
+    `Usage: ...`, a next step in the same sentence). Every failure prints the
+    same way: `error: <message>`, any detail lines, then `help:` lines.
+    """
+    lines = [line.rstrip() for line in output.strip().splitlines()]
+    if not lines or not lines[0].strip():
+        return f"`{command}` failed", [], []
+    first = _ERROR_PREFIX.sub("", lines[0].strip())
+    helps: list[str] = []
+    usage = _USAGE_TAIL.search(first)
+    if usage:
+        first = first[: usage.start()].strip() or f"`{command}` got missing or invalid arguments"
+        helps.append(f"help: patchright-cli {usage.group(1).strip()}")
+    message, *next_steps = _NEXT_STEP_SPLIT.split(first)
+    helps[:0] = [_as_help(step) for step in next_steps]
+    details: list[str] = []
+    for line in lines[1:]:
+        bare = line.strip()
+        if bare.startswith("help:") or bare.startswith(_NEXT_STEP):
+            helps.append(_as_help(bare))
+        elif bare:
+            details.append(line)
+    return _lower_first(_drop_period(message.strip())), details, helps
 
 
 def _print_error(message: str, *help_lines: str) -> None:
@@ -1890,6 +2221,10 @@ def _main():
 
     # Merge: global opts as base, command-level opts take precedence
     extra_opts = {**extra_opts, **cmd_opts}
+    try:
+        values.check_flags(command, extra_opts)
+    except values.ValueProblem as e:
+        raise UsageError(e.message, *e.help_lines) from None
 
     # For eval/run-code: support --file=<path> and stdin via "-"
     if command in ("eval", "run-code"):
@@ -1918,6 +2253,11 @@ def _main():
             )
 
     _validate_positionals(command, args, extra_opts)
+    try:
+        values.check_args(command, args, extra_opts)
+    except values.ValueProblem as e:
+        usage = [f"help: patchright-cli {COMMAND_SPECS[command]['usage']}"] if e.positional else []
+        raise UsageError(e.message, *e.help_lines, *usage) from None
 
     _warn_stale_skills()
 
@@ -1969,13 +2309,22 @@ def _main():
     # it, or a failure, prints exactly as it would without the flag.
     toon_lines = _toon_lines(command, response) if toon and success else None
 
+    failure = None if success else _failure_lines(command, output if isinstance(output, str) else str(output))
+
     if toon_lines is not None:
         click.echo("\n".join(toon_lines))
     elif as_json:
         payload = dict(response)
+        if failure is not None:
+            payload.setdefault("error", failure[0])
+            if failure[2]:
+                payload.setdefault("help", [line.removeprefix("help: ") for line in failure[2]])
         if raw and isinstance(payload.get("output"), str):
             payload["output"] = _strip_raw_output(payload["output"])
         click.echo(json.dumps(payload, default=str))
+    elif failure is not None:
+        message, details, helps = failure
+        click.echo("\n".join([f"error: {message}", *details, *helps]))
     else:
         if output:
             if raw:
@@ -1984,7 +2333,8 @@ def _main():
                 click.echo(output)
 
     if not success:
-        sys.exit(1)
+        # The daemon marks usage errors (a malformed ref) with exit_code 2.
+        sys.exit(2 if response.get("exit_code") == 2 else 1)
 
 
 if __name__ == "__main__":

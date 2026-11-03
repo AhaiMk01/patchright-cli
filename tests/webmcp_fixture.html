@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><title>WebMCP Fixture</title></head><body><h1>WebMCP demo</h1><div id="out"></div><script>
+const mc = document.modelContext || navigator.modelContext;
+if (mc) {
+  mc.registerTool({
+    name: 'add', description: 'Add two numbers',
+    inputSchema: {type: 'object', properties: {a: {type: 'number'}, b: {type: 'number'}}, required: ['a', 'b']},
+    annotations: {readOnlyHint: true},
+    execute: async ({a, b}) => ({content: [{type: 'text', text: String(a + b)}]}),
+  });
+  mc.registerTool({
+    name: 'set_greeting', description: 'Write a greeting into the page',
+    inputSchema: {type: 'object', properties: {name: {type: 'string'}}},
+    execute: async ({name}) => { document.getElementById('out').textContent = 'Hello ' + name; return {content: [{type: 'text', text: 'ok'}]}; },
+  });
+  mc.registerTool({
+    name: 'refuse', description: 'Always reports an error result',
+    execute: async () => ({isError: true, content: [{type: 'text', text: 'refused'}]}),
+  });
+}
+</script></body></html>

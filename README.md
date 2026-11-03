@@ -48,7 +48,7 @@ curl -s https://raw.githubusercontent.com/AhaiMk01/patchright-cli/main/docs/inst
 </details>
 
 > [!IMPORTANT]
-> **Requirements:** Python 3.10+ and Google Chrome
+> **Requirements:** Python 3.12+ and Google Chrome
 
 ```bash
 # Recommended — always runs latest version, no install needed
@@ -198,7 +198,7 @@ graph LR
 |-----------|------|
 | **Daemon** (`daemon.py`) | Long-running process managing browser sessions via Patchright. Auto-starts on first `open`. |
 | **CLI** (`cli.py`) | Thin client — connects, sends command, prints result, disconnects. Browser stays open. |
-| **Snapshot** (`snapshot.py`) | Playwright `aria_snapshot()` accessibility tree, annotated with sequential `[ref=eN]` handles for element targeting. |
+| **Snapshot** (`snapshot.py`) | Playwright's AI-mode `aria_snapshot()` accessibility tree, iframes included, with Playwright's own `[ref=e5]` handles, resolved with `get_by_ref`. |
 
 ### Daemon token
 
@@ -258,6 +258,10 @@ patchright-cli find "text"             # Search snapshot for text
 patchright-cli find --regex "a|b"      # Search by regex
 patchright-cli find "text" --all       # Include text/paragraph nodes
 patchright-cli find "text" --limit=50  # Cap hits (default 20)
+patchright-cli find --role=button --description="Deletes"  # By role + accessible name/description
+patchright-cli html                    # Page HTML (first 8000 chars; --max-chars=0 for all)
+patchright-cli html --include-shadow --filename=page.html  # With open shadow roots, to a file
+patchright-cli html e5                 # One element's outerHTML (or --selector=CSS)
 patchright-cli eval <expr>             # Run JavaScript
 patchright-cli eval --file=script.js   # Run JS from file
 patchright-cli run-code <code>         # Run JS with return value
@@ -363,6 +367,19 @@ patchright-cli sessionstorage-delete <key>
 patchright-cli sessionstorage-clear
 ```
 
+### Passkeys
+A virtual WebAuthn authenticator for testing passkey sign-ups and logins. The first `passkey-*` command installs it in the session, overriding `navigator.credentials.create()` / `.get()` in every page (a page can notice the override, so it stays off until asked for). **Run a `passkey-*` command (e.g. `passkey-list`) before the page calls WebAuthn**: until then the page gets Chrome's native OS passkey dialog and hangs. Passkeys live in the session only; use `passkey-export` / `passkey-import` to keep them (the export holds private keys and is written owner-only; keep it out of version control).
+```bash
+patchright-cli passkey-list                      # Installs the authenticator, lists passkeys (no keys shown)
+patchright-cli passkey-list --rp-id=example.com
+patchright-cli passkey-add example.com           # Seed a new P-256 passkey
+patchright-cli passkey-add example.com --id=<b64url> --user-handle=<b64url> --private-key=<b64url> --public-key=<b64url> --sign-count=5
+patchright-cli passkey-delete <credential-id>
+patchright-cli passkey-clear [--rp-id=example.com]
+patchright-cli passkey-export passkeys.json      # Includes private keys
+patchright-cli passkey-import passkeys.json
+```
+
 ### Request Mocking
 ```bash
 patchright-cli route "**/*.jpg" --status=404
@@ -379,7 +396,8 @@ patchright-cli unroute                 # Remove all routes
 ```bash
 patchright-cli tracing-start
 patchright-cli tracing-stop            # Saves .zip trace file
-patchright-cli video-start             # Start video recording (CDP screencast)
+patchright-cli video-start             # Start real-time video recording at 25 fps (CDP screencast)
+patchright-cli video-start --fps=60    # Another frame rate, 1-60
 patchright-cli video-stop              # Stop and save video (requires ffmpeg for .webm)
 patchright-cli video-stop --filename=recording.webm
 patchright-cli show --annotate          # Ask a human to mark up the page, wait for it
@@ -410,6 +428,12 @@ unavailable: run `console` before reproducing an issue, then call it again to re
 the messages. Capture can make automation detectable and stays enabled until the
 session closes; `--clear` only clears the message buffer. A new session starts
 with capture disabled.
+
+Two DevTools commands leave traces a page can see. `highlight` draws inside an
+`<x-pw-glass>` element under `<html>`; `highlight --hide` removes it once no
+highlight is left. `pick-locator` runs only with `--detectable`: it installs
+Playwright's recorder, which puts `window.playwright`, `__pw_*` globals and an
+`<x-pw-glass>` element into every page of the session until the session closes.
 
 ### Output
 ```bash

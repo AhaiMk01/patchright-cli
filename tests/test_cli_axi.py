@@ -417,7 +417,22 @@ def test_toon_renders_a_data_dict(monkeypatch, capsys):
 def test_toon_empty_list_is_explicit(monkeypatch, capsys):
     reply = {"success": True, "output": "0 cookies in this session", "data": []}
     _, out = _run_reply(["--toon", "cookie-list"], reply, monkeypatch, capsys)
-    assert out == "cookies: []\n"
+    assert out == "cookies: []\nmessage: 0 cookies in this session\n"
+
+
+def test_toon_empty_list_keeps_the_text_hints(monkeypatch, capsys):
+    reply = {
+        "success": True,
+        "output": "Virtual passkey authenticator installed in this session.\n0 passkeys in this session\n"
+        "help: add one with `passkey-add <rp-id>`, e.g. passkey-add example.com",
+        "data": [],
+    }
+    _, out = _run_reply(["--toon", "passkey-list"], reply, monkeypatch, capsys)
+    assert out.splitlines() == [
+        "passkeys: []",
+        "message: 0 passkeys in this session",
+        "help: add one with `passkey-add <rp-id>`, e.g. passkey-add example.com",
+    ]
 
 
 def test_toon_without_data_falls_back_to_text(monkeypatch, capsys):
@@ -439,7 +454,7 @@ def test_toon_leaves_failures_alone(monkeypatch, capsys):
     reply = {"success": False, "output": "Session 'default' is not open", "data": []}
     code, out = _run_reply(["--toon", "tab-list"], reply, monkeypatch, capsys)
     assert code == 1
-    assert out == "Session 'default' is not open\n"
+    assert out == "error: session 'default' is not open\n"
 
 
 def test_toon_truncated_list_carries_total_and_a_hint(monkeypatch, capsys):
@@ -537,3 +552,19 @@ def test_foreign_stamp_files_do_not_break_commands(tmp_path, monkeypatch, conten
     monkeypatch.setattr(cli, "_skill_check_stamp", lambda: tmp_path / "skill-check.json")
     (tmp_path / "skill-check.json").write_text(content)
     assert cli._skill_warning_is_throttled() is False
+
+
+def test_a_malformed_ref_exits_2(monkeypatch, capsys):
+    reply = {
+        "success": False,
+        "output": 'Error: "zz" is not a ref (refs look like e5 or f3e5, from snapshot)',
+        "exit_code": 2,
+    }
+    code, out = _run_reply(["click", "zz"], reply, monkeypatch, capsys)
+    assert code == 2
+    assert "is not a ref" in out
+
+
+def test_a_failed_command_without_exit_code_exits_1(monkeypatch, capsys):
+    code, _ = _run_reply(["click", "e9"], {"success": False, "output": "Error: stale"}, monkeypatch, capsys)
+    assert code == 1

@@ -153,9 +153,7 @@ async def test_show_annotate_returns_the_submitted_feedback(annotate_session, tm
 
     monkeypatch.setattr(daemon_mod, "_dashboard_runners", {})
     monkeypatch.setattr("patchright_cli.dashboard.start_dashboard_server", fake_start)
-    monkeypatch.setattr(
-        daemon_mod, "take_snapshot", AsyncMock(return_value=('- button "Ship it" [ref=e1]', MagicMock()))
-    )
+    monkeypatch.setattr(daemon_mod, "ai_snapshot", AsyncMock(return_value='- button "Ship it" [ref=e1]'))
 
     async def submit_soon():
         await asyncio.sleep(0.05)

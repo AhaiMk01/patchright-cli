@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from patchright_cli.daemon import DaemonState, Session, handle_command
+from tests.ref_helpers import use_refs
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ def mock_session():
     session.name = "default"
     session.pages = []
     session.current_tab = 0
-    session.ref_registry = None
+    session.last_raw = None
     session.context = MagicMock()
     session.context.cookies = AsyncMock(return_value=[])
     session.context.clear_cookies = AsyncMock()
@@ -37,6 +38,7 @@ def mock_session():
     session.page.route = AsyncMock()
     session.page.unroute = AsyncMock()
     session._codegen = None
+    session.highlights = {}
     session._video_recording = False
     session._video_cdp = None
     session._video_show_actions = None
@@ -54,6 +56,16 @@ def mock_session():
     session.goto = partial(Session.goto, session)
     session.check_navigation = partial(Session.check_navigation, session)
     return session
+
+
+def _web_storage(session, store):
+    """The mocked native `WebStorage` behind `page.local_storage` / `page.session_storage`."""
+    attr = "local_storage" if store == "localStorage" else "session_storage"
+    storage = getattr(session.page, attr)
+    for method in ("items", "get_item", "set_item", "remove_item", "clear"):
+        if not isinstance(getattr(storage, method), AsyncMock):
+            setattr(storage, method, AsyncMock())
+    return storage
 
 
 async def _run(state, command, args=None, **options):
@@ -168,24 +180,46 @@ async def test_cookie_delete_present_removes_it(mock_state, mock_session):
 )
 async def test_storage_delete_absent_key_is_a_noop(mock_state, mock_session, command, store):
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.evaluate.return_value = False
+    storage = _web_storage(mock_session, store)
+    storage.get_item.return_value = None
     response = await _run(mock_state, command, ["token"])
     _assert_noop(response)
     assert store in response["output"]
+    storage.remove_item.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_storage_delete_present_key(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.evaluate.return_value = True
+    storage = _web_storage(mock_session, "localStorage")
+    storage.get_item.return_value = ""  # an empty value still counts as present
     response = await _run(mock_state, "localstorage-delete", ["token"])
     assert response == {"success": True, "output": "localStorage['token'] deleted."}
+    storage.remove_item.assert_awaited_once_with("token")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("store", ["localStorage", "sessionStorage"])
+async def test_storage_get_set_clear_use_native_web_storage(mock_state, mock_session, store):
+    mock_state.sessions = {"default": mock_session}
+    prefix = store.lower()
+    storage = _web_storage(mock_session, store)
+    storage.get_item.return_value = "v1"
+    assert await _run(mock_state, f"{prefix}-get", ["k1"]) == {"success": True, "output": '"v1"'}
+    storage.get_item.assert_awaited_once_with("k1")
+    storage.get_item.return_value = None
+    assert (await _run(mock_state, f"{prefix}-get", ["nope"]))["output"] == "null"
+    assert await _run(mock_state, f"{prefix}-set", ["k1", "v1"]) == {"success": True, "output": f"{store}['k1'] set."}
+    storage.set_item.assert_awaited_once_with("k1", "v1")
+    assert await _run(mock_state, f"{prefix}-clear") == {"success": True, "output": f"{store} cleared."}
+    storage.clear.assert_awaited_once()
+    mock_session.page.evaluate.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_highlight_hide_with_nothing_highlighted_is_a_noop(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.evaluate.return_value = 0
+    mock_session.page.hide_highlight = AsyncMock()
     _assert_noop(await _run(mock_state, "highlight", hide=True))
 
 
@@ -193,10 +227,10 @@ async def test_highlight_hide_with_nothing_highlighted_is_a_noop(mock_state, moc
 async def test_highlight_hide_on_unhighlighted_ref_is_a_noop(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}
     locator = MagicMock()
-    locator.evaluate = AsyncMock(return_value=False)
-    mock_session.ref_registry = MagicMock()
-    mock_session.ref_registry.resolve.return_value = locator
+    locator.hide_highlight = AsyncMock()
+    use_refs(mock_session, locator)
     _assert_noop(await _run(mock_state, "highlight", ["e3"], hide=True))
+    locator.hide_highlight.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -268,7 +302,7 @@ async def test_cookie_list_empty(mock_state, mock_session):
 )
 async def test_storage_list_empty(mock_state, mock_session, command, store):
     mock_state.sessions = {"default": mock_session}
-    mock_session.page.evaluate.return_value = "{}"
+    _web_storage(mock_session, store).items.return_value = []
     response = await _run(mock_state, command)
     assert response == {"success": True, "output": f"0 {store} keys on this page", "data": []}
 
@@ -361,11 +395,15 @@ async def test_cookie_list_data_keeps_json_output(mock_state, mock_session):
 
 @pytest.mark.asyncio
 async def test_storage_list_data_keeps_json_output(mock_state, mock_session):
-    mock_session.page.evaluate.return_value = '{"a":"1","b":"x"}'
+    _web_storage(mock_session, "localStorage").items.return_value = [
+        {"name": "a", "value": "1"},
+        {"name": "b", "value": 'x"\u00fc'},
+    ]
     mock_state.sessions = {"default": mock_session}
     response = await _run(mock_state, "localstorage-list")
-    assert response["output"] == '{"a":"1","b":"x"}'
-    assert response["data"] == [{"key": "a", "value": "1"}, {"key": "b", "value": "x"}]
+    # Same compact text JSON.stringify(localStorage) printed: no spaces, non-ASCII kept as is.
+    assert response["output"] == '{"a":"1","b":"x\\"\u00fc"}'
+    assert response["data"] == [{"key": "a", "value": "1"}, {"key": "b", "value": 'x"\u00fc'}]
 
 
 @pytest.mark.asyncio
@@ -379,21 +417,21 @@ async def test_route_list_data(mock_state, mock_session):
 
 @pytest.mark.asyncio
 async def test_console_data_and_total_when_truncated(mock_state, mock_session):
-    mock_session.console_messages = [{"type": "log", "text": f"m{i}"} for i in range(60)]
+    mock_session.console_messages = [{"type": "log", "text": f"m{i}", "timestamp": 1000.0 + i} for i in range(60)]
     mock_state.sessions = {"default": mock_session}
     response = await _run(mock_state, "console")
     assert len(response["data"]) == 50
-    assert response["data"][0] == {"level": "log", "text": "m10"}
+    assert response["data"][0] == {"level": "log", "text": "m10", "timestamp": 1010.0}
     assert response["total"] == 60
 
 
 @pytest.mark.asyncio
 async def test_console_without_truncation_has_no_total(mock_state, mock_session):
-    mock_session.console_messages = [{"type": "warning", "text": "careful"}]
+    mock_session.console_messages = [{"type": "warning", "text": "careful", "timestamp": 1762000000123.5}]
     mock_state.sessions = {"default": mock_session}
     response = await _run(mock_state, "console", ["warn"])
     assert response["output"] == "[warning] careful"
-    assert response["data"] == [{"level": "warning", "text": "careful"}]
+    assert response["data"] == [{"level": "warning", "text": "careful", "timestamp": 1762000000123.5}]
     assert "total" not in response
 
 
@@ -409,33 +447,22 @@ async def test_network_data_and_total(mock_state, mock_session):
     assert response["total"] == 55
 
 
-@pytest.fixture
-def find_session(mock_session):
-    from patchright_cli.ref_registry import RefRegistry
-
-    registry = RefRegistry()
-    registry.parse('- banner:\n  - link "Sign in"\n  - link "Sign up"\n')
-    mock_session.ref_registry = registry
-    return mock_session
+FIND_RAW = '- banner [ref=e1]:\n  - link "Sign in" [ref=e2]\n  - link "Sign up" [ref=e3]\n'
 
 
 @pytest.mark.asyncio
-async def test_find_data_and_total(mock_state, find_session):
-    mock_state.sessions = {"default": find_session}
-    registry = find_session.ref_registry
-    with patch("patchright_cli.daemon.take_snapshot", AsyncMock(return_value=("ignored", registry))):
+async def test_find_data_and_total(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    with patch("patchright_cli.daemon.ai_snapshot", AsyncMock(return_value=FIND_RAW)):
         response = await _run(mock_state, "find", ["Sign"], limit="1")
     assert response["data"] == [{"ref": "e2", "role": "link", "name": "Sign in"}]
     assert response["total"] == 2
 
 
 @pytest.mark.asyncio
-async def test_find_empty_page(mock_state, find_session):
-    from patchright_cli.ref_registry import RefRegistry
-
-    mock_state.sessions = {"default": find_session}
-    empty = RefRegistry()
-    with patch("patchright_cli.daemon.take_snapshot", AsyncMock(return_value=("", empty))):
+async def test_find_empty_page(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    with patch("patchright_cli.daemon.ai_snapshot", AsyncMock(return_value="")):
         response = await _run(mock_state, "find", ["x"])
     assert response["success"] is True
     assert "0 accessible elements" in response["output"]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -267,10 +268,7 @@ def test_enable_codex_hooks_feature_handles_quoted_names(before, after):
     # hooks key instead would leave config.toml unparsable.
     text, changed = enable_codex_hooks_feature(before)
     assert (text, changed) == (after, True)
-    if sys.version_info >= (3, 11):
-        import tomllib
-
-        assert tomllib.loads(text)["features"]["hooks"] is True
+    assert tomllib.loads(text)["features"]["hooks"] is True
 
 
 @pytest.mark.parametrize("text", ["features = { hooks = false }\n", "features = { web_search = true }\n"])

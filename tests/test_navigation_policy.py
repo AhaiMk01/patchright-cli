@@ -6,6 +6,7 @@ import pytest
 
 from patchright_cli import daemon
 from patchright_cli.daemon import NetworkGuard, Session, handle_command
+from tests.ref_helpers import use_refs
 
 
 def _page(url="http://example.test/"):
@@ -98,13 +99,11 @@ async def _click_link(href, guard, options=None):
     session = _session(guard, page)
     session.network_guard = guard
     elem = MagicMock(evaluate=AsyncMock(return_value=href), click=AsyncMock())
-    registry = MagicMock()
-    registry.resolve.return_value = elem
-    session.ref_registry = registry
+    use_refs(session, elem)
     state = daemon.DaemonState()
     state.sessions["s"] = session
-    with patch("patchright_cli.daemon.take_snapshot", new_callable=AsyncMock) as snap:
-        snap.return_value = ("snapshot", registry)
+    with patch("patchright_cli.daemon.ai_snapshot", new_callable=AsyncMock) as snap:
+        snap.return_value = "snapshot"
         with patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"):
             response = await handle_command(
                 state, {"command": "click", "args": ["e1"], "options": {"session": "s", **(options or {})}}
@@ -319,13 +318,11 @@ async def test_plain_cli_click_after_a_web_only_request_still_follows_file_links
     page = _page()
     session = _session(None, page)
     elem = MagicMock(evaluate=AsyncMock(return_value="file:///tmp/page.html"), click=AsyncMock())
-    registry = MagicMock()
-    registry.resolve.return_value = elem
-    session.ref_registry = registry
+    use_refs(session, elem)
     state = daemon.DaemonState()
     state.sessions["s"] = session
     with (
-        patch("patchright_cli.daemon.take_snapshot", new=AsyncMock(return_value=("snapshot", registry))),
+        patch("patchright_cli.daemon.ai_snapshot", new=AsyncMock(return_value="snapshot")),
         patch("patchright_cli.daemon.save_snapshot", return_value="/tmp/snap.yml"),
     ):
         refused = await handle_command(
