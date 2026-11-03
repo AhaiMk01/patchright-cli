@@ -11,6 +11,7 @@ import json
 import math
 import os
 import re
+import shlex
 import socket
 import struct
 import sys
@@ -663,7 +664,9 @@ def _recv_exact(sock: socket.socket, n: int, deadline: float | None = None) -> b
 # ones its daemon handler reads -- mapped to a description that states the
 # default. Anything else after the command, beyond GLOBAL_FLAGS, is rejected
 # before the daemon is contacted. `min_args` defaults to the number of
-# `<required>` positionals in `usage`.
+# `<required>` positionals in `usage`, `max_args` to the number of `<required>`
+# and `[optional]` ones; more positionals than that exit 2 rather than being
+# dropped (`extra_args_hint` adds a command-specific help line to that error).
 COMMAND_SPECS: dict[str, dict] = {
     # Core
     "open": {
@@ -1129,6 +1132,9 @@ COMMAND_SPECS: dict[str, dict] = {
             "fps": "Frame rate of the real-time video, 1-60; each frame lasts until the next (default: 25)",
         },
         "examples": ["video-start", "video-start --fps=60"],
+        # playwright-cli takes `video-start [filename]`; here the name comes at the end.
+        "extra_args_hint": "help: video-start takes no file name; name the file when you stop: "
+        "patchright-cli video-stop --filename=<name>.webm",
     },
     "video-stop": {
         "usage": "video-stop",
@@ -1390,6 +1396,13 @@ def _min_args(spec: dict) -> int:
     return sum(1 for token in spec["usage"].split()[1:] if token.startswith("<"))
 
 
+def _max_args(spec: dict) -> int | None:
+    """Most positionals `usage` allows: one per `<x>` or `[x]`; None for no limit."""
+    if "max_args" in spec:
+        return spec["max_args"]
+    return sum(1 for token in spec["usage"].split()[1:] if token[:1] in "<[")
+
+
 def _manual_line(name: str) -> str:
     spec = COMMAND_SPECS[name]
     flags = " ".join(f"[--{f}]" for f in spec.get("flags", {}))
@@ -1475,6 +1488,14 @@ def _validate_positionals(command: str, args: list, flags: dict) -> None:
             f"help: patchright-cli {spec['usage']}",
             f"help: run `patchright-cli {command} --help` for flags and examples",
         )
+    most = _max_args(spec)
+    if most is not None and len(args) > most:
+        extras = " ".join(shlex.quote(a) if a else "''" for a in args[most:])
+        hints = [spec["extra_args_hint"]] if "extra_args_hint" in spec else []
+        if most:
+            hints.append("help: quote an argument that contains spaces, so it stays one argument")
+        hints.append(f"help: patchright-cli {spec['usage']}")
+        raise UsageError(f"`{command}` takes at most {most} argument(s), got {len(args)}: {extras}", *hints)
 
 
 def _suggest_command(command: str) -> str | None:
