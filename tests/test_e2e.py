@@ -517,6 +517,35 @@ class TestPasskeysE2E:
         finally:
             _cmd(daemon, "close", options=opts)
 
+    def test_passkeys_still_work_after_state_load_of_a_state_without_any(self, daemon, passkey_site, tmp_path):
+        # Loading a state without credentials disposes the native authenticator.
+        opts = {"session": f"e2e-passkeys-state-{daemon}"}
+        plain = tmp_path / "plain-state.json"
+        plain.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+        try:
+            assert _cmd(daemon, "open", args=[passkey_site], options=opts)["success"] is True
+            assert _cmd(daemon, "passkey-add", args=["localhost"], options=opts)["success"] is True
+            assert _cmd(daemon, "state-load", args=[str(plain)], options=opts)["success"] is True
+            added = _cmd(daemon, "passkey-add", args=["localhost"], options=opts)
+            assert added["success"] is True, added
+            assert _cmd(daemon, "reload", options=opts)["success"] is True
+
+            snap = _cmd(daemon, "snapshot", options=opts)
+            ref = _find_ref(Path(snap["snapshot_path"]).read_text(encoding="utf-8"), "button")
+            assert _cmd(daemon, "click", args=[ref], options=opts)["success"] is True
+            out = ""
+            for _ in range(20):
+                out = _cmd(daemon, "eval", args=["document.getElementById('out').textContent"], options=opts)["output"]
+                if "idle" not in out:
+                    break
+                time.sleep(0.25)
+            done = re.search(r"created=([\w-]+) signed=([\w-]+)", out)
+            assert done, out
+            listed = {c["id"] for c in _cmd(daemon, "passkey-list", options=opts)["data"]}
+            assert {done.group(1), done.group(2)} <= listed
+        finally:
+            _cmd(daemon, "close", options=opts)
+
 
 @pytest.mark.e2e
 class TestWebMCPE2E:
