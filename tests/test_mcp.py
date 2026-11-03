@@ -260,7 +260,11 @@ def test_block_networks_none_drops_the_flag(monkeypatch):
 
 
 # Optional parameters some tools still need one of.
-_TOOL_EXTRAS = {"patchright_drop": {"data": "x"}, "patchright_find": {"text": "e1"}}
+_TOOL_EXTRAS = {
+    "patchright_drop": {"data": "x"},
+    "patchright_find": {"text": "e1"},
+    "patchright_highlight": {"ref": "e1"},
+}
 
 
 def _tool_argv(monkeypatch, tmp_path, tool, **overrides):
