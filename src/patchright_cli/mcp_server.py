@@ -801,7 +801,13 @@ TOOL_SPECS = {
         "description": "CLI command: console Return captured browser console messages. The first call starts "
         "session-wide CDP capture, which pages can detect; messages from before it are unavailable.",
         "params": [
-            ("level", "string", False, None, "Optional level to filter by, e.g. error, warning, info or log."),
+            (
+                "level",
+                "string",
+                False,
+                None,
+                "Level to filter by, e.g. error, warning, info or log; empty for every level.",
+            ),
             ("clear", "boolean", False, False, "Clear messages after reading."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
@@ -1627,7 +1633,7 @@ def _parameter_type(tool_name: str, param_name: str, type_name: str) -> Any:
         return Literal["online", "offline"]
 
     if tool_name == "patchright_console" and param_name == "level":
-        return Literal[values.CONSOLE_LEVELS] | None
+        return Literal[("", *values.CONSOLE_LEVELS)] | None
 
     if tool_name in _EMULATION_VALUES and param_name == "value":
         return Literal[_EMULATION_VALUES[tool_name]]

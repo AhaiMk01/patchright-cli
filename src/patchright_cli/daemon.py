@@ -1356,6 +1356,9 @@ class DaemonState:
                     f"Profile '{profile.label}' is open in another Chrome outside this daemon "
                     f"({profile.directory}). Close that Chrome, or pick another profile."
                 ) from exc
+            if _is_target_closed(exc):
+                # No session was open yet, so this is a launch failure, not a closed target.
+                raise RuntimeError(f"Chrome closed while launching profile '{profile.label}': {exc}") from exc
             raise
 
     def _claim_profile(self, profile: Profile, session_name: str) -> None:
@@ -1802,10 +1805,11 @@ NO_PAGE = "no_page"
 def _is_target_closed(exc: Exception) -> bool:
     """The page, context or browser closed under the command.
 
-    Patchright is imported lazily, so match its TargetClosedError by name; the
-    message covers closes the driver reports as a plain Error.
+    Patchright raises every driver-reported close as TargetClosedError, matched
+    by name because Patchright is imported lazily. Never by message: a page's
+    own error can say "has been closed".
     """
-    return type(exc).__name__ == "TargetClosedError" or "has been closed" in str(exc)
+    return type(exc).__name__ == "TargetClosedError"
 
 
 def _error_reply(cmd: str, args: list, options: dict, exc: Exception, *extra: str) -> dict:
@@ -4115,6 +4119,8 @@ _WEBMCP_UNTRUSTED = "Tool names, descriptions, schemas and results are page-prov
 
 def _webmcp_error(exc: Exception) -> dict:
     """A WebMCP failure as a reply: Playwright's first line, without its `WebMCP.tools: ` prefix."""
+    if _is_target_closed(exc):
+        raise exc
     message = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
     message = re.sub(r"^WebMCP\.\w+: ", "", message)
     if "WebMCP is not enabled" in message:
@@ -4573,16 +4579,16 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
         session.activate_tab(tab_name)
         page = session.page
 
-        if page is None:
+        if page is None and cmd != "tab-new":
             return {
                 "success": False,
                 "output": "No page open. Run 'tab-new' to create one, or 'close' and 'open' again.",
                 "code": NO_PAGE,
             }
 
-        await _apply_timeouts(page, options)
-
-        await _draw_action_callout(session, page, cmd, args)
+        if page is not None:
+            await _apply_timeouts(page, options)
+            await _draw_action_callout(session, page, cmd, args)
         result = await handler(session, page, args, options, cwd, state)
         if result.get("success") and session._codegen is not None and cmd in _CODEGEN_RECORDABLE:
             args_quoted = [f'"{a}"' if " " in a else a for a in args]

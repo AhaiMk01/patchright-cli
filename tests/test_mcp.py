@@ -508,7 +508,7 @@ def test_console_level_is_an_enum_of_the_levels_the_cli_accepts():
     tool = asyncio.run(mcp_server.server.get_tool("patchright_console"))
     level = tool.parameters["properties"]["level"]
     enum = next(choice["enum"] for choice in level["anyOf"] if "enum" in choice)
-    assert enum == list(values.CONSOLE_LEVELS)
+    assert enum == ["", *values.CONSOLE_LEVELS]
     assert mcp_server._build_args("patchright_console", _defaults("patchright_console")) == ["console"]
 
 

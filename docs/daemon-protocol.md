@@ -83,12 +83,14 @@ rather than on `output`, whose wording can change in any release:
 | --- | --- |
 | `session_not_open` | The requested session is absent. |
 | `tab_not_open` | The requested named tab is absent from the session. |
-| `target_closed` | The page, context or browser closed under the command. |
-| `no_page` | The session is open but has no pages left, e.g. every tab was closed. `tab-new` opens one. |
+| `target_closed` | The page, context or browser closed under the command. This includes a tab or window closed outside the daemon (by a person, the page or Chrome exiting), which the session still tracks. A failed `open` or `attach` never carries it. |
+| `no_page` | The session is open but every page was closed with `tab-close`. `tab-new` opens one. |
 
 Other failures carry no `code`; more codes can be added later, so treat an
 unknown one like a missing one. Successful replies, including the no-ops below,
-never carry `code`.
+never carry `code`. Daemons before 0.11.1 send no codes under the same
+`protocol`, so a client that may meet one keeps the output fragments below as
+its fallback.
 
 Clients can also detect these states in failed replies by matching these output
 fragments. Surrounding context and recovery advice can vary. The fragments in
