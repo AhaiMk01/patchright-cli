@@ -212,3 +212,107 @@ async def test_open_on_a_default_tab_whose_page_is_gone_says_so():
     b.fire("close")
     reply = await _run(state, "open")
     assert reply["success"] is False and reply["code"] == "target_closed"
+
+
+def _opens_then(session, page, during):
+    """context.new_page emits the page event, runs `during` (what else happens meanwhile), then resolves."""
+
+    async def new_page():
+        _page_event_handler(session)(page)
+        await asyncio.sleep(0)
+        await during()
+        return page
+
+    session.context.new_page = new_page
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("closes", ["after-page-event", "before-page-event"])
+async def test_the_default_page_closing_while_a_named_tab_opens_still_counts(closes):
+    state, session, (a, b) = await _state("https://a.test", "https://b.test")
+    session.current_tab = 1
+    inbox = _Page("https://inbox.test")
+    if closes == "before-page-event":
+
+        async def new_page():
+            b.fire("close")
+            _page_event_handler(session)(inbox)
+            await asyncio.sleep(0)
+            return inbox
+
+        session.context.new_page = new_page
+    else:
+
+        async def close_b():
+            b.fire("close")
+
+        _opens_then(session, inbox, close_b)
+    await _run(state, "open", tab="inbox")
+    assert (await _run(state, "title"))["code"] == "target_closed"
+    a.title.assert_not_awaited()
+    inbox.title.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_tab_select_while_a_named_tab_opens_is_kept():
+    state, session, (a, b) = await _state("https://a.test", "https://b.test")
+    session.current_tab = 1
+
+    async def select_a():
+        assert (await _run(state, "tab-select", ["0"]))["success"] is True
+
+    _opens_then(session, _Page("https://inbox.test"), select_a)
+    await _run(state, "open", tab="inbox")
+    assert (await _run(state, "title"))["output"] == "https://a.test"
+
+
+@pytest.mark.asyncio
+async def test_a_named_tab_whose_page_closed_while_opening_is_not_open():
+    state, session, _ = await _state("https://a.test")
+    inbox = _Page("https://inbox.test")
+
+    async def close_inbox():
+        inbox.fire("close")
+        inbox.is_closed = lambda: True
+
+    _opens_then(session, inbox, close_inbox)
+    await _run(state, "open", tab="inbox")
+    assert (await _run(state, "title", tab="inbox"))["code"] == "tab_not_open"
+    assert [t["url"] for t in (await _run(state, "tab-list"))["data"]] == ["https://a.test"]
+
+
+@pytest.mark.asyncio
+async def test_a_host_popup_that_crashes_during_the_opener_lookup_is_dropped_and_closed():
+    ours = _Page("https://ours.test")
+    session = Session("default", MagicMock(), [ours], uses_host_context=True)
+    session.own_pages.add(ours)
+    await session.setup_listeners()
+    popup = _Page("https://popup.test")
+
+    async def opener():
+        popup.fire("crash")  # a renderer crash leaves is_closed() False
+        return ours
+
+    popup.opener = opener
+    _page_event_handler(session)(popup)
+    for _ in range(3):
+        await asyncio.sleep(0)
+    assert session.pages == [ours]
+    popup.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_tab_close_on_a_session_without_pages_is_no_page():
+    state, session, (a,) = await _state("https://a.test")
+    a.fire("close")
+    assert (await _run(state, "tab-close"))["code"] == "no_page"
+
+
+@pytest.mark.asyncio
+async def test_a_task_bound_in_one_session_does_not_reach_a_reopened_one():
+    _, first, _ = await _state("https://a.test")
+    first.context.new_page = AsyncMock(return_value=_Page("https://inbox.test"))
+    await first.open_tab("inbox")
+    first.activate_tab("inbox")
+    reopened = Session("default", MagicMock(), [_Page("https://b.test")])
+    assert reopened.active_tab.name == "default"
