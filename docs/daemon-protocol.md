@@ -82,9 +82,11 @@ rather than on `output`, whose wording can change in any release:
 | `code` | State |
 | --- | --- |
 | `session_not_open` | The requested session is absent. |
-| `tab_not_open` | The requested named tab is absent from the session. |
-| `target_closed` | The page, context or browser closed under the command. This includes a tab or window closed outside the daemon (by a person, the page or Chrome exiting), which the session still tracks. An `open` or `attach` that fails while starting a new session never carries it. A command whose own action closes its page (a popup's "Done" button) succeeds and says the page closed. |
-| `no_page` | The session is open but every page was closed with `tab-close`. `tab-new` opens one. |
+| `tab_not_open` | The requested named tab is absent from the session, including one whose page closed or crashed outside the daemon. `open --tab <name>` opens it again. |
+| `target_closed` | The page, context or browser closed under the command. Also the default tab's page closed or crashed outside the daemon (a person, the page, the Host, or a renderer crash): the default tab does not move to another page on its own, so pick one with `tab-select <index>` or open one with `tab-new`. An `open` or `attach` that fails while starting a new session never carries it. A command whose own action closes its page (a popup's "Done" button) succeeds and says the page closed. |
+| `no_page` | The session is open but has no pages left, whether they were closed with `tab-close`, closed outside the daemon, or crashed. The session stays open; `tab-new` opens a page. |
+
+A page closed or crashed outside the daemon leaves the session as soon as Chrome reports it: `tab-list` stops listing it. A crashed page cannot be reloaded, since Patchright fails every later call on it, so the session closes it (in a Host Context, only a page the session opened). While the default tab has no page, `tab-close <index>` still works; `tab-close` without an index is refused rather than closing a neighbour.
 
 Other failures carry no `code`; more codes can be added later, so treat an
 unknown one like a missing one. Successful replies, including the no-ops below,

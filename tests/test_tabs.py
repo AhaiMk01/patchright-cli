@@ -1,6 +1,7 @@
 """Unit tests for per-tab session state."""
 
 import asyncio
+import contextvars
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -134,14 +135,16 @@ async def test_close_tab_frees_only_that_tab():
 
 
 @pytest.mark.asyncio
-async def test_closing_a_named_tab_falls_back_to_the_default():
+async def test_closing_a_named_tab_leaves_new_requests_on_the_default():
     session = _session()
     await session.open_tab("inbox")
     session.activate_tab("inbox")
 
     await session.close_tab("inbox")
 
-    assert session.active_tab.name == DEFAULT_TAB
+    # Each request runs in a fresh context; the closing task itself keeps its tab.
+    assert contextvars.Context().run(lambda: session.active_tab.name) == DEFAULT_TAB
+    assert session.active_tab.name == "inbox"
 
 
 @pytest.mark.asyncio
