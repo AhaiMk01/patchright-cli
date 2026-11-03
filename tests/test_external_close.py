@@ -248,6 +248,7 @@ async def test_the_default_page_closing_while_a_named_tab_opens_still_counts(clo
 
         _opens_then(session, inbox, close_b)
     await _run(state, "open", tab="inbox")
+    inbox.title.reset_mock()  # open --tab reads its own page's title
     assert (await _run(state, "title"))["code"] == "target_closed"
     a.title.assert_not_awaited()
     inbox.title.assert_not_awaited()
