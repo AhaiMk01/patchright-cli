@@ -769,6 +769,45 @@ class TestNativeRefs:
         assert "Keep" not in Path(scoped["snapshot_path"]).read_text(encoding="utf-8")
         assert _cmd(refs_page, "click", args=[keep])["success"] is True
 
+    def test_wait_for_detached_is_not_fooled_by_a_concurrent_find(self, daemon, tmp_path):
+        # find --role probes every match with a depth-0 snapshot that swaps the
+        # frame's ref map for a moment; a wait on the ref must not read that
+        # moment as "the element is gone". A session of its own: pick-locator's
+        # recorder, left in the default session, makes each probe far slower.
+        buttons = "".join(f"<button>b{i}</button>" for i in range(300))
+        page = tmp_path / "many.html"
+        page.write_text(f"<a href='#' id='t'>target link</a>{buttons}", encoding="utf-8")
+        race = {"session": "refs-race"}
+        opened = _cmd(
+            daemon, "open", args=[page.resolve().as_uri()], options={**race, "profile": f"e2e-{TEST_PORT}-race"}
+        )
+        assert opened["success"] is True, opened
+        try:
+            snap = _cmd(daemon, "snapshot", options=race)
+            link = _find_ref(Path(snap["snapshot_path"]).read_text(encoding="utf-8"), 'link "target link"')
+
+            done = threading.Event()
+
+            def keep_finding():
+                while not done.is_set():
+                    _cmd(daemon, "find", options={**race, "role": "button", "limit": "300"})
+
+            finder = threading.Thread(target=keep_finding, daemon=True)
+            finder.start()
+            try:
+                time.sleep(0.3)
+                waited = _cmd(
+                    daemon, "wait-for", args=[link], options={**race, "state": "detached", "timeout-action": "4000"}
+                )
+            finally:
+                done.set()
+                finder.join(timeout=30)
+            assert waited["success"] is False, waited
+            connected = _cmd(daemon, "eval", args=["document.getElementById('t').isConnected"], options=race)
+            assert connected["output"] == "true"
+        finally:
+            _cmd(daemon, "close", options=race)
+
 
 TRACES_SESSION = "traces"
 
