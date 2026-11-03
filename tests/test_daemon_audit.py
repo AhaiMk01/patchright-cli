@@ -306,3 +306,13 @@ async def test_a_session_without_pages_carries_its_code(mock_state, mock_session
     mock_session.page = None
     reply = await _run(mock_state, "title")
     assert reply["success"] is False and reply["code"] == "no_page"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_of_a_closed_page_fails_with_its_code(mock_state, mock_session):  # noqa: F811
+    from patchright._impl._errors import TargetClosedError
+
+    mock_state.sessions = {"default": mock_session}
+    mock_session.page.aria_snapshot = AsyncMock(side_effect=TargetClosedError())
+    reply = await _run(mock_state, "snapshot")
+    assert reply["success"] is False and reply["code"] == "target_closed"
