@@ -17,6 +17,16 @@ from patchright_cli.snapshot_text import REF_TAG
 EMPTY_SNAPSHOT = "# Empty page - no accessible elements found\n"
 
 
+def is_target_closed(exc: Exception) -> bool:
+    """The page, context or browser closed under the command.
+
+    Patchright raises every driver-reported close as TargetClosedError, matched
+    by name because Patchright is imported lazily. Never by message: a page's
+    own error can say "has been closed".
+    """
+    return type(exc).__name__ == "TargetClosedError"
+
+
 async def ai_snapshot(page, boxes: bool = False) -> str:
     """The full page's AI snapshot, iframes included. Refreshes the page's ref map.
 
@@ -24,7 +34,9 @@ async def ai_snapshot(page, boxes: bool = False) -> str:
     """
     try:
         return await page.aria_snapshot(mode="ai", boxes=True if boxes else None)
-    except Exception:
+    except Exception as exc:
+        if is_target_closed(exc):
+            raise
         return ""
 
 
