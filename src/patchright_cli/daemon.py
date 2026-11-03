@@ -3163,7 +3163,11 @@ async def cmd_state_load(
         return {"success": False, "output": f"File not found: {filepath}"}
     # One native call: clears the context's cookies, storage, IndexedDB, OPFS and virtual
     # WebAuthn credentials, then applies the file's state to every origin it lists.
-    await session.context.set_storage_state(filepath)
+    # With no credentials in the file it also uninstalls the virtual authenticator,
+    # so the next passkey-* command installs it again (a no-op if it is still there).
+    async with session._passkey_lock:
+        await session.context.set_storage_state(filepath)
+        session._passkeys_installed = False
     return {"success": True, "output": f"State loaded from {filepath}"}
 
 

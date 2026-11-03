@@ -537,11 +537,15 @@ async def test_state_load_applies_file_with_one_native_call(mock_state, mock_ses
     mock_session.context.set_storage_state = AsyncMock()
     mock_session.context.add_cookies = AsyncMock()
     mock_session.page.evaluate = AsyncMock()
+    mock_session._passkey_lock = asyncio.Lock()
+    mock_session._passkeys_installed = True
 
     response = await handle_command(mock_state, {"command": "state-load", "args": [str(state_file)]})
 
     assert response == {"success": True, "output": f"State loaded from {state_file}"}
     mock_session.context.set_storage_state.assert_awaited_once_with(str(state_file))
+    # A state without credentials uninstalls the virtual authenticator.
+    assert mock_session._passkeys_installed is False
     mock_session.context.add_cookies.assert_not_called()
     mock_session.page.evaluate.assert_not_called()
 
