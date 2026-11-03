@@ -317,3 +317,22 @@ async def test_a_task_bound_in_one_session_does_not_reach_a_reopened_one():
     first.activate_tab("inbox")
     reopened = Session("default", MagicMock(), [_Page("https://b.test")])
     assert reopened.active_tab.name == "default"
+
+
+@pytest.mark.asyncio
+async def test_a_host_named_tab_page_that_crashes_while_opening_is_closed():
+    host = _Page("https://host.test")
+    session = Session("default", MagicMock(), [host], uses_host_context=True)
+    await session.setup_listeners()
+    inbox = _Page("https://inbox.test")
+    inbox.opener = AsyncMock(return_value=None)
+
+    async def crash_inbox():
+        inbox.fire("crash")  # before new_page resolves, so the session does not own it yet
+
+    _opens_then(session, inbox, crash_inbox)
+    tab = await session.open_tab("inbox")
+    await asyncio.sleep(0)
+    assert tab.gone and session.pages == [host]
+    inbox.close.assert_awaited_once()
+    host.close.assert_not_awaited()
