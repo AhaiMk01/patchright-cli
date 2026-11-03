@@ -190,6 +190,29 @@ async def test_export_file_is_owner_only(state, session, tmp_path):
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows ACLs")
+async def test_export_file_is_owner_only_on_windows(state, session, tmp_path):
+    import subprocess
+
+    from tests.test_daemon_token import _canonical_sid, _current_user_sid, _dacl_sddl
+
+    session._passkeys_installed = True
+    session.context.credentials.get.return_value = [dict(CRED)]
+    subprocess.run(["icacls", str(tmp_path), "/grant", "*S-1-1-0:(OI)(CI)(R)"], check=True, capture_output=True)
+    target = tmp_path / "pk.json"
+    target.write_text("old", encoding="utf-8")
+    assert ";;;WD)" in _dacl_sddl(target), "the test ACL did not take effect"
+
+    await _run(state, "passkey-export", [str(target)])
+
+    sddl = _dacl_sddl(target)
+    assert sddl.startswith("D:P"), sddl
+    aces = sddl[3:].strip("()").split(")(")
+    assert len(aces) == 1, sddl
+    assert aces[0].split(";")[2] == "FA", sddl
+    assert _canonical_sid(aces[0].split(";")[5]) == _current_user_sid()
+
+
 async def test_export_default_path(state, session, tmp_path):
     session._passkeys_installed = True
     resp = await _run(state, "passkey-export", cwd=str(tmp_path))
