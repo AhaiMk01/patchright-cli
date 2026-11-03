@@ -212,14 +212,25 @@ class Sweep:
         self.steps.append(record)
         print(f"[{code:>3}] {step_id:<38} {record['ms']:>6}ms {verb} <stale {key}>", flush=True)
 
-    def pick(self, step_id: str, selector: str) -> None:
-        """Run `pick-locator` while the mouse clicks the element this CSS selector matches."""
-        code, out = self.cli(
-            "eval",
-            f"(() => {{ const el = document.querySelector({json.dumps(selector)}); el.scrollIntoView();"
-            " const r = el.getBoundingClientRect();"
-            " return [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; })()",
-        )
+    def pick(self, step_id: str, selector: str, frame: str | None = None) -> None:
+        """Run `pick-locator` while the mouse clicks the element this CSS selector matches.
+
+        With `frame`, the selector is looked up inside that iframe (a CSS selector in the page).
+        """
+        if frame:
+            js = (
+                f"(() => {{ const f = document.querySelector({json.dumps(frame)}); const fr = f.getBoundingClientRect();"
+                f" const r = f.contentDocument.querySelector({json.dumps(selector)}).getBoundingClientRect();"
+                " return [Math.round(fr.x + f.clientLeft + r.x + r.width / 2),"
+                " Math.round(fr.y + f.clientTop + r.y + r.height / 2)]; })()"
+            )
+        else:
+            js = (
+                f"(() => {{ const el = document.querySelector({json.dumps(selector)}); el.scrollIntoView();"
+                " const r = el.getBoundingClientRect();"
+                " return [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; })()"
+            )
+        code, out = self.cli("eval", js)
         x, y = json.loads(out)
         result: dict = {}
 
@@ -286,6 +297,8 @@ def run_steps(s: Sweep, upload_file: Path) -> None:
     s.step("controls:check-radio", "check", T("radio", "Large"))
     s.step("controls:select", "select", T("combobox", "Color"), "blue")
     s.step("controls:select-label", "select", T("combobox", "Color"), "Green")
+    s.step("controls:select-ref-as-option", "select", T("combobox", "Color"), T("button", "Go"))
+    s.step("controls:select-missing-option", "select", T("combobox", "Color"), "Purple", "--timeout-action=2000")
     s.step("controls:upload", "upload", str(upload_file), T("button", "Avatar"))
     s.step("controls:upload-default", "upload", str(upload_file))
     s.step("controls:click-save-1", "click", T("button", "Save", 1))
@@ -298,7 +311,9 @@ def run_steps(s: Sweep, upload_file: Path) -> None:
     s.step("controls:drop-data", "drop", T("region", "Drop target"), "--data=text/plain=hello")
     s.step("controls:drop-file", "drop", T("region", "Drop target"), f"--path={upload_file}")
     s.step("controls:highlight", "highlight", T("button", "Go"), state=False)
-    s.step("controls:highlight-style", "highlight", T("button", "Hover me"), "--style=outline: 2px solid red", state=False)
+    s.step(
+        "controls:highlight-style", "highlight", T("button", "Hover me"), "--style=outline: 2px solid red", state=False
+    )
     s.step("controls:highlight-hide-ref", "highlight", T("button", "Go"), "--hide", state=False)
     s.step("controls:highlight-hide-all", "highlight", "--hide", state=False)
     s.step("controls:screenshot-ref", "screenshot", T("button", "Go"), state=False)
@@ -332,6 +347,25 @@ def run_steps(s: Sweep, upload_file: Path) -> None:
     s.step("controls:find-role-exact", "find", "--role=textbox", "--name=Name", "--exact", state=False)
     s.step("controls:find-role-none", "find", "--role=slider", state=False)
     s.step("controls:find-role-then-click", "click", T("button", "Save", 1))
+    # A scoped view must not cost the refs outside it.
+    s.step("controls:snapshot-full-for-heal", "snapshot", state=False)
+    s.note_ref("go", Target("button", "Go"))
+    s.note_ref("save0", Target("button", "Save", 0))
+    s.step("controls:snapshot-selector-scope", "snapshot", "--selector=#dst", keep_snapshot=True, state=False)
+    s.stale_step("controls:outside-ref-after-selector", "click", "go")
+    s.step("controls:snapshot-ref-scope", "snapshot", T("region", "Drop target"), keep_snapshot=True, state=False)
+    s.stale_step("controls:outside-ref-after-ref-scope", "click", "save0")
+    s.step("controls:snapshot-depth-markers", "snapshot", "--depth=1", keep_snapshot=True, state=False)
+    s.stale_step("controls:deep-ref-after-depth", "click", "go")
+    s.step("controls:snapshot-i-again", "snapshot", "-i", keep_snapshot=True, state=False)
+    s.stale_step("controls:ref-after-i", "click", "save0")
+    s.step(
+        "controls:reattach-save1",
+        "eval",
+        "(() => { const b = document.getElementById('save1'); const p = b.parentNode; p.removeChild(b); p.appendChild(b); })()",
+        state=False,
+    )
+    s.stale_step("controls:ref-after-reattach", "click", "save0")
     s.step("controls:html-ref", "html", T("button", "Go"), state=False)
     s.step("controls:html-ref-list", "html", T("list"), state=False)
     s.step("controls:html-selector", "html", "--selector=#go", state=False)
@@ -380,6 +414,20 @@ def run_steps(s: Sweep, upload_file: Path) -> None:
     s.step("iframe:html-inner", "html", T("button", "Submit", 1), state=False)
     s.step("iframe:snapshot-pre-pick", "snapshot", state=False)
     s.pick("iframe:pick-outer", "#outer-submit")
+    s.step("iframe:snapshot-pre-pick-inner", "snapshot", state=False)
+    s.pick("iframe:pick-inner", "#inner-submit", frame="#child")
+    s.step("iframe:snapshot-boxes", "snapshot", "--boxes", keep_snapshot=True, state=False)
+    s.step(
+        "iframe:inner-submit-page-box",
+        "eval",
+        "(() => { const f = document.getElementById('child'); const fr = f.getBoundingClientRect();"
+        " const r = f.contentDocument.getElementById('inner-submit').getBoundingClientRect();"
+        " return [Math.round(fr.x + f.clientLeft + r.x), Math.round(fr.y + f.clientTop + r.y),"
+        " Math.round(r.width), Math.round(r.height)]; })()",
+        state=False,
+    )
+    s.step("iframe:snapshot-i", "snapshot", "-i", keep_snapshot=True, state=False)
+    s.step("iframe:find-inner-check", "find", "Inner", state=False)
     s.step("iframe:snapshot-iframe-ref", "snapshot", T("iframe"), keep_snapshot=True, state=False)
 
     # -- open shadow DOM ---------------------------------------------------------
@@ -468,6 +516,20 @@ def run_steps(s: Sweep, upload_file: Path) -> None:
     s.step("nav:go-back", "go-back")
     s.step("nav:snapshot-5", "snapshot", keep_snapshot=False, state=False)
     s.step("nav:click-after-back", "click", T("button", "Other"))
+
+    # -- two tabs, each on its first document ------------------------------------
+    a, b = "--tab=snaprefs-a", "--tab=snaprefs-b"
+    s.step("tabs:open-a", a, "open", f"{s.base}/nav.html", state=False)
+    s.step("tabs:open-b", b, "open", f"{s.base}/nav2.html", state=False)
+    s.step("tabs:snapshot-a", a, "snapshot", keep_snapshot=True, state=False)
+    s.note_ref("a-rerender", Target("button", "Rerender"))
+    s.note_ref("a-item-b", Target("button", "Item B"))
+    s.step("tabs:snapshot-b", b, "snapshot", keep_snapshot=True, state=False)
+    s.stale_step("tabs:a-ref-in-b-same-number", "click", "a-rerender", b)
+    s.stale_step("tabs:a-ref-in-b-unknown-number", "click", "a-item-b", b)
+    s.step("tabs:state-b", b, "eval", STATE_JS, state=False)
+    s.step("tabs:close-a", a, "close", state=False)
+    s.step("tabs:close-b", b, "close", state=False)
 
 
 class _QuietHandler(SimpleHTTPRequestHandler):
