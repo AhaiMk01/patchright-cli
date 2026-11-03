@@ -154,11 +154,25 @@ async def test_waiting_for_an_element_that_is_already_gone_succeeds_after_one_he
     assert snap.await_count == 1
 
 
-async def test_select_refuses_a_ref_as_the_option(state, session):
-    session.page.get_by_ref = MagicMock(return_value=_locator(1))
+@pytest.mark.parametrize("value", ["e5", "f3e5"])
+async def test_select_takes_an_option_whose_value_or_label_looks_like_a_ref(state, session, value):
+    loc = _locator(1)
+    session.page.get_by_ref = MagicMock(return_value=loc)
+    response, _ = await _run(state, "select", ["e3", value])
+    assert response["success"] is True, response
+    loc.select_option.assert_awaited_once_with(value)
+
+
+async def test_select_of_a_ref_that_matches_no_option_says_to_use_the_label(state, session):
+    loc = _locator(1)
+    loc.select_option = AsyncMock(side_effect=Exception("Locator.select_option: Timeout 30000ms exceeded."))
+    session.page.get_by_ref = MagicMock(return_value=loc)
     response, _ = await _run(state, "select", ["e3", "e4"])
     assert response["success"] is False
-    assert "select takes the option label shown under the combobox, e.g. select e3 Green" in response["output"]
+    loc.select_option.assert_awaited_once_with("e4")
+    assert "help: select takes the option label shown under the combobox, e.g. select e3 Green" in (
+        response["output"].splitlines()
+    )
 
 
 async def test_select_timeout_lists_the_options(state, session):
