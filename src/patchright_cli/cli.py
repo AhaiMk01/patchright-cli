@@ -813,7 +813,7 @@ COMMAND_SPECS: dict[str, dict] = {
     },
     "drop": {
         "usage": "drop <ref>",
-        "summary": "Drop file/data onto element",
+        "summary": "Drop file/data onto element (fails if it does not accept drops)",
         "flags": {
             "path": "File to drop (default: none)",
             "data": "Data to drop as mime=value (default: none)",

@@ -206,6 +206,8 @@ drop <ref> --path=./file.png  # Drop file onto element (HTML5 drop from outside)
 drop <ref> --data="text/plain=hello"  # Drop arbitrary MIME data
 ```
 
+`drop` fails (exit 1) when the target does not accept drops, meaning its `dragover` handler does not call `preventDefault()`. Before, it reported success without anything being dropped. Drop onto the element that handles the drop, not onto a wrapper around it.
+
 ### Form input
 
 ```bash
@@ -420,7 +422,7 @@ text <ref|selector>                     # Get text content of element
 html [ref] [--selector] [--include-shadow] [--filename] [--max-chars]  # Print page HTML, or one element's outerHTML
 screenshot [ref] [--full-page] [--hires] [--filename]  # Save screenshot
 drag <from> <to> [--scroll]             # Drag element to target
-drop <ref> [--path] [--data]            # Drop file/data onto element
+drop <ref> [--path] [--data]            # Drop file/data onto element (fails if it does not accept drops)
 close                                   # Close browser session (or the --tab it is addressed to)
 detach                                  # Detach attached session (keep external browser running)
 
