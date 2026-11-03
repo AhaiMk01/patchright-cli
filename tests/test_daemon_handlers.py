@@ -162,10 +162,11 @@ async def test_scroll_none_viewport_timeout_gets_a_hint(mock_state, mock_session
     getattr(locator, method).side_effect = Exception(VIEWPORT_ERROR)
     response = await _run_action(mock_state, command, args, {"scroll": "none"})
     assert response["success"] is False
-    assert (
-        response["output"]
-        == f"Error: {VIEWPORT_ERROR}\nhelp: the element is off-screen; drop --scroll=none or scroll first"
-    )
+    assert response["output"].splitlines() == [
+        f"Error: {command} on e1 timed out after 1.5s: the element is outside of the viewport",
+        "help: the element is off-screen; drop --scroll=none or scroll first",
+    ]
+    assert "Call log" not in response["output"] and "Locator." not in response["output"]
 
 
 @pytest.mark.asyncio
@@ -186,7 +187,7 @@ async def test_viewport_error_without_scroll_none_has_no_hint(mock_state, mock_s
     locator.click.side_effect = Exception(VIEWPORT_ERROR)
     response = await _run_action(mock_state, "click", ["e1"], {"scroll": scroll} if scroll else {})
     assert response["success"] is False
-    assert "help:" not in response["output"]
+    assert "drop --scroll=none" not in response["output"]
 
 
 @pytest.mark.asyncio
@@ -196,7 +197,7 @@ async def test_other_scroll_none_failures_have_no_hint(mock_state, mock_session)
     locator.hover.side_effect = Exception("Locator.hover: Timeout 1500ms exceeded.\n  - element is not visible")
     response = await _run_action(mock_state, "hover", ["e1"], {"scroll": "none"})
     assert response["success"] is False
-    assert "help:" not in response["output"]
+    assert "drop --scroll=none" not in response["output"]
 
 
 @pytest.mark.asyncio

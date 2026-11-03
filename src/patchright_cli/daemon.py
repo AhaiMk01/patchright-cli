@@ -1699,20 +1699,76 @@ def _scroll_option(options: dict) -> str | None:
 
 SCROLL_NONE_HINT = "help: the element is off-screen; drop --scroll=none or scroll first"
 
+# `Locator.hover: `, `WebStorage.items: `, `Page.goto: ` -- Playwright's method name.
+_API_PREFIX = re.compile(r"^(?:[A-Z][A-Za-z]*\.[a-z_]\w*: )+")
+_TIMEOUT_MS = re.compile(r"\bTimeout (\d+(?:\.\d+)?)ms exceeded")
+# The reason Playwright kept retrying, from its call log: the last one is the cause.
+_TIMEOUT_REASON = re.compile(
+    r"^\s*- (.+? intercepts pointer events|element is not (?:visible|enabled|stable|editable|attached)"
+    r"(?: and \w+)?|did not find some options)\s*$",
+    re.M,
+)
+_NAVIGATION_COMMANDS = frozenset({"open", "goto", "reload", "go-back", "go-forward", "tab-new", "wait"})
 
-async def _scroll_action(scroll: str | None, action) -> dict | None:
-    """Await an element action; on a --scroll=none viewport failure, return an error with a hint.
 
-    Playwright retries "element is outside of the viewport" until the action
-    timeout, so the bare error reads like a hang; the hint names the cause.
+def _error_message(cmd: str, args: list, options: dict, exc: Exception) -> tuple[str, list[str]]:
+    """An exception from a handler as (one actionable line, help lines), without Playwright internals.
+
+    Playwright errors carry the API method (`Locator.drop: `) and a `Call log:`
+    of its retries; neither tells the caller what to do. The full text stays in
+    the daemon log.
     """
-    try:
-        await action
-    except Exception as exc:
-        if scroll == "none" and "outside of the viewport" in str(exc):
-            return {"success": False, "output": f"Error: {exc}\n{SCROLL_NONE_HINT}"}
-        raise
-    return None
+    raw = str(exc).strip() or type(exc).__name__
+    head = raw.split("Call log:", 1)[0].strip() or raw
+    first = head.splitlines()[0].strip()
+    message = _API_PREFIX.sub("", first) if _API_PREFIX.match(first) else head
+    ref = str(args[0]) if args and normalize_ref(str(args[0])) else None
+    on_ref = f" on {ref}" if ref else ""
+
+    if "Drop target did not accept" in message:
+        return (
+            f"{ref or 'the target'} did not accept the drop (its dragover handler does not call preventDefault)",
+            ["help: drop onto the element that handles drops"],
+        )
+    if "SecurityError" in message and cmd.startswith(("localstorage-", "sessionstorage-")):
+        store = "localStorage" if cmd.startswith("local") else "sessionStorage"
+        return f"{store} is not available on this page (opaque origin)", ["help: goto an http(s) page first"]
+    timeout = _TIMEOUT_MS.search(message)
+    if timeout:
+        after = f"{float(timeout.group(1)) / 1000:g}s"
+        if options.get("scroll") == "none" and "outside of the viewport" in raw:
+            return f"{cmd}{on_ref} timed out after {after}: the element is outside of the viewport", [SCROLL_NONE_HINT]
+        reasons = _TIMEOUT_REASON.findall(raw)
+        reason = reasons[-1].strip() if reasons else ""
+        if "intercepts pointer events" in reason:
+            blocker = reason.replace(" intercepts pointer events", "")
+            blocker = blocker if len(blocker) <= 100 else blocker[:97] + "..."
+            return f"{cmd}{on_ref} timed out after {after}: {blocker} covers it", [
+                "help: close what covers it first (a dialog or overlay: press Escape, or click its close button)"
+            ]
+        if reason == "did not find some options":
+            return f"{cmd}{on_ref} timed out after {after}: no option with that label", []
+        if reason:
+            return f"{cmd}{on_ref} timed out after {after}: {reason}", [
+                f"help: run `snapshot` to check {ref or 'the element'}, or raise --timeout-action=<ms>"
+            ]
+        if cmd == "wait-for" and ref:
+            hint = (
+                f"help: {ref} is not {options.get('state', 'visible')} yet; raise --timeout-action=<ms> to wait longer"
+            )
+        elif cmd in _NAVIGATION_COMMANDS:
+            hint = "help: the page did not finish loading; check the URL, or raise --timeout-navigation=<ms>"
+        elif ref:
+            hint = f"help: run `snapshot` to check {ref} is visible and enabled, or raise --timeout-action=<ms>"
+        else:
+            hint = "help: raise --timeout-action=<ms>"
+        return f"{cmd}{on_ref} timed out after {after}", [hint]
+    return message, []
+
+
+def _error_reply(cmd: str, args: list, options: dict, exc: Exception, *extra: str) -> dict:
+    message, helps = _error_message(cmd, args, options, exc)
+    return {"success": False, "output": "\n".join([f"Error: {message}", *extra, *helps])}
 
 
 @register("click")
@@ -1728,16 +1784,15 @@ async def cmd_click(session: Session, page, args: list, options: dict, cwd: str 
     )
     if link_href:
         # The link is followed without a click, so with --scroll=none check reachability with a trial click first.
-        if scroll == "none" and (failed := await _scroll_action(scroll, elem.click(trial=True, scroll="none"))):
-            return failed
+        if scroll == "none":
+            await elem.click(trial=True, scroll="none")
         await session.goto(page, link_href, _web_only(options))
         session.push_history(page.url)
     else:
         clicked = elem.click(
             button=button, modifiers=[m.strip() for m in modifiers if m.strip()] or None, scroll=scroll
         )
-        if failed := await _scroll_action(scroll, clicked):
-            return failed
+        await clicked
     return await _page_info(session, cwd)
 
 
@@ -1772,8 +1827,7 @@ async def cmd_type(session: Session, page, args: list, options: dict, cwd: str |
 async def cmd_hover(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
-    if failed := await _scroll_action(scroll, elem.hover(scroll=scroll)):
-        return failed
+    await elem.hover(scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -1793,8 +1847,8 @@ async def cmd_select(session: Session, page, args: list, options: dict, cwd: str
             raise
         block = snapshot_text.subtree(session.last_raw or "", _parse_ref(args[0])) or ""
         options_shown = [line.strip() for line in block.splitlines() if line.strip().startswith("- option ")]
-        hint = ("\nOptions:\n" + "\n".join(options_shown)) if options_shown else ""
-        return {"success": False, "output": f"Error: {exc}{hint}"}
+        listed = ["Options:", *options_shown] if options_shown else []
+        return _error_reply("select", args, options, exc, *listed)
     return await _page_info(session, cwd)
 
 
@@ -1802,8 +1856,7 @@ async def cmd_select(session: Session, page, args: list, options: dict, cwd: str
 async def cmd_check(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     scroll = _scroll_option(options)
     elem = await _resolve_ref(session, page, args[0])
-    if failed := await _scroll_action(scroll, elem.check(scroll=scroll)):
-        return failed
+    await elem.check(scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -1819,8 +1872,7 @@ async def cmd_drag(session: Session, page, args: list, options: dict, cwd: str |
     scroll = _scroll_option(options)
     src = await _resolve_ref(session, page, args[0])
     dst = await _resolve_ref(session, page, args[1])
-    if failed := await _scroll_action(scroll, src.drag_to(dst, scroll=scroll)):
-        return failed
+    await src.drag_to(dst, scroll=scroll)
     return await _page_info(session, cwd)
 
 
@@ -4426,8 +4478,9 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
         # A malformed ref is a usage error, like an unknown flag: exit 2.
         return {"success": False, "output": f"Error: {e}", "exit_code": 2}
     except Exception as e:
+        # The full Playwright message, call log included, stays in the daemon log.
         logger.error("Command %s failed: %s", cmd, traceback.format_exc())
-        return {"success": False, "output": f"Error: {e}"}
+        return _error_reply(cmd, args, options, e)
 
 
 # ---------------------------------------------------------------------------
