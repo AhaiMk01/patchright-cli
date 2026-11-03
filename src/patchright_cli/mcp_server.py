@@ -381,8 +381,8 @@ TOOL_SPECS = {
                 "fps",
                 "number",
                 False,
-                0,
-                "Real-time video at this frame rate, 1-60; zero keeps every captured frame once at 5 fps.",
+                25,
+                "Frame rate of the real-time video, 1-60.",
             ),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
@@ -1309,9 +1309,9 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         return args
 
     if name == "patchright_video_start":
-        if p["fps"] and not 1 <= p["fps"] <= 60:
-            raise ValueError("fps must be from 1 to 60, or zero for the default")
-        return ["video-start", f"--fps={p['fps']}"] if p["fps"] else ["video-start"]
+        if not 1 <= p["fps"] <= 60:
+            raise ValueError("fps must be from 1 to 60")
+        return ["video-start", f"--fps={p['fps']}"]
 
     if name == "patchright_video_show_actions":
         if p["position"] not in CALLOUT_POSITIONS:

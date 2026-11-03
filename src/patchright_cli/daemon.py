@@ -169,7 +169,7 @@ class Session:
         self._video_cdp = None
         self._video_page = None
         self._video_frames: list[bytes] = []
-        # With `video-start --fps`: each frame's capture time, to pace the output.
+        # Each frame's capture time, to pace the output at `_video_fps`.
         self._video_times: list[float] = []
         self._video_fps: int | None = None
         self._video_recording: bool = False
@@ -3283,6 +3283,8 @@ async def cmd_tracing_stop(
 # Chrome composites at the display refresh rate, so more than 60 fps only
 # repeats frames.
 MAX_VIDEO_FPS = 60
+# playwright-cli's default frame rate.
+DEFAULT_VIDEO_FPS = 25
 
 
 def _parse_video_fps(raw) -> int | None:
@@ -3324,7 +3326,7 @@ async def cmd_video_start(
 ) -> dict:
     if session._video_recording:
         return {"success": True, "output": "Video recording already in progress (no-op)"}
-    fps = None
+    fps = DEFAULT_VIDEO_FPS
     if options.get("fps") is not None:
         fps = _parse_video_fps(options["fps"])
         if fps is None:
@@ -3352,9 +3354,7 @@ async def cmd_video_start(
 
     cdp.on("Page.screencastFrame", _on_frame)
     await cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 80, "maxWidth": 1280, "maxHeight": 720})
-    if fps:
-        return {"success": True, "output": f"Video recording started at {fps} fps."}
-    return {"success": True, "output": "Video recording started."}
+    return {"success": True, "output": f"Video recording started at {fps} fps."}
 
 
 @register("video-stop")
@@ -3371,7 +3371,7 @@ async def cmd_video_stop(
     stopped_at = time.time()
     frames = session._video_frames
     times = list(getattr(session, "_video_times", None) or [])
-    fps = getattr(session, "_video_fps", None)
+    fps = getattr(session, "_video_fps", None) or DEFAULT_VIDEO_FPS
     session._video_frames = []
     session._video_times = []
     session._video_fps = None
@@ -3397,51 +3397,67 @@ async def cmd_video_stop(
 
     fn = options.get("filename")
     video_path = snap_dir / (fn or f"video-{ts}.webm")
-    try:
-        import shutil
-        import tempfile
+    import shutil
+    import tempfile
 
-        if not shutil.which("ffmpeg"):
-            raise FileNotFoundError("ffmpeg not found")
-
+    if shutil.which("ffmpeg"):
         with tempfile.TemporaryDirectory() as tmpdir:
             for i, frame_data in enumerate(frames):
                 Path(tmpdir, f"frame-{i:06d}.jpg").write_bytes(frame_data)
-            if fps and len(times) == len(frames):
+            if len(times) == len(frames):
                 # Real time: each frame stays on screen until the next one arrived,
                 # resampled to a constant `fps`.
                 concat = Path(tmpdir, "frames.txt")
                 concat.write_text(_video_concat_list(times, stopped_at, fps), encoding="utf-8")
                 length = f"{_video_length(times, stopped_at, fps):.3f}"
                 source = ["-f", "concat", "-safe", "0", "-i", str(concat), "-vf", f"fps={fps}", "-t", length]
+                if await _encode_video(source, video_path):
+                    return {
+                        "success": True,
+                        "output": f"Video saved to {video_path} ({len(frames)} frames, {fps} fps)",
+                    }
+                warning = "Warning: real-time resampling failed, so this video plays each frame once at 5 fps"
             else:
-                # Each captured frame once, at 5 fps (Chrome sends a frame only when the page changes).
-                source = ["-framerate", "5", "-i", str(Path(tmpdir, "frame-%06d.jpg"))]
-            proc = await asyncio.create_subprocess_exec(
-                "ffmpeg",
-                "-y",
-                *source,
-                "-c:v",
-                "libvpx",
-                "-b:v",
-                "1M",
-                str(video_path),
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.wait()
-            if proc.returncode != 0:
-                raise RuntimeError("ffmpeg failed")
-        return {"success": True, "output": f"Video saved to {video_path} ({len(frames)} frames)"}
-    except (FileNotFoundError, RuntimeError):
-        frames_dir = snap_dir / f"video-{ts}-frames"
-        frames_dir.mkdir(parents=True, exist_ok=True)
-        for i, frame_data in enumerate(frames):
-            (frames_dir / f"frame-{i:04d}.jpg").write_bytes(frame_data)
-        return {
-            "success": True,
-            "output": f"Saved {len(frames)} frames to {frames_dir}/ (install ffmpeg for video output)",
-        }
+                warning = "Warning: frame times are missing, so this video plays each frame once at 5 fps"
+            # Each captured frame once at 5 fps: not real time, as Chrome sends a
+            # frame only when the page changes, but the recording is kept.
+            source = ["-framerate", "5", "-i", str(Path(tmpdir, "frame-%06d.jpg"))]
+            if await _encode_video(source, video_path):
+                return {
+                    "success": True,
+                    "output": f"Video saved to {video_path} ({len(frames)} frames)\n{warning} "
+                    "(too fast or slow compared with the recording).",
+                }
+
+    frames_dir = snap_dir / f"video-{ts}-frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    for i, frame_data in enumerate(frames):
+        (frames_dir / f"frame-{i:04d}.jpg").write_bytes(frame_data)
+    return {
+        "success": True,
+        "output": f"Saved {len(frames)} frames to {frames_dir}/ (install ffmpeg for video output)",
+    }
+
+
+async def _encode_video(source: list[str], video_path: Path) -> bool:
+    """Run ffmpeg on `source` input options into a VP8 webm; whether it succeeded."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-y",
+            *source,
+            "-c:v",
+            "libvpx",
+            "-b:v",
+            "1M",
+            str(video_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+    except OSError:
+        return False
+    return proc.returncode == 0
 
 
 @register("video-chapter")
