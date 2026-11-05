@@ -187,7 +187,7 @@ def test_snapshot_with_filename_builds_args(tmp_path, monkeypatch):
 
 def test_open_accepts_profile_name():
     args = mcp_server._build_args("patchright_open", _defaults("patchright_open", profile="work", headless=False))
-    assert args == ["--profile=work", "open", "--block-networks=link-local"]
+    assert args == ["--profile=work", "open", "--headed", "--block-networks=link-local"]
 
 
 def test_open_rejects_profile_dir_outside_root(tmp_path, monkeypatch):
@@ -257,7 +257,10 @@ def test_attach_rejects_non_cdp_schemes():
 
 def test_block_networks_none_drops_the_flag(monkeypatch):
     monkeypatch.setattr(mcp_server, "BLOCK_NETWORKS", "none")
-    assert mcp_server._build_args("patchright_open", _defaults("patchright_open", headless=False)) == ["open"]
+    assert mcp_server._build_args("patchright_open", _defaults("patchright_open", headless=False)) == [
+        "open",
+        "--headed",
+    ]
 
 
 # Optional parameters some tools still need one of.

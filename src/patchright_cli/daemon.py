@@ -4479,7 +4479,9 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
         # -- Session / lifecycle commands -----------------------------------
         if cmd == "open":
             url = args[0] if args else None
-            headless = options.get("headless", False)
+            # Absent means "whatever the daemon was started with" (None), so a
+            # daemon started --headless keeps later opens headless.
+            headless = options.get("headless")
             if options.get("headed"):
                 headless = False
             named_tab = tab_name != DEFAULT_TAB
@@ -4530,7 +4532,7 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
             cdp = options.get("cdp")
             if not cdp:
                 return {"success": False, "output": "Usage: attach --cdp=<url>"}
-            headless = options.get("headless", False)
+            headless = options.get("headless")
             session = await state.get_or_create_session(
                 session_name,
                 headless=headless,

@@ -1128,6 +1128,9 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
         args.append("open")
         if p["webmcp"]:
             args.append("--webmcp")
+        if not p["headless"]:
+            # Without it a daemon started headless would open this session headless too.
+            args.append("--headed")
         args += _block_networks_args()
         if p["url"]:
             _validate_url(p["url"])
