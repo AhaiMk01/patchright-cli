@@ -80,7 +80,9 @@ patchright-cli goto https://example.com/search?q=cats^&page=2
 These go before the command:
 
 ```bash
---headless              # Run headless (default: headed -- headed is less detectable)
+--headless              # Run headless (default: headed -- headed is less detectable);
+                        # a daemon started this way opens later sessions headless too
+                        # (`open --headed` for one headed session; `kill-all` resets)
 --profile=<name>        # Named profile any session can use (default: the session name);
                         # profiles always persist. A value with / or \ is a directory
 --proxy=<url>           # Proxy server (http, https, socks5) -- supports user:pass@host auth

@@ -674,7 +674,7 @@ COMMAND_SPECS: dict[str, dict] = {
         "summary": "Open browser (starts daemon if needed)",
         "flags": {
             "block-networks": "Refuse navigation to link-local|private addresses (default: allow all)",
-            "headed": "Force a headed window even with --headless (default: off)",
+            "headed": "Force a headed window on a daemon started with --headless (default: off)",
             "webmcp": "Launch Chrome with WebMCP on, for webmcp-list/webmcp-call; exposes "
             "document.modelContext, which stock Chrome lacks (default: off)",
         },
@@ -1609,7 +1609,7 @@ def _print_help():
     click.echo("patchright-cli — Undetected browser automation CLI\n")
     click.echo("Usage: patchright-cli [OPTIONS] <command> [args...]\n")
     click.echo("Options:")
-    click.echo("  --headless          Run headless (default: headed)")
+    click.echo("  --headless          Run headless; the daemon it starts keeps this as the default (default: headed)")
     click.echo("  --persistent        No effect; kept for compatibility (profiles always persist)")
     click.echo("  --profile=<name>    Named profile (default: the session name); a value")
     click.echo(r"                      with a / or \ is a directory instead")
