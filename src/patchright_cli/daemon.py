@@ -2755,6 +2755,17 @@ async def cmd_tab_new(session: Session, page, args: list, options: dict, cwd: st
 
 @register("tab-close")
 async def cmd_tab_close(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
+    name = session.active_tab.name
+    if not args and name != DEFAULT_TAB:
+        # current_tab is the default tab's index, not this caller's page, so
+        # closing it would close the page another caller is working in.
+        return {
+            "success": False,
+            "output": (
+                f"tab-close without an index does not apply to tab '{name}', which is pinned to its own page. "
+                f"Use `close --tab {name}` to close it, or give an index."
+            ),
+        }
     if not session.pages:
         return _no_page_reply()
     if not args and session.page is None:

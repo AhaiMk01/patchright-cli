@@ -874,7 +874,11 @@ COMMAND_SPECS: dict[str, dict] = {
         "summary": "Open new tab",
         "examples": ["tab-new", "tab-new https://example.com"],
     },
-    "tab-close": {"usage": "tab-close [index]", "summary": "Close tab", "examples": ["tab-close", "tab-close 2"]},
+    "tab-close": {
+        "usage": "tab-close [index]",
+        "summary": "Close tab (no index: default tab only)",
+        "examples": ["tab-close", "tab-close 2"],
+    },
     "tab-select": {
         "usage": "tab-select <index>",
         "summary": "Switch to tab (default tab only)",
