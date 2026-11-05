@@ -336,3 +336,30 @@ async def test_a_host_named_tab_page_that_crashes_while_opening_is_closed():
     assert tab.gone and session.pages == [host]
     inbox.close.assert_awaited_once()
     host.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tab_close_without_an_index_from_a_named_tab_leaves_the_default_page():
+    """Issue #46: current_tab is the default tab's index, not the named tab's page."""
+    state, session, (a,) = await _state("https://a.test")
+    inbox = _Page("https://inbox.test")
+    _opens(session, inbox)
+    await session.open_tab("inbox")
+    refused = await _run(state, "tab-close", tab="inbox")
+    assert refused["success"] is False
+    assert "close --tab inbox" in refused["output"]
+    a.close.assert_not_awaited()
+    inbox.close.assert_not_awaited()
+    assert "inbox" in session.tabs
+    assert (await _run(state, "title"))["output"] == "https://a.test"
+    assert (await _run(state, "title", tab="inbox"))["output"] == "https://inbox.test"
+
+
+@pytest.mark.asyncio
+async def test_tab_close_by_index_from_a_named_tab_still_closes_that_index():
+    state, session, (a, b) = await _state("https://a.test", "https://b.test")
+    _opens(session, _Page("https://inbox.test"))
+    await session.open_tab("inbox")
+    assert (await _run(state, "tab-close", ["1"], tab="inbox"))["success"] is True
+    b.close.assert_awaited_once()
+    a.close.assert_not_awaited()

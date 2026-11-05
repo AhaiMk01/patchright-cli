@@ -252,7 +252,8 @@ tab-list                      # List open tabs
 tab-new <url>                 # Open new tab
 tab-select <index>            # Switch to tab (default tab only; a --tab
                               # caller is pinned to its own page)
-tab-close [index]             # Close tab (with --context=host, only tabs this session opened)
+tab-close [index]             # Close tab (with --context=host, only tabs this session opened;
+                              # a named-tab caller needs an index, or `close --tab <name>`)
 ```
 
 ### Parallel agents: --tab
@@ -459,7 +460,7 @@ wait-for <ref> [--state]                # Wait for element to reach a state
 # Tabs
 tab-list                                # List tabs
 tab-new [url]                           # Open new tab
-tab-close [index]                       # Close tab
+tab-close [index]                       # Close tab (no index: default tab only)
 tab-select <index>                      # Switch to tab (default tab only)
 
 # Dialog
