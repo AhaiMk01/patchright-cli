@@ -23,6 +23,10 @@ TEST_PORT = int(os.environ.get("PATCHRIGHT_CLI_E2E_PORT", "19321"))
 
 
 def _send_tcp(port: int, cmd: str, args=None, options=None) -> dict:
+    if cmd in ("open", "attach"):
+        # `open` without the option is headed even on a --headless daemon, and
+        # a headed Chrome window takes the desktop's focus mid-run.
+        options = {"headless": True, **(options or {})}
     msg = {"command": cmd, "args": args or [], "options": options or {}, "token": read_daemon_token(port)}
     data = json.dumps(msg).encode("utf-8")
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
