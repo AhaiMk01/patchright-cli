@@ -871,6 +871,14 @@ def _is_stale(session: Session) -> bool:
         return True
 
 
+def _with_notices(session: Session, result: dict) -> dict:
+    """Prefix `result` with the notices the Session collected while opening, once."""
+    notices, session.attach_notices = session.attach_notices, []
+    if notices:
+        result["output"] = "\n".join(f"Note: {n}" for n in notices) + "\n" + result.get("output", "")
+    return result
+
+
 def _check_reattach(session: Session, cdp_endpoint: str, use_host: bool) -> None:
     """Refuse an `attach` that the already-open Session under that name cannot honour."""
     if not session.is_attached:
@@ -4525,7 +4533,7 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
             if options.get("headed"):
                 headless = False
             named_tab = tab_name != DEFAULT_TAB
-            existed = session_name in state.sessions
+            prior = state.sessions.get(session_name)
             session = await state.get_or_create_session(
                 session_name,
                 headless=headless,
@@ -4549,6 +4557,8 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
                 webmcp=bool(options.get("webmcp")),
                 background=bool(options.get("background")),
             )
+            # A stale Session under this name was replaced, not reused.
+            existed = session is prior
             if protected_background and existed and not named_tab and not url:
                 return {
                     "success": True,
@@ -4573,7 +4583,7 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
                 return _gone_reply()
             if session.page:
                 session.push_history(session.page.url)
-            return await _page_info(session, cwd)
+            return _with_notices(session, await _page_info(session, cwd))
 
         if cmd == "attach":
             cdp = options.get("cdp")
@@ -4600,11 +4610,7 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
             )
             if session.page:
                 session.push_history(session.page.url)
-            result = await _page_info(session, cwd)
-            notices, session.attach_notices = session.attach_notices, []
-            if notices:
-                result["output"] = "\n".join(f"Note: {n}" for n in notices) + "\n" + result.get("output", "")
-            return result
+            return _with_notices(session, await _page_info(session, cwd))
 
         if cmd == "delete-data":
             target = state.sessions.get(session_name)
