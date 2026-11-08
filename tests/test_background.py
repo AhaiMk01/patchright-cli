@@ -350,3 +350,23 @@ async def test_repeated_cancellation_waits_for_late_context_close(tmp_path):
         release_launch.set()
         release_close.set()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_background_replaces_stale_attached_session(state):
+    context = _context()
+    stale = daemon.Session("work", context, list(context.pages))
+    stale.is_attached = True
+    stale.cdp_endpoint = "http://127.0.0.1:9222"
+    stale.browser = MagicMock()
+    stale.browser.is_connected.return_value = False
+    stale.detach = AsyncMock()
+    state.sessions["work"] = stale
+
+    session = await state.get_or_create_session("work", background=True)
+
+    assert session is not stale
+    assert session.background is True
+    assert session.is_attached is False
+    stale.detach.assert_awaited_once()
+    state._launch.assert_awaited_once()
