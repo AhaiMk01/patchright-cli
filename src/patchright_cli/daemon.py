@@ -29,6 +29,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from patchright_cli import daemon_pid, snapshot_text, values
+from patchright_cli.background import launch_background, new_background_page
 from patchright_cli.debugger import SessionDebugger
 from patchright_cli.snapshot import EMPTY_SNAPSHOT, ai_snapshot, is_target_closed, probe_ref, save_snapshot
 from patchright_cli.snapshot_text import SnapshotIndex, has_ref, normalize_ref, render_hits
@@ -150,6 +151,8 @@ class Session:
         self.network_guard: NetworkGuard | None = None
         # True when `open --webmcp` launched Chrome with the WebMCP feature on.
         self.webmcp = False
+        self.background = False
+        self.headless = False
         self.current_tab: int = 0
         # The default tab's page closed or crashed outside the daemon. Its index
         # would otherwise slide onto a neighbour, and the next command would run
@@ -605,7 +608,7 @@ class Session:
 
     async def new_page(self):
         """Open a Page in this Session's context and record it as ours."""
-        page = await self.context.new_page()
+        page = await new_background_page(self.context) if self.background else await self.context.new_page()
         self.own_pages.add(page)
         if page in self._crashed:
             # It crashed before it was ours, so the crash handler could not close it.
@@ -1229,7 +1232,12 @@ class DaemonState:
         block_networks: str | None = None,
         web_only: bool = False,
         webmcp: bool = False,
+        background: bool = False,
     ) -> Session:
+        if background and headless:
+            raise ValueError("Background opening requires headed Chrome; remove --headless.")
+        if background and cdp_endpoint:
+            raise ValueError("Background opening cannot use an attached browser; choose an owned headed session.")
         if context_mode not in CDP_CONTEXT_MODES:
             raise ValueError(f"Invalid --context={context_mode!r}; expected one of: {', '.join(CDP_CONTEXT_MODES)}.")
         use_host = bool(cdp_endpoint) and context_mode == "host"
@@ -1246,6 +1254,16 @@ class DaemonState:
         notices: list[str] = []
         existing = self.sessions.get(name)
         if existing is not None:
+            if background and (existing.is_attached or existing.uses_host_context):
+                raise ValueError(
+                    f"Session '{name}' is attached; background opening requires an owned headed session. "
+                    "Use another session name."
+                )
+            if background and existing.headless:
+                raise ValueError(
+                    f"Session '{name}' is headless; background opening requires headed Chrome. "
+                    "Use another session name or close this session first."
+                )
             if _is_stale(existing):
                 await self._drop_stale(name, existing, notices)
             else:
@@ -1274,6 +1292,8 @@ class DaemonState:
                         raise ValueError(
                             f"Session '{name}' runs with {current.flags}. `close` it first to use {guard.flags}."
                         )
+                if background:
+                    existing.background = True
                 return existing
 
         if self.playwright is None:
@@ -1282,6 +1302,8 @@ class DaemonState:
             self.playwright = await async_playwright().start()
 
         use_headless = headless if headless is not None else self.default_headless
+        if background and use_headless:
+            raise ValueError("Background opening requires headed Chrome; remove --headless.")
         # An Attached Session's browser state lives wherever the Host keeps it;
         # it has no Profile of ours. Unless told otherwise, a Launched Session's
         # Profile is named after it.
@@ -1359,13 +1381,15 @@ class DaemonState:
                 else:
                     context = await attached_browser.new_context(**context_options)
             else:
-                context = await self._launch(chosen, use_headless, proxy, context_options, webmcp=webmcp)
+                context = await self._launch(
+                    chosen, use_headless, proxy, context_options, webmcp=webmcp, background=background
+                )
             # Never in a Host Context: its other Pages are someone else's browsing.
             if guard is not None and not use_host:
                 guard.install(context)
             pages = context.pages or []
             if not pages:
-                page = await context.new_page()
+                page = await new_background_page(context) if background else await context.new_page()
                 created_pages.append(page)
                 pages = [page]
             if url:
@@ -1387,6 +1411,8 @@ class DaemonState:
             session.network_guard = guard
             session.webmcp = webmcp and not cdp_endpoint
             session.profile = chosen
+            session.background = background and not use_headless and not cdp_endpoint
+            session.headless = use_headless and not cdp_endpoint
             await session.setup_listeners()
         except BaseException:
             if attached_browser is not None:
@@ -1401,7 +1427,14 @@ class DaemonState:
         return session
 
     async def _launch(
-        self, profile: Profile, headless: bool, proxy: str | None, context_options: dict, *, webmcp: bool = False
+        self,
+        profile: Profile,
+        headless: bool,
+        proxy: str | None,
+        context_options: dict,
+        *,
+        webmcp: bool = False,
+        background: bool = False,
     ):
         """Start real Chrome on a Profile."""
         args = ["--disable-blink-features=AutomationControlled"]
@@ -1436,6 +1469,8 @@ class DaemonState:
         launch_kwargs.update(context_options)
         profile.directory.mkdir(parents=True, exist_ok=True)
         try:
+            if background and not headless:
+                return await launch_background(self.playwright.chromium, str(profile.directory), launch_kwargs)
             return await self.playwright.chromium.launch_persistent_context(str(profile.directory), **launch_kwargs)
         except Exception as exc:
             if chrome_holds_profile(profile.directory):
@@ -4425,7 +4460,7 @@ def _gone_reply() -> dict:
 
 # Commands that run without a current page: the tab ones get a page back, and
 # console reads the session-wide buffer, which outlives the page that closed.
-_PAGELESS = frozenset({"tab-new", "tab-select", "tab-list", "tab-close", "console"})
+_PAGELESS = frozenset({"tab-new", "tab-select", "tab-list", "tab-close", "console", "cookie-list"})
 _NOT_HELD = {"close", "close-all", "kill-all", "detach", "delete-data", "list", "profile-list"}
 
 
@@ -4452,6 +4487,11 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
     args = msg.get("args", [])
     options = dict(msg.get("options", {}))
     cwd = msg.get("cwd")
+
+    protected_background = cmd == "background-open"
+    if protected_background:
+        cmd = "open"
+        options["background"] = True
 
     # `requests` is an alias for `network` (matches playwright-cli naming).
     if cmd == "requests":
@@ -4507,7 +4547,14 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
                 block_networks=options.get("block-networks"),
                 web_only=_web_only(options),
                 webmcp=bool(options.get("webmcp")),
+                background=bool(options.get("background")),
             )
+            if protected_background and existed and not named_tab and not url:
+                return {
+                    "success": True,
+                    "output": f"Session '{session_name}' uses background page creation.",
+                    "data": {"background": True},
+                }
             if named_tab:
                 if not existed:
                     # Nobody asked for the default tab, so it must not keep the

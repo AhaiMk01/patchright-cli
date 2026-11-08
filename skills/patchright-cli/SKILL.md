@@ -413,7 +413,7 @@ arguments shows whether the daemon is up and which sessions are open.
 <!-- BEGIN GENERATED: commands (scripts/gen_skill.py from COMMAND_SPECS; do not edit by hand) -->
 ```bash
 # Core
-open [url] [--block-networks] [--headed] [--webmcp]  # Open browser (starts daemon if needed)
+open [url] [--block-networks] [--headed] [--background] [--webmcp]  # Open browser (starts daemon if needed)
 attach --cdp=<url> [--cdp-headers] [--cdp-timeout] [--block-networks]  # Attach to running Chrome via CDP
 goto <url>                              # Navigate to URL
 click <ref> [button] [--modifiers] [--scroll]  # Click element
