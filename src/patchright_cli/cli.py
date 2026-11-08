@@ -675,6 +675,7 @@ COMMAND_SPECS: dict[str, dict] = {
         "flags": {
             "block-networks": "Refuse navigation to link-local|private addresses (default: allow all)",
             "headed": "Force a headed window on a daemon started with --headless (default: off)",
+            "background": "Open a headed browser and its new tabs without taking desktop focus (default: off)",
             "webmcp": "Launch Chrome with WebMCP on, for webmcp-list/webmcp-call; exposes "
             "document.modelContext, which stock Chrome lacks (default: off)",
         },
@@ -2299,11 +2300,17 @@ def _main():
     if proxy:
         options["proxy"] = proxy
 
+    wire_command = command
+    if command == "open" and options.get("background"):
+        if options.get("headless"):
+            raise UsageError("Background opening requires headed Chrome; remove --headless.")
+        wire_command = "background-open"
+
     if command == "kill-all":
         # Must not start a daemon just to stop it, and must work on a wedged one.
         response = _kill_all(port, options, bool(options.pop("force", False)))
     else:
-        response = _ensure_and_send(command, args, options, port, headless)
+        response = _ensure_and_send(wire_command, args, options, port, headless)
 
     # Print output
     output = response.get("output", "")

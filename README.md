@@ -230,6 +230,7 @@ patchright-cli open [url]              # Launch browser
 patchright-cli open --profile=work     # Named profile any session can use (logins persist)
 patchright-cli open --headless         # Run headless (later opens on this daemon stay headless)
 patchright-cli open --headed           # Headed window even on a headless daemon
+patchright-cli open --background       # Headed Chrome whose windows and tabs don't take desktop focus
 patchright-cli open --profile=./dir    # A value with / or \ is a profile directory
 patchright-cli --tab <name> open <url> # Named tab: shared browser, own page/refs
 patchright-cli open --mobile           # Emulate a generic mobile device (Pixel 7)
