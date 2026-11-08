@@ -352,8 +352,7 @@ async def test_repeated_cancellation_waits_for_late_context_close(tmp_path):
         await asyncio.gather(task, return_exceptions=True)
 
 
-@pytest.mark.asyncio
-async def test_background_replaces_stale_attached_session(state):
+def _stale_attached(state):
     context = _context()
     stale = daemon.Session("work", context, list(context.pages))
     stale.is_attached = True
@@ -362,6 +361,12 @@ async def test_background_replaces_stale_attached_session(state):
     stale.browser.is_connected.return_value = False
     stale.detach = AsyncMock()
     state.sessions["work"] = stale
+    return stale
+
+
+@pytest.mark.asyncio
+async def test_background_replaces_stale_attached_session(state):
+    stale = _stale_attached(state)
 
     session = await state.get_or_create_session("work", background=True)
 
@@ -370,3 +375,14 @@ async def test_background_replaces_stale_attached_session(state):
     assert session.is_attached is False
     stale.detach.assert_awaited_once()
     state._launch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_background_open_reports_replacing_a_stale_session(state):
+    _stale_attached(state)
+
+    reply = await daemon.handle_command(state, {"command": "background-open", "options": {"session": "work"}})
+
+    assert reply["success"], reply
+    assert "Replaced stale session 'work'" in reply["output"]
+    assert "uses background page creation" not in reply["output"]
