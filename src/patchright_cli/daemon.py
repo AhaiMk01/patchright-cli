@@ -1254,19 +1254,19 @@ class DaemonState:
         notices: list[str] = []
         existing = self.sessions.get(name)
         if existing is not None:
-            if background and (existing.is_attached or existing.uses_host_context):
-                raise ValueError(
-                    f"Session '{name}' is attached; background opening requires an owned headed session. "
-                    "Use another session name."
-                )
-            if background and existing.headless:
-                raise ValueError(
-                    f"Session '{name}' is headless; background opening requires headed Chrome. "
-                    "Use another session name or close this session first."
-                )
             if _is_stale(existing):
                 await self._drop_stale(name, existing, notices)
             else:
+                if background and (existing.is_attached or existing.uses_host_context):
+                    raise ValueError(
+                        f"Session '{name}' is attached; background opening requires an owned headed session. "
+                        "Use another session name."
+                    )
+                if background and existing.headless:
+                    raise ValueError(
+                        f"Session '{name}' is headless; background opening requires headed Chrome. "
+                        "Use another session name or close this session first."
+                    )
                 if cdp_endpoint:
                     _check_reattach(existing, cdp_endpoint, use_host)
                 elif (
