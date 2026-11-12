@@ -526,3 +526,17 @@ def test_console_level_accepts_the_empty_string_old_clients_send(monkeypatch):
     asyncio.run(mcp_server.server.call_tool("patchright_console", {"level": ""}))
     asyncio.run(mcp_server.server.call_tool("patchright_console", {"level": "error"}))
     assert sent == [["console"], ["console", "error"]]
+
+
+def test_cookie_removal_passes_domain_only_when_given():
+    build, defaults = mcp_server._build_args, _defaults
+    assert build("patchright_cookie_clear", defaults("patchright_cookie_clear")) == ["cookie-clear"]
+    assert build("patchright_cookie_clear", defaults("patchright_cookie_clear", domain="www.a.test")) == [
+        "cookie-clear",
+        "--domain=www.a.test",
+    ]
+    assert build("patchright_cookie_delete", defaults("patchright_cookie_delete", name="_t", domain="www.a.test")) == [
+        "cookie-delete",
+        "_t",
+        "--domain=www.a.test",
+    ]

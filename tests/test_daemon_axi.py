@@ -1,5 +1,6 @@
 """Unit tests for AXI daemon behaviours: idempotent no-ops, explicit empty states, structured `data`."""
 
+import re
 from functools import partial
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -171,7 +172,127 @@ async def test_cookie_delete_present_removes_it(mock_state, mock_session):
     mock_session.context.cookies.return_value = [{"name": "sid", "value": "2", "domain": "x"}, keep]
     response = await _run(mock_state, "cookie-delete", ["sid"])
     assert response == {"success": True, "output": "Cookie 'sid' deleted."}
-    mock_session.context.add_cookies.assert_awaited_once_with([keep])
+    # Only that name is removed: the other cookies are never cleared and re-added.
+    mock_session.context.clear_cookies.assert_awaited_once_with(name="sid")
+    mock_session.context.add_cookies.assert_not_awaited()
+
+
+def _cookie_jar(context):
+    """Back the mocked context with a jar that clear_cookies filters as the browser does."""
+    jar = [
+        {"name": "_t", "value": "1", "domain": "www.a.test"},
+        {"name": "_t", "value": "2", "domain": "www.b.test"},
+        {"name": "theme", "value": "3", "domain": ".a.test"},
+    ]
+
+    def matches(cookie, name=None, domain=None):
+        if name is not None and cookie["name"] != name:
+            return False
+        if domain is None:
+            return True
+        return bool(domain.search(cookie["domain"])) if isinstance(domain, re.Pattern) else domain == cookie["domain"]
+
+    async def clear_cookies(**filters):
+        jar[:] = [c for c in jar if not matches(c, **filters)]
+
+    context.cookies = AsyncMock(side_effect=lambda: list(jar))
+    context.clear_cookies = AsyncMock(side_effect=clear_cookies)
+    return jar
+
+
+def _left(jar):
+    return [(c["name"], c["domain"]) for c in jar]
+
+
+@pytest.mark.asyncio
+async def test_cookie_delete_domain_removes_only_that_site(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    jar = _cookie_jar(mock_session.context)
+    response = await _run(mock_state, "cookie-delete", ["_t"], domain="www.a.test")
+    assert response == {"success": True, "output": "Cookie '_t' deleted for domain 'www.a.test'."}
+    mock_session.context.clear_cookies.assert_awaited_once_with(name="_t", domain="www.a.test")
+    assert _left(jar) == [("_t", "www.b.test"), ("theme", ".a.test")]
+    mock_session.context.add_cookies.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cookie_delete_domain_regex(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    jar = _cookie_jar(mock_session.context)
+    response = await _run(mock_state, "cookie-delete", ["_t"], domain=r"/\.test$/")
+    assert response["output"] == r"Cookie '_t' deleted for domain '/\.test$/'."
+    assert _left(jar) == [("theme", ".a.test")]
+
+
+@pytest.mark.asyncio
+async def test_cookie_delete_domain_without_that_cookie_is_a_noop(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    jar = _cookie_jar(mock_session.context)
+    # `theme` exists, but not on this domain.
+    _assert_noop(await _run(mock_state, "cookie-delete", ["theme"], domain="www.b.test"))
+    assert len(jar) == 3
+
+
+@pytest.mark.asyncio
+async def test_cookie_clear_without_domain_clears_everything(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    response = await _run(mock_state, "cookie-clear")
+    assert response == {"success": True, "output": "All cookies cleared."}
+    mock_session.context.clear_cookies.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_cookie_clear_domain_is_exact(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    jar = _cookie_jar(mock_session.context)
+    response = await _run(mock_state, "cookie-clear", domain="www.a.test")
+    assert response == {"success": True, "output": "Cleared 1 cookie for domain 'www.a.test'."}
+    mock_session.context.clear_cookies.assert_awaited_once_with(domain="www.a.test")
+    assert _left(jar) == [("_t", "www.b.test"), ("theme", ".a.test")]
+
+
+@pytest.mark.asyncio
+async def test_cookie_clear_domain_regex(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    jar = _cookie_jar(mock_session.context)
+    response = await _run(mock_state, "cookie-clear", domain=r"/A\.test$/i")
+    assert response["output"] == r"Cleared 2 cookies for domain '/A\.test$/i'."
+    mock_session.context.clear_cookies.assert_awaited_once_with(domain=re.compile(r"A\.test$", re.IGNORECASE))
+    assert _left(jar) == [("_t", "www.b.test")]
+
+
+@pytest.mark.asyncio
+async def test_cookie_clear_domain_reports_what_the_browser_removed(mock_state, mock_session):
+    # The browser runs the regex, so a pattern it matches nothing with is a no-op
+    # whatever the same pattern would match in Python.
+    mock_state.sessions = {"default": mock_session}
+    jar = _cookie_jar(mock_session.context)
+    mock_session.context.clear_cookies = AsyncMock()
+    _assert_noop(await _run(mock_state, "cookie-clear", domain=r"/\Awww\.a\.test\Z/"))
+    assert len(jar) == 3
+
+
+@pytest.mark.asyncio
+async def test_cookie_clear_domain_no_match_is_a_noop_naming_near_domains(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    jar = _cookie_jar(mock_session.context)
+    response = await _run(mock_state, "cookie-clear", domain="a.test")
+    _assert_noop(response)
+    assert ".a.test, www.a.test" in response["output"]
+    assert len(jar) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("domain", "message"),
+    [("/(/", "Invalid --domain regex '/(/'"), ("", "invalid --domain value"), (True, "--domain takes a value")],
+)
+async def test_cookie_clear_bad_domain_fails(mock_state, mock_session, domain, message):
+    mock_state.sessions = {"default": mock_session}
+    response = await _run(mock_state, "cookie-clear", domain=domain)
+    assert response["success"] is False
+    assert message in response["output"]
+    mock_session.context.clear_cookies.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -335,8 +335,11 @@ TOOL_SPECS = {
         "params": [("session", "string", False, "default", "Named Patchright browser session.")],
     },
     "patchright_cookie_clear": {
-        "description": "CLI command: cookie-clear Clear all cookies.",
-        "params": [("session", "string", False, "default", "Named Patchright browser session.")],
+        "description": "CLI command: cookie-clear Clear all cookies, or only those of one domain.",
+        "params": [
+            ("domain", "string", False, "", "Exact cookie domain, or /regex/; empty clears every cookie."),
+            ("session", "string", False, "default", "Named Patchright browser session."),
+        ],
     },
     "patchright_localstorage_list": {
         "description": "CLI command: localstorage-list List localStorage.",
@@ -611,9 +614,10 @@ TOOL_SPECS = {
         ],
     },
     "patchright_cookie_delete": {
-        "description": "CLI command: cookie-delete Delete a cookie by name.",
+        "description": "CLI command: cookie-delete Delete a cookie by name, on every domain or one.",
         "params": [
             ("name", "string", True, None, "Cookie name."),
+            ("domain", "string", False, "", "Exact cookie domain, or /regex/; empty deletes it on every domain."),
             ("session", "string", False, "default", "Named Patchright browser session."),
         ],
     },
@@ -1228,6 +1232,8 @@ def _build_args(name: str, p: dict[str, Any]) -> list[str]:
             if p["state"] not in {"attached", "detached", "visible", "hidden"}:
                 raise ValueError("state must be attached, detached, visible or hidden")
             args.append(f"--state={p['state']}")
+        if name in {"patchright_cookie_clear", "patchright_cookie_delete"} and p["domain"]:
+            args.append(f"--domain={p['domain']}")
         return args
 
     if name in {"patchright_click", "patchright_dblclick"}:

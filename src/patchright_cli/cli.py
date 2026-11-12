@@ -909,8 +909,22 @@ COMMAND_SPECS: dict[str, dict] = {
         },
         "examples": ["cookie-set theme dark", "cookie-set sid abc --domain=example.com --httpOnly --secure"],
     },
-    "cookie-delete": {"usage": "cookie-delete <name>", "summary": "Delete cookie", "examples": ["cookie-delete sid"]},
-    "cookie-clear": {"usage": "cookie-clear", "summary": "Clear all cookies", "examples": ["cookie-clear"]},
+    "cookie-delete": {
+        "usage": "cookie-delete <name>",
+        "summary": "Delete cookie",
+        "flags": {"domain": "Only on this exact cookie domain, or /regex/ (default: every domain)"},
+        "examples": ["cookie-delete sid", "cookie-delete sid --domain=www.example.com"],
+    },
+    "cookie-clear": {
+        "usage": "cookie-clear",
+        "summary": "Clear all cookies",
+        "flags": {"domain": "Only this exact cookie domain, or /regex/ (default: every cookie)"},
+        "examples": [
+            "cookie-clear",
+            "cookie-clear --domain=www.example.com",
+            r"cookie-clear '--domain=/(^|\.)example\.com$/'",
+        ],
+    },
     "cookie-import": {
         "usage": "cookie-import <file>",
         "summary": "Import cookies from JSON",

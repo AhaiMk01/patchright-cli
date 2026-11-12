@@ -2916,18 +2916,66 @@ async def cmd_cookie_set(
     return {"success": True, "output": f"Cookie '{cookie_name}' set."}
 
 
+def _cookie_domain(options: dict):
+    """--domain of cookie-delete/cookie-clear, as clear_cookies takes it.
+
+    A plain value is the cookie's exact domain and `/pattern/flags` a regex,
+    which is how Playwright matches. None when the flag is absent.
+    """
+    value = options.get("domain")
+    if value is None:
+        return None
+    try:
+        return _role_text(value)  # a bare or empty --domain never gets here: FLAG_KINDS rejects it
+    except re.error as exc:
+        raise ValueError(f"Invalid --domain regex {value!r}: {exc}") from None
+
+
+async def _clear_domain_cookies(session: Session, what: str, options: dict, **filters) -> int | dict:
+    """Clear the cookies `filters` select; the count removed, or the no-op reply when there were none.
+
+    The browser decides what matches (a regex runs as a JavaScript one there),
+    so the count is the jar's size before and after, not a guess made here.
+    """
+    before = await session.context.cookies()
+    await session.context.clear_cookies(**filters)
+    removed = len(before) - len(await session.context.cookies())
+    if removed > 0:
+        return removed
+    value = options["domain"]
+    name = filters.get("name")
+    near = sorted(
+        {
+            c.get("domain", "")
+            for c in before
+            if (name is None or c.get("name") == name) and value.strip(".") in c.get("domain", "")
+        }
+    )
+    hint = f"; this session has {', '.join(near)} (a plain --domain is exact, /pattern/ is a regex)" if near else ""
+    return {"success": True, "output": f"No {what} with domain '{value}'{hint} (no-op)"}
+
+
 @register("cookie-delete")
 async def cmd_cookie_delete(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
     cookie_name = args[0]
+    try:
+        domain = _cookie_domain(options)
+    except ValueError as exc:
+        return {"success": False, "output": str(exc)}
+    # Only the matching cookies go: the rest are never cleared and re-added.
+    if domain is not None:
+        removed = await _clear_domain_cookies(
+            session, f"cookie named '{cookie_name}'", options, name=cookie_name, domain=domain
+        )
+        if isinstance(removed, dict):
+            return removed
+        return {"success": True, "output": f"Cookie '{cookie_name}' deleted for domain '{options['domain']}'."}
     cookies = await session.context.cookies()
     if not any(c.get("name") == cookie_name for c in cookies):
         return {"success": True, "output": f"No cookie named '{cookie_name}' (no-op)"}
-    await session.context.clear_cookies()
-    remaining = [c for c in cookies if c.get("name") != cookie_name]
-    if remaining:
-        await session.context.add_cookies(remaining)
+    await session.context.clear_cookies(name=cookie_name)
     return {"success": True, "output": f"Cookie '{cookie_name}' deleted."}
 
 
@@ -2935,8 +2983,20 @@ async def cmd_cookie_delete(
 async def cmd_cookie_clear(
     session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState
 ) -> dict:
-    await session.context.clear_cookies()
-    return {"success": True, "output": "All cookies cleared."}
+    try:
+        domain = _cookie_domain(options)
+    except ValueError as exc:
+        return {"success": False, "output": str(exc)}
+    if domain is None:
+        await session.context.clear_cookies()
+        return {"success": True, "output": "All cookies cleared."}
+    removed = await _clear_domain_cookies(session, "cookies", options, domain=domain)
+    if isinstance(removed, dict):
+        return removed
+    return {
+        "success": True,
+        "output": f"Cleared {removed} cookie{'s' if removed != 1 else ''} for domain '{options['domain']}'.",
+    }
 
 
 @register("cookie-import")

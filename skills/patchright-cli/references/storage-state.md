@@ -39,8 +39,15 @@ patchright-cli cookie-set token xyz \
 
 ```bash
 patchright-cli cookie-delete session_id                 # Delete specific cookie
+patchright-cli cookie-delete session_id --domain=www.example.com   # Only on that domain
 patchright-cli cookie-clear                             # Clear all cookies
+patchright-cli cookie-clear --domain=www.example.com    # Clear one domain's cookies
+patchright-cli cookie-clear '--domain=/(^|\.)example\.com$/'   # Regex: .example.com and its subdomains
 ```
+
+`--domain` is the cookie's exact domain as `cookie-list` shows it (`www.example.com` and
+`.example.com` are different domains); write `/pattern/` to match several. Other sites'
+cookies are left untouched, so this logs one site out of a shared session.
 
 ### Import / Export
 
