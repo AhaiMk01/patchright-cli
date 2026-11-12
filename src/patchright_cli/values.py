@@ -162,6 +162,8 @@ FLAG_KINDS: dict[str, dict[str, object]] = {
     "wait": {"url": Text("**/dashboard")},
     "wait-for": {"state": Choice(WAIT_STATES)},
     "cookie-list": {"domain": Text("example.com"), "path": Text("/")},
+    "cookie-delete": {"domain": Text("example.com")},
+    "cookie-clear": {"domain": Text("example.com")},
     "cookie-set": {
         "domain": Text("example.com"),
         "path": Text("/"),

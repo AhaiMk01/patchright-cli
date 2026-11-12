@@ -116,7 +116,8 @@ A mutation whose target state already holds succeeds instead of failing:
 `video-start` and `tracing-start` while already running, `video-hide-actions`
 when callouts are off, `unroute` of a pattern that is not routed (or with no
 routes at all), `cookie-delete`, `localstorage-delete` and
-`sessionstorage-delete` of an absent name or key, `highlight --hide` with
+`sessionstorage-delete` of an absent name or key, `cookie-delete` and
+`cookie-clear` with a `--domain` that matches no cookie, `highlight --hide` with
 nothing highlighted, and `profile-delete` of a profile that does not exist.
 `go-back` and `go-forward` at the edge of the history still fail.
 

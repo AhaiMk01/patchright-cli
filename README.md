@@ -352,7 +352,10 @@ patchright-cli cookie-set <name> <value>
 patchright-cli cookie-set <name> <value> --domain=example.com --httpOnly --secure
 patchright-cli cookie-set <name> <value> --path=/ --sameSite=Lax --expires=1735689600
 patchright-cli cookie-delete <name>
+patchright-cli cookie-delete <name> --domain=www.example.com   # only on that domain
 patchright-cli cookie-clear
+patchright-cli cookie-clear --domain=www.example.com           # one site's cookies (exact domain)
+patchright-cli cookie-clear '--domain=/(^|\.)example\.com$/'          # /regex/: .example.com and subdomains
 
 # localStorage
 patchright-cli localstorage-list

@@ -493,8 +493,8 @@ state-load <file>                       # Load saved state
 cookie-list [--domain] [--path]         # List cookies
 cookie-get <name>                       # Get cookie
 cookie-set <name> <value> [--domain] [--path] [--expires] [--httpOnly] [--secure] [--sameSite]  # Set cookie
-cookie-delete <name>                    # Delete cookie
-cookie-clear                            # Clear all cookies
+cookie-delete <name> [--domain]         # Delete cookie
+cookie-clear [--domain]                 # Clear all cookies
 cookie-import <file>                    # Import cookies from JSON
 cookie-export [file]                    # Export cookies to JSON
 localstorage-list                       # List localStorage
