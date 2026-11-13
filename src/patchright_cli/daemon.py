@@ -871,6 +871,10 @@ def _is_stale(session: Session) -> bool:
         return True
 
 
+# `--background` only means "do not take desktop focus", which a browser with no window already honours.
+BACKGROUND_IGNORED_NOTE = "--background ignored: the browser is headless, so it has no window to take focus."
+
+
 def _with_notices(session: Session, result: dict) -> dict:
     """Prefix `result` with the notices the Session collected while opening, once."""
     notices, session.attach_notices = session.attach_notices, []
@@ -1242,8 +1246,6 @@ class DaemonState:
         webmcp: bool = False,
         background: bool = False,
     ) -> Session:
-        if background and headless:
-            raise ValueError("Background opening requires headed Chrome; remove --headless.")
         if background and cdp_endpoint:
             raise ValueError("Background opening cannot use an attached browser; choose an owned headed session.")
         if context_mode not in CDP_CONTEXT_MODES:
@@ -1270,11 +1272,6 @@ class DaemonState:
                         f"Session '{name}' is attached; background opening requires an owned headed session. "
                         "Use another session name."
                     )
-                if background and existing.headless:
-                    raise ValueError(
-                        f"Session '{name}' is headless; background opening requires headed Chrome. "
-                        "Use another session name or close this session first."
-                    )
                 if cdp_endpoint:
                     _check_reattach(existing, cdp_endpoint, use_host)
                 elif (
@@ -1300,7 +1297,10 @@ class DaemonState:
                         raise ValueError(
                             f"Session '{name}' runs with {current.flags}. `close` it first to use {guard.flags}."
                         )
-                if background:
+                if background and existing.headless:
+                    if BACKGROUND_IGNORED_NOTE not in existing.attach_notices:
+                        existing.attach_notices.append(BACKGROUND_IGNORED_NOTE)
+                elif background:
                     existing.background = True
                 return existing
 
@@ -1311,7 +1311,8 @@ class DaemonState:
 
         use_headless = headless if headless is not None else self.default_headless
         if background and use_headless:
-            raise ValueError("Background opening requires headed Chrome; remove --headless.")
+            background = False
+            notices.append(BACKGROUND_IGNORED_NOTE)
         # An Attached Session's browser state lives wherever the Host keeps it;
         # it has no Profile of ours. Unless told otherwise, a Launched Session's
         # Profile is named after it.
@@ -1419,7 +1420,7 @@ class DaemonState:
             session.network_guard = guard
             session.webmcp = webmcp and not cdp_endpoint
             session.profile = chosen
-            session.background = background and not use_headless and not cdp_endpoint
+            session.background = background and not cdp_endpoint
             session.headless = use_headless and not cdp_endpoint
             await session.setup_listeners()
         except BaseException:
@@ -4619,7 +4620,7 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
             )
             # A stale Session under this name was replaced, not reused.
             existed = session is prior
-            if protected_background and existed and not named_tab and not url:
+            if protected_background and session.background and existed and not named_tab and not url:
                 return {
                     "success": True,
                     "output": f"Session '{session_name}' uses background page creation.",

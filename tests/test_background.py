@@ -1,13 +1,14 @@
 """Background policy must survive reuse, empty contexts, and launch failures."""
 
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from patchright_cli import background, daemon
-from tests.test_cli_axi import _run
+from patchright_cli import background, cli, daemon
+from tests.test_cli_axi import _run, _run_reply
 
 
 def _context():
@@ -26,7 +27,7 @@ def state(monkeypatch):
     state.playwright = MagicMock()
     monkeypatch.setattr(state, "_launch", AsyncMock(return_value=_context()))
     monkeypatch.setattr(daemon.Session, "setup_listeners", AsyncMock())
-    monkeypatch.setattr(daemon, "_page_info", AsyncMock(return_value={"success": True, "output": ""}))
+    monkeypatch.setattr(daemon, "_page_info", AsyncMock(side_effect=lambda *a, **k: {"success": True, "output": ""}))
     return state
 
 
@@ -40,11 +41,70 @@ async def test_protected_operation_requires_background_even_when_option_is_false
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("command", ["background-open", "open"])
-async def test_background_rejects_headless_before_launch(state, command):
+async def test_background_is_a_noted_noop_on_a_new_headless_session(state, command):
+    """Issue #56: a headless browser has no window to focus, so --background is already satisfied."""
     reply = await daemon.handle_command(state, {"command": command, "options": {"background": True, "headless": True}})
-    assert reply["success"] is False
-    assert "headless" in reply["output"].lower()
-    state._launch.assert_not_awaited()
+    assert reply["success"], reply
+    assert reply["output"].splitlines()[0] == f"Note: {daemon.BACKGROUND_IGNORED_NOTE}"
+    session = state.sessions["default"]
+    assert session.headless is True
+    assert session.background is False
+    assert state._launch.await_args.kwargs["background"] is False
+    assert state._launch.await_args.args[1] is True
+
+
+@pytest.mark.asyncio
+async def test_background_is_a_noted_noop_when_the_daemon_defaults_to_headless(state):
+    state.default_headless = True
+    reply = await daemon.handle_command(state, {"command": "background-open", "options": {}})
+    assert reply["success"], reply
+    assert f"Note: {daemon.BACKGROUND_IGNORED_NOTE}" in reply["output"]
+    assert state.sessions["default"].background is False
+    assert state._launch.await_args.kwargs["background"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("options", [{}, {"headless": True}])
+async def test_background_is_a_noted_noop_on_an_existing_headless_session(state, options):
+    session = await state.get_or_create_session("work", headless=True)
+    plain = await daemon.handle_command(state, {"command": "open", "options": {"session": "work", **options}})
+    daemon._page_info.reset_mock()
+
+    for _ in range(2):  # the note is reported on every such open, once each
+        reply = await daemon.handle_command(
+            state, {"command": "background-open", "options": {"session": "work", **options}}
+        )
+        assert reply["success"], reply
+        assert reply["output"] == f"Note: {daemon.BACKGROUND_IGNORED_NOTE}\n" + plain["output"]
+        assert "data" not in reply
+    assert daemon._page_info.await_count == 2
+    assert state.sessions["work"] is session
+    assert session.background is False
+    assert state._launch.await_count == 1
+    session.context.close.assert_not_awaited()
+
+    reply = await daemon.handle_command(state, {"command": "open", "options": {"session": "work"}})
+    assert "Note:" not in reply["output"]
+
+
+@pytest.mark.asyncio
+async def test_headed_background_open_carries_no_headless_note(state):
+    reply = await daemon.handle_command(state, {"command": "background-open", "options": {}})
+    assert reply["success"], reply
+    assert "Note:" not in reply["output"]
+    assert state.sessions["default"].background is True
+
+
+@pytest.mark.asyncio
+async def test_headless_flag_does_not_stop_background_on_an_existing_headed_session(state):
+    """The session's real mode decides: a headed one still has a window that could take focus."""
+    session = await state.get_or_create_session("work")
+    reply = await daemon.handle_command(
+        state, {"command": "background-open", "options": {"session": "work", "headless": True}}
+    )
+    assert reply["success"], reply
+    assert "Note:" not in reply["output"]
+    assert session.background is True
 
 
 @pytest.mark.asyncio
@@ -69,17 +129,16 @@ async def test_owned_headed_session_promotes_without_replacing_tabs(state, monke
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["headless", "attached", "host"])
+@pytest.mark.parametrize("kind", ["attached", "host"])
 async def test_incompatible_existing_session_is_preserved(state, kind):
     context = _context()
     session = daemon.Session("work", context, list(context.pages))
-    session.headless = kind == "headless"
     session.is_attached = kind in ("attached", "host")
     session.uses_host_context = kind == "host"
     state.sessions["work"] = session
     original_pages = list(session.pages)
 
-    with pytest.raises(ValueError, match="headless|attached"):
+    with pytest.raises(ValueError, match="attached"):
         await state.get_or_create_session("work", background=True)
 
     assert state.sessions["work"] is session
@@ -137,11 +196,27 @@ def test_cli_translates_public_background_flag(monkeypatch, capsys):
     assert sent["command"] == "background-open"
 
 
-def test_cli_rejects_background_headless_before_daemon(monkeypatch, capsys):
-    code, out, _, sent = _run(["open", "--background", "--headless"], monkeypatch, capsys)
-    assert code == 2
-    assert "headless" in out.lower()
-    assert not sent
+def test_cli_sends_background_headless_to_the_daemon(monkeypatch, capsys):
+    """Issue #56: the daemon knows whether the session is headless, so the CLI no longer refuses."""
+    code, _, _, sent = _run(["open", "--background", "--headless", "about:blank"], monkeypatch, capsys)
+    assert code == 0
+    assert sent["command"] == "background-open"
+    assert sent["options"]["headless"] is True
+    assert sent["args"] == ["about:blank"]
+
+
+@pytest.mark.parametrize("flags", [[], ["--json"]])
+def test_cli_prints_the_background_ignored_note(monkeypatch, capsys, flags):
+    reply = {"success": True, "output": f"Note: {daemon.BACKGROUND_IGNORED_NOTE}\n### Page\n- URL: about:blank"}
+    code, out = _run_reply(["open", "--headless", "--background", *flags], reply, monkeypatch, capsys)
+    assert code == 0
+    assert f"Note: {daemon.BACKGROUND_IGNORED_NOTE}" in out
+    if flags:
+        assert json.loads(out)["output"].startswith("Note: --background ignored")
+
+
+def test_background_help_says_headless_ignores_it():
+    assert "headless" in cli.COMMAND_SPECS["open"]["flags"]["background"]
 
 
 @pytest.mark.asyncio
