@@ -25,7 +25,6 @@ dependencies = [
     # scripts/ref_sweep before widening this.
     "patchright>=1.64.4,<1.65",
     "pyyaml",
-    "click",
     "aiohttp>=3.9",
     # Windows ACL for the daemon token file
     "pywin32>=306; sys_platform == 'win32'",

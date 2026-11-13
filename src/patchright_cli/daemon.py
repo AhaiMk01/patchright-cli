@@ -19,7 +19,6 @@ import secrets
 import signal
 import socket
 import struct
-import subprocess
 import sys
 import time
 import traceback
@@ -28,21 +27,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from patchright_cli import daemon_pid, snapshot_text, values
+from patchright_cli import daemon_pid, protocol, snapshot_text, values
 from patchright_cli.background import launch_background, new_background_page
 from patchright_cli.debugger import SessionDebugger
+from patchright_cli.protocol import DEFAULT_PICK_WAIT, DEFAULT_PORT, read_daemon_token, token_path
 from patchright_cli.snapshot import EMPTY_SNAPSHOT, ai_snapshot, is_target_closed, probe_ref, save_snapshot
 from patchright_cli.snapshot_text import SnapshotIndex, has_ref, normalize_ref, render_hits
 
 logger = logging.getLogger("patchright-cli.daemon")
 
-# Public client-daemon contract. Bump for incompatible framing, request/reply
-# fields, or authentication changes. Additive optional fields do not require a bump.
-PROTOCOL_VERSION = 1
-DEFAULT_PORT = 9321
 PROFILES_ROOT = Path.home() / ".patchright-cli" / "profiles"
-# Holds daemon-<port>.token, the shared secret every client message must carry.
-TOKEN_DIR = Path.home() / ".patchright-cli"
 # Profile names become directory names under PROFILES_ROOT, so keep them to
 # characters every filesystem accepts and nothing that can climb out of it.
 _PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -2417,11 +2411,6 @@ def _js_string(value: str) -> str:
     return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
-# `pick-locator` waits on a person clicking in the headed window. A minute is
-# long enough to find an element and short enough that a forgotten pick does
-# not hold the page in pick mode for long. The CLI stretches its socket
-# timeout to match.
-DEFAULT_PICK_WAIT = 60.0
 # Pages with a pick in progress. `pick-locator --cancel` reports whether there
 # was one; Patchright's cancel is a silent no-op either way.
 _active_picks: weakref.WeakSet = weakref.WeakSet()
@@ -5064,19 +5053,6 @@ async def _run_command(state: DaemonState, msg: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def token_path(port: int) -> Path:
-    """The token file for the daemon on `port`, so daemons on different ports coexist."""
-    return TOKEN_DIR / f"daemon-{port}.token"
-
-
-def read_daemon_token(port: int) -> str | None:
-    """The token of the daemon on `port`, or None when it wrote none (it predates tokens)."""
-    try:
-        return token_path(port).read_text(encoding="utf-8").strip() or None
-    except OSError:
-        return None
-
-
 def _create_owner_only_file(path: Path) -> int:
     """Create `path`, which must not exist, readable and writable only by this user; return a write fd.
 
@@ -5174,7 +5150,7 @@ class DaemonAlreadyRunning(RuntimeError):
 
 def lock_path(port: int) -> Path:
     """The lock file a daemon on `port` holds for its whole lifetime."""
-    return TOKEN_DIR / f"daemon-{port}.lock"
+    return protocol.daemon_dir() / f"daemon-{port}.lock"
 
 
 def acquire_daemon_lock(port: int) -> int:
@@ -5370,7 +5346,7 @@ async def _serve(port: int, headless: bool):
         port = sock.getsockname()[1]
         state.auth_token = write_daemon_token(port)
         # `kill-all` falls back to killing this PID when the daemon stops answering.
-        daemon_pid.write_pid_file(TOKEN_DIR, port)
+        daemon_pid.write_pid_file(protocol.daemon_dir(), port)
     except BaseException:
         sock.close()
         raise
@@ -5378,7 +5354,7 @@ async def _serve(port: int, headless: bool):
         server = await asyncio.start_server(client_handler, sock=sock)
     except BaseException:
         remove_daemon_token(port, state.auth_token)
-        daemon_pid.remove_pid_file(TOKEN_DIR, port)
+        daemon_pid.remove_pid_file(protocol.daemon_dir(), port)
         raise
     addr = server.sockets[0].getsockname()
     logger.info("Daemon listening on %s:%s", addr[0], addr[1])
@@ -5413,7 +5389,7 @@ async def _serve(port: int, headless: bool):
         server.close()
         await server.wait_closed()
         remove_daemon_token(port, state.auth_token)
-        daemon_pid.remove_pid_file(TOKEN_DIR, port)
+        daemon_pid.remove_pid_file(protocol.daemon_dir(), port)
         logger.info("Daemon stopped.")
 
 
@@ -5428,61 +5404,6 @@ def start_daemon(port: int = DEFAULT_PORT, headless: bool = False):
     except DaemonAlreadyRunning as e:
         logger.error("Not starting: %s.", e)
         sys.exit(1)
-
-
-def ensure_daemon_running(port: int = DEFAULT_PORT, headless: bool = False) -> bool:
-    """Check if daemon is running; if not, start it in background. Returns True if started."""
-    import socket as _socket
-
-    try:
-        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
-        sock.settimeout(1)
-        sock.connect(("127.0.0.1", port))
-        sock.close()
-        return False  # Already running
-    except (ConnectionRefusedError, OSError, TimeoutError):
-        pass
-
-    cmd = [sys.executable, "-m", "patchright_cli.daemon"]
-    if headless:
-        cmd.append("--headless")
-    cmd.extend(["--port", str(port)])
-
-    if sys.platform == "win32":
-        # CREATE_NO_WINDOW, not DETACHED_PROCESS: a venv's python.exe is a launcher that starts the
-        # real interpreter as a child, and a console child of a console-less parent opens a new,
-        # visible console window. A hidden console is inherited instead.
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-        subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            creationflags=flags,
-        )
-    else:
-        subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-
-    import time as _time
-
-    for _ in range(30):
-        _time.sleep(0.1)
-        try:
-            sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
-            sock.settimeout(1)
-            sock.connect(("127.0.0.1", port))
-            sock.close()
-            return True
-        except (ConnectionRefusedError, OSError, TimeoutError):
-            continue
-
-    raise RuntimeError(f"Failed to start daemon on port {port}")
 
 
 # Allow running daemon directly: python -m patchright_cli.daemon

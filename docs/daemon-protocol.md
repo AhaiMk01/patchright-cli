@@ -1,7 +1,7 @@
 # Daemon client protocol
 
 The TCP interface is a public interface for third-party clients. The current
-protocol version is **1**, defined by `PROTOCOL_VERSION` in `daemon.py`.
+protocol version is **1**, defined by `PROTOCOL_VERSION` in `protocol.py`.
 
 ## Discovery
 

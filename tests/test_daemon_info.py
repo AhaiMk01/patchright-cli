@@ -5,16 +5,16 @@ import sys
 
 import pytest
 
-from patchright_cli import __version__, cli, daemon
+from patchright_cli import __version__, cli, protocol
 
 
 @pytest.mark.parametrize(
-    "flags, port", [([], daemon.DEFAULT_PORT), (["--port=9456"], 9456), (["--port", "9457"], 9457)]
+    "flags, port", [([], protocol.DEFAULT_PORT), (["--port=9456"], 9456), (["--port", "9457"], 9457)]
 )
 @pytest.mark.parametrize("before", [True, False])
 def test_daemon_info(flags, port, before, tmp_path, monkeypatch, capsys):
     token_dir = tmp_path / "not-created"
-    monkeypatch.setattr(daemon, "TOKEN_DIR", token_dir)
+    monkeypatch.setattr(protocol, "_DAEMON_DIR", token_dir)
 
     def forbidden(*args, **kwargs):
         pytest.fail("discovery must not start/connect to a daemon, read a token/config, or check updates")
@@ -37,17 +37,17 @@ def test_daemon_info(flags, port, before, tmp_path, monkeypatch, capsys):
         "version": __version__,
         "protocol": 1,
         "port": port,
-        "token_path": str(daemon.token_path(port).resolve()),
+        "token_path": str(protocol.token_path(port).resolve()),
     }
     assert not token_dir.exists()
 
 
 def test_daemon_info_does_not_print_existing_token(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(daemon, "TOKEN_DIR", tmp_path)
+    monkeypatch.setattr(protocol, "_DAEMON_DIR", tmp_path)
     secret = "private-test-credential"
-    daemon.token_path(9321).write_text(secret)
+    protocol.token_path(9321).write_text(secret)
     monkeypatch.setattr(sys, "argv", ["patchright-cli", "daemon-info", "--json"])
     cli.main()
     captured = capsys.readouterr()
     assert secret not in captured.out + captured.err
-    assert daemon.token_path(9321).read_text() == secret
+    assert protocol.token_path(9321).read_text() == secret

@@ -6,7 +6,6 @@ receives the result, and prints it.
 
 from __future__ import annotations
 
-import argparse
 import json
 import math
 import os
@@ -18,17 +17,21 @@ import sys
 import time
 from pathlib import Path
 
-import click
-
-from patchright_cli import __version__, values
-from patchright_cli.daemon import (
+from patchright_cli import __version__, protocol, values
+from patchright_cli.protocol import (
     DEFAULT_PICK_WAIT,
     DEFAULT_PORT,
     PROTOCOL_VERSION,
-    ensure_daemon_running,
     read_daemon_token,
     token_path,
 )
+
+
+def echo(message: object = "", err: bool = False) -> None:
+    """Flushing each line keeps stdout and stderr in order when both go to one pipe."""
+    stream = sys.stderr if err else sys.stdout
+    stream.write(f"{message}\n")
+    stream.flush()
 
 
 def _is_interactive(stream) -> bool:
@@ -53,7 +56,7 @@ def _configure_output_encoding(*streams) -> None:
 
     Every stream also gets errors="replace", unless PYTHONIOENCODING names an
     error handler: one character outside a legacy code page raised
-    UnicodeEncodeError from click.echo and lost a whole page snapshot.
+    UnicodeEncodeError on print and lost a whole page snapshot.
     """
     chosen_encoding, _, chosen_errors = os.environ.get("PYTHONIOENCODING", "").partition(":")
     for stream in streams:
@@ -245,7 +248,7 @@ def _warn_stale_skills() -> None:
     if not stale or _skill_warning_is_throttled():
         return
     for name, target in stale:
-        click.echo(
+        echo(
             f"warning: {name} skill at {target} does not match patchright-cli v{__version__}. "
             f"Run `patchright-cli install --skills` to update it.",
             err=True,
@@ -295,19 +298,19 @@ def _handle_install(args: list) -> None:
             i += 1
             home = Path(args[i]).expanduser()
         else:
-            click.echo(f"error: unknown flag {arg} for `install`")
-            click.echo(f"help: valid flags for `install`: {_INSTALL_FLAGS} (--help always allowed)")
+            echo(f"error: unknown flag {arg} for `install`")
+            echo(f"help: valid flags for `install`: {_INSTALL_FLAGS} (--help always allowed)")
             sys.exit(2)
         i += 1
 
     if "--uninstall" in flags and "--hooks" not in flags:
-        click.echo("error: --uninstall only applies to --hooks")
-        click.echo("help: patchright-cli install --hooks --uninstall")
+        echo("error: --uninstall only applies to --hooks")
+        echo("help: patchright-cli install --hooks --uninstall")
         sys.exit(2)
 
     if not flags & {"--skills", "--hooks"}:
-        click.echo(_INSTALL_USAGE)
-        click.echo("\nTo install the browser, use: python -m patchright install chromium")
+        echo(_INSTALL_USAGE)
+        echo("\nTo install the browser, use: python -m patchright install chromium")
         sys.exit(0)
 
     if "--hooks" in flags:
@@ -316,10 +319,10 @@ def _handle_install(args: list) -> None:
             command = None if uninstall else agent_hooks.hook_command()
             results = agent_hooks.apply_hooks(home=home, uninstall=uninstall, command=command)
         except Exception as e:
-            click.echo(f"error: {e}")
+            echo(f"error: {e}")
             sys.exit(1)
         for line in agent_hooks.format_results(results, command):
-            click.echo(line)
+            echo(line)
         if any(r.status == "error" for r in results):
             sys.exit(1)
         if "--skills" not in flags:
@@ -327,27 +330,29 @@ def _handle_install(args: list) -> None:
 
     agents = _detect_agent_dirs(home=home)
     if not agents:
-        click.echo("No AI agent installations detected.")
-        click.echo("\nManual install — copy skills to your agent's directory:")
-        click.echo("  Claude Code:  ~/.claude/skills/patchright-cli/")
-        click.echo("  Gemini CLI:   ~/.gemini/skills/patchright-cli/")
-        click.echo("  Codex CLI:    ~/.codex/skills/patchright-cli/")
-        click.echo("  OpenCode:     ~/.opencode/skills/patchright-cli/")
+        echo("No AI agent installations detected.")
+        echo("\nManual install — copy skills to your agent's directory:")
+        echo("  Claude Code:  ~/.claude/skills/patchright-cli/")
+        echo("  Gemini CLI:   ~/.gemini/skills/patchright-cli/")
+        echo("  Codex CLI:    ~/.codex/skills/patchright-cli/")
+        echo("  OpenCode:     ~/.opencode/skills/patchright-cli/")
         sys.exit(0)
 
     for name, agent_dir in agents:
         target = agent_dir / "skills" / "patchright-cli"
         try:
             _install_skills_to_dir(target)
-            click.echo(f"  Installed to {name}: {target}")
+            echo(f"  Installed to {name}: {target}")
         except Exception as e:
-            click.echo(f"  Failed for {name}: {e}", err=True)
+            echo(f"  Failed for {name}: {e}", err=True)
 
-    click.echo(f"\npatchright-cli v{__version__} skills installed.")
+    echo(f"\npatchright-cli v{__version__} skills installed.")
 
 
 def _handle_mcp(args: list[str]) -> None:
     """Handle the optional MCP server command."""
+    import argparse
+
     parser = argparse.ArgumentParser(
         prog="patchright-cli mcp",
         description="Run the MCP server. Stdio is the default transport.",
@@ -367,7 +372,7 @@ def _handle_mcp(args: list[str]) -> None:
     except ImportError as exc:
         if exc.name not in {"fastmcp", "mcp", "pydantic"}:
             raise
-        click.echo(
+        echo(
             "MCP support is not installed. Install it with: pip install 'patchright-cli[mcp]'",
             err=True,
         )
@@ -456,7 +461,7 @@ def _warn_outdated_version() -> None:
             pass
 
     if _version_tuple(latest) > _version_tuple(__version__):
-        click.echo(
+        echo(
             f"note: patchright-cli {latest} is available (you have {__version__}). "
             f"Upgrade with `pip install -U patchright-cli`.",
             err=True,
@@ -561,6 +566,32 @@ def _port_listening(port: int) -> bool:
         return False
 
 
+def ensure_daemon_running(port: int = DEFAULT_PORT, headless: bool = False) -> bool:
+    """Start a daemon on `port` in the background unless one is listening. True if it was started."""
+    if _port_listening(port):
+        return False
+
+    import subprocess
+
+    cmd = [sys.executable, "-m", "patchright_cli.daemon", "--port", str(port)]
+    if headless:
+        cmd.append("--headless")
+    if sys.platform == "win32":
+        # CREATE_NO_WINDOW, not DETACHED_PROCESS: a venv's python.exe is a launcher that starts the
+        # real interpreter as a child, and a console child of a console-less parent opens a new,
+        # visible console window. A hidden console is inherited instead.
+        detach = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
+    else:
+        detach = {"start_new_session": True}
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, **detach)
+
+    for _ in range(30):
+        time.sleep(0.1)
+        if _port_listening(port):
+            return True
+    raise RuntimeError(f"Failed to start daemon on port {port}")
+
+
 def _await_daemon_exit(port: int, deadline: float) -> bool:
     """Wait for a daemon that is shutting down. True once it is gone, False when it is wedged.
 
@@ -569,10 +600,9 @@ def _await_daemon_exit(port: int, deadline: float) -> bool:
     never answers means it is stuck.
     """
     from patchright_cli import daemon_pid
-    from patchright_cli.daemon import TOKEN_DIR
 
     while time.monotonic() < deadline:
-        if daemon_pid.live_daemon_pid(TOKEN_DIR, port) is None and not _port_listening(port):
+        if daemon_pid.live_daemon_pid(protocol.daemon_dir(), port) is None and not _port_listening(port):
             return True
         try:
             _send_command("list", [], {"session": "default"}, port, timeout=KILL_ALL_PROBE_TIMEOUT)
@@ -590,14 +620,13 @@ def _kill_all(port: int, options: dict, force: bool) -> dict:
     Returns a daemon-style reply, so --json and --raw print it like any other.
     """
     from patchright_cli import daemon_pid
-    from patchright_cli.daemon import TOKEN_DIR
 
     note = ""
     if not force:
         try:
             return _send_command("kill-all", [], options, port)
         except ConnectionRefusedError:
-            if daemon_pid.live_daemon_pid(TOKEN_DIR, port) is None:
+            if daemon_pid.live_daemon_pid(protocol.daemon_dir(), port) is None:
                 return {"success": True, "output": f"No daemon running on port {port} (no-op)"}
         except (ConnectionError, OSError):
             pass  # no reply in time, or the connection dropped
@@ -607,7 +636,7 @@ def _kill_all(port: int, options: dict, force: bool) -> dict:
             return {"success": True, "output": f"Daemon on port {port} stopped."}
         note = f"The daemon on port {port} stopped answering; force-stopping it.\n"
 
-    status, message = daemon_pid.force_stop(TOKEN_DIR, port, token_path(port))
+    status, message = daemon_pid.force_stop(protocol.daemon_dir(), port, token_path(port))
     if status == "stopped":
         return {"success": True, "output": note + message}
     if status == "absent" and not _port_listening(port):
@@ -1648,45 +1677,45 @@ COMMAND_CATEGORIES = [
 
 
 def _print_help():
-    click.echo("patchright-cli — Undetected browser automation CLI\n")
-    click.echo("Usage: patchright-cli [OPTIONS] <command> [args...]\n")
-    click.echo("Options:")
-    click.echo("  --headless          Run headless; the daemon it starts keeps this as the default (default: headed)")
-    click.echo("  --persistent        No effect; kept for compatibility (profiles always persist)")
-    click.echo("  --profile=<name>    Named profile (default: the session name); a value")
-    click.echo(r"                      with a / or \ is a directory instead")
-    click.echo("  --proxy=<url>       Proxy server (e.g. http://host:port, socks5://host:port)")
-    click.echo("  -s=<name>           Named session (default: 'default')")
-    click.echo("  --tab=<name>        Named tab inside the session: shared browser,")
-    click.echo("                      cookies and fingerprint; own page, refs and history")
-    click.echo("  --port=<n>          Daemon port (default: 9321)")
-    click.echo("  --config=<path>     Load config from JSON file")
-    click.echo("  --device=<name>     Emulate a device (e.g. 'iPhone 15')")
-    click.echo("  --mobile            Emulate a generic mobile device (Pixel 7)")
-    click.echo("  --viewport-size=WxH Set viewport size")
-    click.echo("  --locale=<code>     Locale (e.g. en-US)")
-    click.echo("  --timezone=<id>     Timezone ID")
-    click.echo("  --geolocation=lat,lon Geolocation override")
-    click.echo("  --user-agent=<ua>   Custom user agent")
-    click.echo("  --grant-permissions=P Comma-separated permissions to grant")
-    click.echo("  --cdp=<url>         Attach to Chrome via CDP endpoint")
-    click.echo("  --show-port=N       Dashboard port (default: 9322)")
-    click.echo("  --raw               Raw output (strip page/snapshot decorations)")
-    click.echo("  --json              Wrap response as JSON ({success, output, ...})")
-    click.echo("  --toon              TOON output for list/url/title results (default: text)")
-    click.echo("  -V, --version       Show version")
-    click.echo("  --help              Show this help; `<command> --help` shows one command")
-    click.echo("\nThese go after the command, not before:")
-    click.echo("  --timeout=<seconds>   Daemon idle timeout before it exits (default: 1800)")
-    click.echo("  --timeout-action=ms   Default action timeout")
-    click.echo("  --timeout-navigation=ms Default navigation timeout")
-    click.echo("  --web-only            Keep this request's navigations on the web\n")
-    click.echo("Commands:")
+    echo("patchright-cli — Undetected browser automation CLI\n")
+    echo("Usage: patchright-cli [OPTIONS] <command> [args...]\n")
+    echo("Options:")
+    echo("  --headless          Run headless; the daemon it starts keeps this as the default (default: headed)")
+    echo("  --persistent        No effect; kept for compatibility (profiles always persist)")
+    echo("  --profile=<name>    Named profile (default: the session name); a value")
+    echo(r"                      with a / or \ is a directory instead")
+    echo("  --proxy=<url>       Proxy server (e.g. http://host:port, socks5://host:port)")
+    echo("  -s=<name>           Named session (default: 'default')")
+    echo("  --tab=<name>        Named tab inside the session: shared browser,")
+    echo("                      cookies and fingerprint; own page, refs and history")
+    echo("  --port=<n>          Daemon port (default: 9321)")
+    echo("  --config=<path>     Load config from JSON file")
+    echo("  --device=<name>     Emulate a device (e.g. 'iPhone 15')")
+    echo("  --mobile            Emulate a generic mobile device (Pixel 7)")
+    echo("  --viewport-size=WxH Set viewport size")
+    echo("  --locale=<code>     Locale (e.g. en-US)")
+    echo("  --timezone=<id>     Timezone ID")
+    echo("  --geolocation=lat,lon Geolocation override")
+    echo("  --user-agent=<ua>   Custom user agent")
+    echo("  --grant-permissions=P Comma-separated permissions to grant")
+    echo("  --cdp=<url>         Attach to Chrome via CDP endpoint")
+    echo("  --show-port=N       Dashboard port (default: 9322)")
+    echo("  --raw               Raw output (strip page/snapshot decorations)")
+    echo("  --json              Wrap response as JSON ({success, output, ...})")
+    echo("  --toon              TOON output for list/url/title results (default: text)")
+    echo("  -V, --version       Show version")
+    echo("  --help              Show this help; `<command> --help` shows one command")
+    echo("\nThese go after the command, not before:")
+    echo("  --timeout=<seconds>   Daemon idle timeout before it exits (default: 1800)")
+    echo("  --timeout-action=ms   Default action timeout")
+    echo("  --timeout-navigation=ms Default navigation timeout")
+    echo("  --web-only            Keep this request's navigations on the web\n")
+    echo("Commands:")
     for cat_name, cmds in COMMAND_CATEGORIES:
-        click.echo(f"\n  {cat_name}:")
+        echo(f"\n  {cat_name}:")
         for c in cmds:
-            click.echo(f"    {COMMANDS_HELP[c]}")
-    click.echo()
+            echo(f"    {COMMANDS_HELP[c]}")
+    echo()
 
 
 # ---------------------------------------------------------------------------
@@ -1839,7 +1868,7 @@ def _print_home(port: int, session: str, *, as_json: bool = False, as_toon: bool
     except Exception:
         down = {"bin": "patchright-cli", "version": __version__, "daemon": {"port": port, "running": False}}
         text = _render_home({**down, "sessions": []}, as_json, as_toon)
-    click.echo(text)
+    echo(text)
 
 
 # ---------------------------------------------------------------------------
@@ -2017,9 +2046,9 @@ def _failure_lines(command: str, output: str) -> tuple[str, list[str], list[str]
 
 def _print_error(message: str, *help_lines: str) -> None:
     """CLI-originated errors go to stdout, where the agent reads its output."""
-    click.echo(f"error: {message}")
+    echo(f"error: {message}")
     for line in help_lines:
-        click.echo(line)
+        echo(line)
 
 
 def main():
@@ -2029,7 +2058,7 @@ def main():
     except UsageError as e:
         _print_error(e.message, *e.help_lines)
         if e.detail:
-            click.echo(e.detail)
+            echo(e.detail)
         sys.exit(2)
     except (SystemExit, KeyboardInterrupt):
         raise
@@ -2175,7 +2204,7 @@ def _main():
             extra_opts["interactive"] = True
             interactive_flag = arg
         elif arg in ("--version", "-v", "-V"):
-            click.echo(__version__)
+            echo(__version__)
             sys.exit(0)
         elif arg in ("--help", "-h"):
             want_help = True
@@ -2215,7 +2244,7 @@ def _main():
         raise UsageError(f"unknown command `{command}`", *help_lines)
 
     if want_help:
-        click.echo(_command_help(command))
+        echo(_command_help(command))
         sys.exit(0)
 
     if command == "install":
@@ -2253,7 +2282,7 @@ def _main():
                 "`daemon-info` takes only --json (and --port)",
                 "help: patchright-cli daemon-info --json [--port=N]",
             )
-        click.echo(
+        echo(
             json.dumps(
                 {
                     "version": __version__,
@@ -2363,7 +2392,7 @@ def _main():
     failure = None if success else _failure_lines(command, output if isinstance(output, str) else str(output))
 
     if toon_lines is not None:
-        click.echo("\n".join(toon_lines))
+        echo("\n".join(toon_lines))
     elif as_json:
         payload = dict(response)
         if failure is not None:
@@ -2372,16 +2401,16 @@ def _main():
                 payload.setdefault("help", [line.removeprefix("help: ") for line in failure[2]])
         if raw and isinstance(payload.get("output"), str):
             payload["output"] = _strip_raw_output(payload["output"])
-        click.echo(json.dumps(payload, default=str))
+        echo(json.dumps(payload, default=str))
     elif failure is not None:
         message, details, helps = failure
-        click.echo("\n".join([f"error: {message}", *details, *helps]))
+        echo("\n".join([f"error: {message}", *details, *helps]))
     else:
         if output:
             if raw:
                 output = _strip_raw_output(output)
             if output:
-                click.echo(output)
+                echo(output)
 
     if not success:
         # The daemon marks usage errors (a malformed ref) with exit_code 2.

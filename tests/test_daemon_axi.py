@@ -606,30 +606,18 @@ def test_responses_encode_as_toon():
 def test_daemon_spawn_uses_a_hidden_console_on_windows():
     # DETACHED_PROCESS leaves a venv launcher console-less, so the real interpreter it
     # starts opens a visible window; CREATE_NO_WINDOW gives a hidden console instead.
-    import socket
     import subprocess
 
-    from patchright_cli import daemon
+    from patchright_cli import cli
 
     started = []
 
-    class FakeSocket:
-        def settimeout(self, _):
-            pass
-
-        def connect(self, _):
-            if not started:
-                raise ConnectionRefusedError
-
-        def close(self):
-            pass
-
     with (
-        patch.object(socket, "socket", lambda *a: FakeSocket()),
+        patch.object(cli, "_port_listening", lambda port: bool(started)),
         patch.object(subprocess, "Popen", side_effect=lambda *a, **k: started.append(k)),
         patch("time.sleep"),
     ):
-        assert daemon.ensure_daemon_running(port=1, headless=True) is True
+        assert cli.ensure_daemon_running(port=1, headless=True) is True
 
     flags = started[0]["creationflags"]
     assert flags & subprocess.CREATE_NO_WINDOW

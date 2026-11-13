@@ -9,12 +9,12 @@ import sys
 
 import pytest
 
-from patchright_cli import cli, daemon
+from patchright_cli import cli, daemon, protocol
 
 
 @pytest.fixture
 def token_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(daemon, "TOKEN_DIR", tmp_path)
+    monkeypatch.setattr(protocol, "_DAEMON_DIR", tmp_path)
     return tmp_path
 
 
@@ -36,7 +36,7 @@ async def _with_daemon(port: int, body):
     """Run the real daemon on `port`, run blocking `body(port)` against it, then stop it."""
     task = asyncio.create_task(daemon.run_daemon(port, headless=True))
     for _ in range(100):
-        if daemon.read_daemon_token(port):
+        if protocol.read_daemon_token(port):
             break
         await asyncio.sleep(0.02)
     try:
@@ -50,8 +50,8 @@ def test_token_file_is_per_port(token_dir):
     a = daemon.write_daemon_token(9398)
     b = daemon.write_daemon_token(9399)
     assert a != b
-    assert daemon.read_daemon_token(9398) == a
-    assert daemon.read_daemon_token(9399) == b
+    assert protocol.read_daemon_token(9398) == a
+    assert protocol.read_daemon_token(9399) == b
     assert sorted(p.name for p in token_dir.iterdir()) == ["daemon-9398.token", "daemon-9399.token"]
 
 
@@ -59,21 +59,21 @@ def test_stale_token_is_overwritten_and_removed_only_by_its_owner(token_dir):
     old = daemon.write_daemon_token(9398)
     new = daemon.write_daemon_token(9398)
     assert old != new
-    assert daemon.read_daemon_token(9398) == new
+    assert protocol.read_daemon_token(9398) == new
     daemon.remove_daemon_token(9398, old)
-    assert daemon.read_daemon_token(9398) == new
+    assert protocol.read_daemon_token(9398) == new
     daemon.remove_daemon_token(9398, new)
-    assert not daemon.token_path(9398).exists()
+    assert not protocol.token_path(9398).exists()
 
 
 def test_missing_token_file_reads_as_none(token_dir):
-    assert daemon.read_daemon_token(9398) is None
+    assert protocol.read_daemon_token(9398) is None
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes do not apply on Windows")
 def test_token_file_mode_is_0600(token_dir):
     daemon.write_daemon_token(9398)
-    assert stat.S_IMODE(daemon.token_path(9398).stat().st_mode) == 0o600
+    assert stat.S_IMODE(protocol.token_path(9398).stat().st_mode) == 0o600
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes do not apply on Windows")
@@ -85,7 +85,7 @@ def test_token_file_is_0600_even_with_permissive_umask(token_dir):
         daemon.write_daemon_token(9398)
     finally:
         os.umask(old)
-    assert stat.S_IMODE(daemon.token_path(9398).stat().st_mode) == 0o600
+    assert stat.S_IMODE(protocol.token_path(9398).stat().st_mode) == 0o600
 
 
 def test_check_auth_accepts_right_token():
@@ -131,7 +131,7 @@ def test_daemon_rejects_missing_and_wrong_tokens_and_runs_nothing(token_dir):
     assert "rejected the auth token" in wrong["output"]
     assert listed["success"] is True
     # A clean shutdown removes the token file.
-    assert not daemon.token_path(port).exists()
+    assert not protocol.token_path(port).exists()
 
 
 def test_cli_sends_token_and_omits_it_without_a_token_file(token_dir, monkeypatch):
@@ -186,12 +186,12 @@ def test_token_file_ignores_a_broad_inherited_acl(token_dir):
     control.write_text("x")
     assert ";;;WD)" in _dacl_sddl(control), "the test ACL did not take effect"
     # A stale token file that inherited the broad ACL is replaced, not reused.
-    daemon.token_path(9398).write_text("stale")
+    protocol.token_path(9398).write_text("stale")
 
     token = daemon.write_daemon_token(9398)
 
-    assert daemon.read_daemon_token(9398) == token
-    sddl = _dacl_sddl(daemon.token_path(9398))
+    assert protocol.read_daemon_token(9398) == token
+    sddl = _dacl_sddl(protocol.token_path(9398))
     assert sddl.startswith("D:P"), sddl  # protected: nothing inherited from the directory
     aces = sddl[3:].strip("()").split(")(")
     assert len(aces) == 1, sddl
@@ -223,7 +223,7 @@ def test_daemon_does_not_start_when_the_token_file_cannot_be_protected(token_dir
     port = _free_port()
     with pytest.raises(OSError, match="owner-only ACL"):
         asyncio.run(daemon.run_daemon(port, headless=True))
-    assert not daemon.token_path(port).exists()
+    assert not protocol.token_path(port).exists()
     with pytest.raises(OSError), socket.create_connection(("127.0.0.1", port), timeout=1):
         pass
 
@@ -232,7 +232,7 @@ def test_second_daemon_on_a_locked_port_leaves_the_first_ones_token_alone(token_
     port = _free_port()
 
     def body(port):
-        path = daemon.token_path(port)
+        path = protocol.token_path(port)
         before = (path.read_text(), path.stat().st_mtime_ns)
         with pytest.raises(daemon.DaemonAlreadyRunning, match="already running"):
             asyncio.run(daemon.run_daemon(port, headless=True))
@@ -252,10 +252,10 @@ def test_lock_holder_whose_bind_fails_writes_and_removes_no_token(token_dir):
         other.bind(("127.0.0.1", 0))
         other.listen()
         port = other.getsockname()[1]
-        daemon.token_path(port).write_text("theirs")
+        protocol.token_path(port).write_text("theirs")
         with pytest.raises(OSError):
             asyncio.run(daemon.run_daemon(port, headless=True))
-    assert daemon.read_daemon_token(port) == "theirs"
+    assert protocol.read_daemon_token(port) == "theirs"
     daemon.release_daemon_lock(daemon.acquire_daemon_lock(port))
 
 
@@ -263,7 +263,7 @@ def test_daemon_process_exits_when_another_holds_the_port_lock(tmp_path, monkeyp
     import os
     import subprocess
 
-    monkeypatch.setattr(daemon, "TOKEN_DIR", tmp_path / ".patchright-cli")
+    monkeypatch.setattr(protocol, "_DAEMON_DIR", tmp_path / ".patchright-cli")
     port = _free_port()
     fd = daemon.acquire_daemon_lock(port)
     try:
@@ -279,7 +279,7 @@ def test_daemon_process_exits_when_another_holds_the_port_lock(tmp_path, monkeyp
         daemon.release_daemon_lock(fd)
     assert proc.returncode == 1
     assert "already running or starting on port" in proc.stderr
-    assert not daemon.token_path(port).exists()
+    assert not protocol.token_path(port).exists()
 
 
 @pytest.mark.parametrize(
@@ -295,7 +295,7 @@ def test_wire_replies_have_explicit_success_and_output(token_dir, message, succe
     port = _free_port()
 
     def body(port):
-        return _send_raw(port, {**message, "token": daemon.read_daemon_token(port)})
+        return _send_raw(port, {**message, "token": protocol.read_daemon_token(port)})
 
     reply = asyncio.run(_with_daemon(port, body))
     assert type(reply["success"]) is bool
