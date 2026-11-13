@@ -461,3 +461,108 @@ async def test_background_open_reports_replacing_a_stale_session(state):
     assert reply["success"], reply
     assert "Replaced stale session 'work'" in reply["output"]
     assert "uses background page creation" not in reply["output"]
+
+
+NOTE_LINE = f"Note: {daemon.BACKGROUND_IGNORED_NOTE}"
+
+
+@pytest.mark.asyncio
+async def test_raw_open_with_background_is_a_noted_noop_on_an_existing_headless_session(state):
+    session = await state.get_or_create_session("work", headless=True)
+    reply = await daemon.handle_command(state, {"command": "open", "options": {"session": "work", "background": True}})
+    assert reply["success"], reply
+    assert reply["output"].splitlines()[0] == NOTE_LINE
+    assert session.background is False
+    assert session.attach_notices == []
+
+
+@pytest.mark.asyncio
+async def test_background_with_tab_and_url_is_a_noted_noop_on_an_existing_headless_session(state, monkeypatch):
+    session = await state.get_or_create_session("work", headless=True)
+    page = MagicMock(url="https://example.com/")
+    page.is_closed.return_value = False
+    session.context.new_page = AsyncMock(return_value=page)
+    creator = AsyncMock(side_effect=AssertionError("background page creation on a headless session"))
+    monkeypatch.setattr(daemon, "new_background_page", creator)
+    monkeypatch.setattr(daemon.Session, "check_navigation", AsyncMock())
+    goto = AsyncMock()
+    monkeypatch.setattr(daemon.Session, "goto", goto)
+
+    reply = await daemon.handle_command(
+        state,
+        {
+            "command": "background-open",
+            "args": ["https://example.com/"],
+            "options": {"session": "work", "tab": "side", "headless": True},
+        },
+    )
+    assert reply["success"], reply
+    assert reply["output"].splitlines()[0] == NOTE_LINE
+    assert session.tabs["side"].page is page
+    assert goto.await_args.args[:2] == (page, "https://example.com/")
+    assert session.background is False
+    creator.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_headed_overrides_a_default_headless_daemon_and_keeps_background(state):
+    state.default_headless = True
+    reply = await daemon.handle_command(state, {"command": "background-open", "options": {"headed": True}})
+    assert reply["success"], reply
+    assert "Note:" not in reply["output"]
+    session = state.sessions["default"]
+    assert session.headless is False
+    assert session.background is True
+    assert state._launch.await_args.args[1] is False
+    assert state._launch.await_args.kwargs["background"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["navigation", "gone", "page-info"])
+async def test_note_stays_with_a_failed_background_open_and_never_leaks(state, monkeypatch, failure):
+    """The note belongs to the reply of the command that passed --background, whatever its outcome."""
+    session = await state.get_or_create_session("work", headless=True)
+    options = {"session": "work"}
+    args = []
+    if failure == "navigation":
+        monkeypatch.setattr(daemon.Session, "check_navigation", AsyncMock(side_effect=ValueError("Blocked by guard.")))
+        options["tab"] = "bad"
+        args = ["http://127.0.0.1/"]
+    elif failure == "gone":
+        live = MagicMock(url="about:blank#live")
+        live.is_closed.return_value = False
+        first = session.pages[0]
+        session.pages.append(live)
+        session.tabs["live"] = daemon.Tab("live", live)
+        session._forget_page(first, outside=True)
+    else:
+        monkeypatch.setattr(daemon, "_page_info", AsyncMock(side_effect=RuntimeError("Page info failed.")))
+
+    reply = await daemon.handle_command(state, {"command": "background-open", "args": args, "options": options})
+    assert reply["success"] is False
+    lines = reply["output"].splitlines()
+    assert lines[0] != NOTE_LINE  # the first line stays the error message
+    assert lines.count(NOTE_LINE) == 1
+    assert session.attach_notices == []
+
+    monkeypatch.undo()
+    monkeypatch.setattr(daemon, "_page_info", AsyncMock(side_effect=lambda *a, **k: {"success": True, "output": ""}))
+    later = await daemon.handle_command(state, {"command": "open", "options": {"session": "work"}})
+    assert NOTE_LINE not in later["output"]
+
+
+@pytest.mark.asyncio
+async def test_note_stays_with_a_background_open_whose_headless_launch_fails(state):
+    state._launch.side_effect = RuntimeError("Chrome did not start.")
+    reply = await daemon.handle_command(state, {"command": "background-open", "options": {"headless": True}})
+    assert reply["success"] is False
+    lines = reply["output"].splitlines()
+    assert "Chrome did not start." in lines[0]
+    assert lines.count(NOTE_LINE) == 1
+
+
+def test_cli_prints_the_note_under_the_error_of_a_failed_open(monkeypatch, capsys):
+    reply = {"success": False, "output": f"Blocked by guard.\n{NOTE_LINE}\nhelp: use another url"}
+    code, out = _run_reply(["open", "--headless", "--background", "http://127.0.0.1/"], reply, monkeypatch, capsys)
+    assert code == 1
+    assert out.splitlines() == ["error: blocked by guard", NOTE_LINE, "help: use another url"]
