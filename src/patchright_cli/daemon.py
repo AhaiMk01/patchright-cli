@@ -545,16 +545,22 @@ class Session:
         return tab
 
     async def close_tab(self, name: str) -> bool:
-        """Close one tab's page. Returns whether any tab is still open.
+        """Close one named tab's page. Returns whether any tab is still in use.
 
-        False means the caller closed the last tab and the session itself
+        False means the caller closed the last tab in use and the session itself
         should go, which is how concurrent agents clean up without having to
         coordinate: each closes its own, and the last one out ends the browser.
 
-        The implicit default tab does not count towards "still open" unless
-        someone actually works in it -- otherwise a `--tab`-only workflow could
-        close every tab it opened and still leave a browser running forever.
+        The pages no named tab owns (the default tab's) count as in use only
+        when someone actually works in the default tab -- otherwise a
+        `--tab`-only workflow could close every tab it opened and still leave a
+        browser running forever on the blank page it launched with.
+
+        The default tab cannot be closed here: it pins no page of its own, so
+        there is nothing to close short of the session.
         """
+        if name == DEFAULT_TAB:
+            raise ValueError("the default tab closes with its session")
         tab = self.tabs.pop(name)
         page = tab.page
         if page is not None:
@@ -564,13 +570,8 @@ class Session:
             except Exception:
                 pass
 
-        if name == DEFAULT_TAB:
-            # `open` looks the default up by key, so it has to keep existing.
-            self.default_in_use = False
-            self._ensure_default_tab()
-
         named = [key for key, t in self.tabs.items() if key != DEFAULT_TAB and not t.gone]
-        return bool(named) or self.default_in_use
+        return bool(named) or (self.default_in_use and bool(self.pages))
 
     def select_page(self, page) -> None:
         """Make `page` the default tab's page, tracking it first if it is new."""
@@ -4529,6 +4530,9 @@ def _gone_reply() -> dict:
 # Commands that run without a current page: the tab ones get a page back, and
 # console reads the session-wide buffer, which outlives the page that closed.
 _PAGELESS = frozenset({"tab-new", "tab-select", "tab-list", "tab-close", "console", "cookie-list"})
+# Commands a coordinator runs without --tab to look at or tidy a session whose
+# work happens in named tabs; they do not put the default tab in use.
+_DEFAULT_TAB_ONLOOKERS = frozenset({"tab-list", "tab-close", "console", "cookie-list"})
 _NOT_HELD = {"close", "close-all", "kill-all", "detach", "delete-data", "list", "profile-list"}
 
 
@@ -4758,15 +4762,17 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
 
         # Commands that don't need a page
         if cmd == "close":
-            # `close` releases the tab it is addressed to. The browser goes when
-            # the last tab does, so concurrent agents clean up without having to
-            # coordinate -- each closes its own and the last one out ends it.
-            if tab_name not in session.tabs:
+            # Plain `close` ends the session, however many tabs it has.
+            # `--tab <name> close` releases that tab only; the session goes with
+            # it just when no other tab is in use, so concurrent agents clean up
+            # without having to coordinate -- the last one out ends the browser.
+            named_tab = tab_name != DEFAULT_TAB
+            if named_tab and tab_name not in session.tabs:
                 return {"success": True, "output": f"Tab '{tab_name}' is not open in session '{session_name}' (no-op)"}
             if session.uses_host_context:
                 # Named Tabs' Pages are ours to Close; the Session itself, and the
                 # Page the Default Tab follows, belong to the Host.
-                if tab_name == DEFAULT_TAB:
+                if not named_tab:
                     return {
                         "success": False,
                         "output": (
@@ -4776,12 +4782,23 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
                     }
                 await session.close_tab(tab_name)
                 return {"success": True, "output": f"Tab '{tab_name}' closed; session stays attached until `detach`."}
-            remaining = await session.close_tab(tab_name)
-            if remaining:
-                return {"success": True, "output": f"Tab '{tab_name}' closed; {len(session.tabs)} tab(s) still open."}
+            if named_tab and await session.close_tab(tab_name):
+                # The count is of pages, the same ones `tab-list` and `list` show.
+                return {
+                    "success": True,
+                    "output": (
+                        f"Tab '{tab_name}' closed; {len(session.pages)} tab(s) still open in session "
+                        f"'{session_name}' (`close` without --tab closes the session)."
+                    ),
+                }
             closed = await state.close_session(session_name)
             if not closed:
                 return {"success": True, "output": f"Session '{session_name}' is not open (no-op)"}
+            if named_tab:
+                return {
+                    "success": True,
+                    "output": f"Tab '{tab_name}' closed; it was the last tab in use, so session '{session_name}' closed.",
+                }
             return {"success": True, "output": f"Session '{session_name}' closed."}
 
         if cmd == "detach":
@@ -4816,6 +4833,10 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
                 "code": TAB_NOT_OPEN,
             }
         session.activate_tab(tab_name)
+        if tab_name == DEFAULT_TAB and cmd not in _DEFAULT_TAB_ONLOOKERS:
+            # Someone works in the default tab now, even if the session was opened
+            # only through --tab: closing the last named tab must not end it.
+            session.default_in_use = True
         page = session.page
 
         if page is None and session.pages and cmd not in _PAGELESS:
