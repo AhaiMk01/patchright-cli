@@ -583,6 +583,23 @@ def test_piped_cli_output_is_utf8_whatever_the_locale():
     result.stdout.decode("utf-8")  # the whole manual, not only the banner
 
 
+def test_piped_cli_stderr_is_utf8_whatever_the_locale():
+    """`mcp` rejects a bad --port on stderr before it needs MCP or a daemon, echoing the value (#60)."""
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUTF8", "PYTHONIOENCODING")}
+    env["PATCHRIGHT_CLI_NO_VERSION_CHECK"] = "1"
+    result = subprocess.run(
+        [sys.executable, "-m", "patchright_cli", "mcp", "--port=百度"], capture_output=True, env=env, timeout=60
+    )
+
+    assert result.returncode == 2, result.stderr
+    assert result.stdout == b""
+    assert "invalid int value: '百度'".encode() in result.stderr
+    result.stderr.decode("utf-8")
+
+
 # -- Socket timeout ----------------------------------------------------------
 
 
