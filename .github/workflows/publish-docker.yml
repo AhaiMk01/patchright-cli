@@ -1,6 +1,11 @@
 name: docker-publish
 
 on:
+  # A release tag publishes the image alongside the PyPI package (publish.yml).
+  push:
+    tags:
+      - 'v*'
+  # Manual runs rebuild or republish a tag; they push only when asked to.
   workflow_dispatch:
     inputs:
       tag:
@@ -17,6 +22,11 @@ permissions:
   contents: read
   packages: write
 
+env:
+  # A tag push has no inputs: it publishes under the tag's own name.
+  VERSION_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+  PUBLISH: ${{ github.event_name == 'push' || inputs.publish_docker }}
+
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -32,8 +42,6 @@ jobs:
       - name: Set Docker image tags
         id: tags
         shell: bash
-        env:
-          VERSION_TAG: ${{ inputs.tag }}
         run: |
           REPOSITORY="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           IMAGE_NAME="ghcr.io/${REPOSITORY}"
@@ -46,7 +54,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Authenticate with GHCR
-        if: ${{ inputs.publish_docker }}
+        if: ${{ env.PUBLISH == 'true' }}
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -58,7 +66,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ inputs.publish_docker }}
+          push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ steps.tags.outputs.tags }}
           # Attestations need the docker-container driver that setup-buildx-action creates above.
           provenance: mode=max

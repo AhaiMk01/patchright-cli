@@ -9,6 +9,7 @@ REPO = Path(__file__).resolve().parent.parent
 DOCKERFILE = REPO / "Dockerfile"
 DEPENDABOT = REPO / ".github" / "dependabot.yml"
 PUBLISH_DOCKER = REPO / ".github" / "workflows" / "publish-docker.yml"
+PUBLISH_PYPI = REPO / ".github" / "workflows" / "publish.yml"
 
 # A readable tag plus the digest, e.g. python:3.12-slim@sha256:<64 hex>
 PINNED = re.compile(r"^[\w./-]+:[\w.-]+@sha256:[0-9a-f]{64}$")
@@ -63,3 +64,17 @@ def test_published_image_carries_provenance_and_sbom():
     options = steps[build]["with"]
     assert options["provenance"] == "mode=max"
     assert options["sbom"] is True
+
+
+def _triggers(path):
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    # YAML 1.1 reads the bare key `on` as the boolean True.
+    return workflow[True]
+
+
+def test_a_release_tag_publishes_the_image_with_the_package():
+    # One tag push must release both, so the image cannot lag behind PyPI.
+    docker = _triggers(PUBLISH_DOCKER)
+    assert docker["push"]["tags"] == _triggers(PUBLISH_PYPI)["push"]["tags"]
+    # Manual runs stay available and do not push unless asked to.
+    assert docker["workflow_dispatch"]["inputs"]["publish_docker"]["default"] is False
