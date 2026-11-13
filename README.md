@@ -273,7 +273,8 @@ patchright-cli screenshot --full-page  # Full scrollable page
 patchright-cli screenshot <ref>        # Element screenshot
 patchright-cli screenshot --filename=f # Save to custom path
 patchright-cli screenshot --hires      # Capture at device pixel ratio
-patchright-cli close                   # Close session
+patchright-cli close                   # Close the whole session (all tabs)
+patchright-cli --tab=<name> close      # Close only that named tab
 ```
 
 ### Navigation

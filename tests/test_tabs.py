@@ -148,12 +148,6 @@ async def test_closing_a_named_tab_leaves_new_requests_on_the_default():
 
 
 @pytest.mark.asyncio
-async def test_closing_the_last_tab_reports_nothing_remaining():
-    session = _session()
-    assert await session.close_tab(DEFAULT_TAB) is False
-
-
-@pytest.mark.asyncio
 async def test_close_tab_that_does_not_exist_raises():
     session = _session()
     with pytest.raises(KeyError):
@@ -256,7 +250,7 @@ async def test_close_frees_only_the_addressed_tab(state_with_session):
 
 
 @pytest.mark.asyncio
-async def test_closing_the_last_tab_closes_the_session(state_with_session):
+async def test_plain_close_closes_the_session(state_with_session):
     from patchright_cli.daemon import handle_command
 
     state, session = state_with_session
@@ -265,6 +259,278 @@ async def test_closing_the_last_tab_closes_the_session(state_with_session):
 
     assert response["success"] is True
     state.close_session.assert_awaited_once()
+
+
+# -- Issue #57: `close` is the session, `--tab <name> close` is one tab ---------
+
+
+async def _close(state, **options):
+    from patchright_cli.daemon import handle_command
+
+    return await handle_command(state, {"command": "close", "args": [], "options": options})
+
+
+@pytest.mark.asyncio
+async def test_plain_close_closes_the_session_despite_named_tabs(state_with_session):
+    state, session = state_with_session
+    await session.open_tab("work")
+
+    response = await _close(state)
+
+    assert response["success"] is True
+    state.close_session.assert_awaited_once_with("default")
+    assert response["output"] == "Session 'default' closed."
+
+
+@pytest.mark.asyncio
+async def test_close_addressed_to_the_default_tab_by_name_closes_the_session(state_with_session):
+    state, session = state_with_session
+    await session.open_tab("work")
+
+    response = await _close(state, tab=DEFAULT_TAB)
+
+    state.close_session.assert_awaited_once_with("default")
+    assert response["output"] == "Session 'default' closed."
+
+
+@pytest.mark.asyncio
+async def test_named_close_says_which_tab_closed_and_how_many_remain(state_with_session):
+    from patchright_cli.daemon import handle_command
+
+    state, session = state_with_session
+    await session.open_tab("work")
+    await session.open_tab("mail")
+
+    response = await _close(state, tab="work")
+
+    state.close_session.assert_not_awaited()
+    assert "Tab 'work' closed" in response["output"]
+    # default + mail: the same pages tab-list shows.
+    assert "2 tab(s) still in use in session 'default'" in response["output"]
+    assert "unused" not in response["output"]
+    listing = await handle_command(state, {"command": "tab-list", "args": [], "options": {}})
+    assert len(listing["data"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_named_close_of_the_last_tab_in_use_says_the_session_closed(state_with_session):
+    state, session = state_with_session
+    session.default_in_use = False  # opened only through --tab
+    await session.open_tab("work")
+
+    response = await _close(state, tab="work")
+
+    state.close_session.assert_awaited_once_with("default")
+    assert "Tab 'work' closed" in response["output"]
+    assert "last tab in use" in response["output"]
+    assert "session 'default' closed" in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_named_close_keeps_a_session_whose_default_tab_was_used_after_a_tab_only_open(state_with_session):
+    from patchright_cli.daemon import handle_command
+
+    state, session = state_with_session
+    session.default_in_use = False  # opened only through --tab
+    await session.open_tab("work")
+    session.pages[0].evaluate = AsyncMock(return_value=1)
+    await handle_command(state, {"command": "tab-new", "args": [], "options": {}})
+
+    response = await _close(state, tab="work")
+
+    state.close_session.assert_not_awaited()
+    assert "2 tab(s) still in use" in response["output"]
+    assert "unused" not in response["output"]
+
+
+@pytest.mark.asyncio
+async def test_two_named_tabs_in_a_tab_only_session_close_one_then_the_other(state_with_session):
+    from patchright_cli.daemon import handle_command
+
+    state, session = state_with_session
+    session.default_in_use = False  # opened only through --tab
+    await session.open_tab("a")
+    await session.open_tab("b")
+
+    first = await _close(state, tab="a")
+
+    state.close_session.assert_not_awaited()
+    # tab-list still shows two pages, but only b is in use: the other is the launch page.
+    listing = await handle_command(state, {"command": "tab-list", "args": [], "options": {}})
+    assert len(listing["data"]) == 2
+    assert "Tab 'a' closed; 1 tab(s) still in use in session 'default'" in first["output"]
+    assert "plus 1 unused page(s)" in first["output"]
+    assert "launch page" in first["output"]
+    assert "2 tab(s)" not in first["output"]
+
+    second = await _close(state, tab="b")
+
+    state.close_session.assert_awaited_once_with("default")
+    assert second["output"] == "Tab 'b' closed; it was the last tab in use, so session 'default' closed."
+
+
+@pytest.mark.asyncio
+async def test_after_tab_close_removes_the_default_page_only_named_tabs_keep_the_session(state_with_session):
+    from patchright_cli.daemon import handle_command
+
+    state, session = state_with_session  # default tab in use
+    await session.open_tab("work")
+    removed = await handle_command(state, {"command": "tab-close", "args": ["0"], "options": {}})
+    assert removed["success"] is True
+
+    response = await _close(state, tab="work")
+
+    state.close_session.assert_awaited_once_with("default")
+    assert "last tab in use" in response["output"]
+
+
+def test_every_registered_command_is_classified_by_whether_it_uses_the_page():
+    # A new @register command must be added to one of the two sets (issue #57):
+    # the set decides whether running it without --tab puts the default tab in use.
+    from patchright_cli import daemon
+
+    assert not daemon._PAGE_COMMANDS & daemon._SESSION_WIDE
+    assert set(daemon.COMMAND_HANDLERS) == daemon._PAGE_COMMANDS | daemon._SESSION_WIDE
+
+
+def _session_wide_commands():
+    from patchright_cli import daemon
+
+    return sorted(getattr(daemon, "_SESSION_WIDE", ["missing-_SESSION_WIDE"]))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", _session_wide_commands())
+async def test_a_session_wide_command_does_not_put_the_default_tab_in_use(state_with_session, command):
+    from patchright_cli.daemon import COMMAND_HANDLERS, handle_command
+
+    state, session = state_with_session
+    session.default_in_use = False  # opened only through --tab
+    await session.open_tab("work")
+    assert command in COMMAND_HANDLERS
+
+    # Whether it succeeds on these mocks does not matter: it never uses the tab.
+    await handle_command(state, {"command": command, "args": [], "options": {}})
+
+    assert session.default_in_use is False
+    await _close(state, tab="work")
+    state.close_session.assert_awaited_once_with("default")
+
+
+@pytest.mark.asyncio
+async def test_the_requests_alias_does_not_put_the_default_tab_in_use(state_with_session):
+    from patchright_cli.daemon import handle_command
+
+    state, session = state_with_session
+    session.default_in_use = False
+    reply = await handle_command(state, {"command": "requests", "args": [], "options": {}})
+
+    assert reply["success"] is True
+    assert session.default_in_use is False
+
+
+@pytest.mark.asyncio
+async def test_a_page_command_puts_the_default_tab_in_use(state_with_session):
+    from patchright_cli.daemon import handle_command
+
+    state, session = state_with_session
+    session.default_in_use = False
+    reply = await handle_command(state, {"command": "url", "args": [], "options": {}})
+
+    assert reply["success"] is True
+    assert session.default_in_use is True
+
+
+@pytest.mark.asyncio
+async def test_a_page_command_addressed_to_a_named_tab_leaves_the_default_tab_unused(state_with_session):
+    from patchright_cli.daemon import handle_command
+
+    state, session = state_with_session
+    session.default_in_use = False
+    await session.open_tab("work")
+    reply = await handle_command(state, {"command": "url", "args": [], "options": {"tab": "work"}})
+
+    assert reply["success"] is True
+    assert session.default_in_use is False
+
+
+@pytest.mark.asyncio
+async def test_a_command_refused_on_a_gone_default_page_does_not_put_it_in_use(state_with_session):
+    from patchright_cli.daemon import handle_command
+
+    state, session = state_with_session
+    session.default_in_use = False
+    await session.open_tab("work")
+    session._current_gone = True  # the default tab's page closed outside the daemon
+
+    reply = await handle_command(state, {"command": "url", "args": [], "options": {}})
+
+    assert reply["success"] is False
+    assert session.default_in_use is False
+
+
+@pytest.mark.asyncio
+async def test_a_command_refused_with_no_page_does_not_put_the_default_tab_in_use(state_with_session):
+    from patchright_cli.daemon import handle_command
+
+    state, session = state_with_session
+    session.default_in_use = False
+    session.pages.clear()
+
+    reply = await handle_command(state, {"command": "url", "args": [], "options": {}})
+
+    assert reply["success"] is False
+    assert session.default_in_use is False
+
+
+@pytest.mark.asyncio
+async def test_a_tab_new_that_fails_does_not_put_the_default_tab_in_use(state_with_session):
+    from patchright_cli.daemon import handle_command
+
+    state, session = state_with_session
+    session.default_in_use = False
+    session.context.new_page = AsyncMock(side_effect=RuntimeError("no page for you"))
+
+    reply = await handle_command(state, {"command": "tab-new", "args": [], "options": {}})
+
+    assert reply["success"] is False
+    assert session.default_in_use is False
+
+
+@pytest.mark.asyncio
+async def test_a_page_command_whose_page_dies_under_it_does_not_put_the_default_tab_in_use(state_with_session):
+    from patchright_cli.daemon import handle_command
+
+    state, session = state_with_session
+    session.default_in_use = False
+    page = session.pages[0]
+
+    async def dies():
+        session._forget_page(page, outside=True)
+        raise RuntimeError("Target page, context or browser has been closed")
+
+    page.title = AsyncMock(side_effect=dies)
+
+    reply = await handle_command(state, {"command": "title", "args": [], "options": {}})
+
+    assert reply["success"] is False
+    assert session.default_in_use is False
+
+
+@pytest.mark.asyncio
+async def test_close_tab_refuses_the_default_tab():
+    # The default tab pins no page, so "closing" it closed nothing (issue #57).
+    session = _session()
+    with pytest.raises(ValueError):
+        await session.close_tab(DEFAULT_TAB)
+
+
+@pytest.mark.asyncio
+async def test_a_named_tab_is_the_last_one_when_no_page_is_left():
+    session = _session(pages=[])
+    await session.open_tab("work")
+
+    assert await session.close_tab("work") is False
 
 
 @pytest.mark.asyncio
@@ -355,17 +621,6 @@ async def test_activation_is_scoped_to_the_task_that_set_it():
 
 
 @pytest.mark.asyncio
-async def test_closing_the_default_tab_leaves_it_reopenable():
-    session = _session()
-    await session.open_tab("inbox")
-
-    assert await session.close_tab(DEFAULT_TAB) is True
-    # The implicit default must still resolve -- `open` looks it up directly.
-    assert DEFAULT_TAB in session.tabs
-    session.activate_tab(DEFAULT_TAB)
-
-
-@pytest.mark.asyncio
 async def test_an_unused_default_tab_does_not_keep_the_session_alive():
     session = _session()
     session.default_in_use = False
@@ -380,15 +635,6 @@ async def test_a_used_default_tab_does_keep_the_session_alive():
     await session.open_tab("inbox")
 
     assert await session.close_tab("inbox") is True
-
-
-@pytest.mark.asyncio
-async def test_closing_default_then_the_last_named_tab_ends_the_session():
-    session = _session()
-    await session.open_tab("inbox")
-
-    assert await session.close_tab(DEFAULT_TAB) is True
-    assert await session.close_tab("inbox") is False
 
 
 @pytest.mark.asyncio

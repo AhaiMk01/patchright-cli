@@ -827,8 +827,8 @@ COMMAND_SPECS: dict[str, dict] = {
     },
     "close": {
         "usage": "close",
-        "summary": "Close browser session (or the --tab it is addressed to)",
-        "examples": ["close", "-s=work close"],
+        "summary": "Close the whole session, all tabs; with --tab=<name>, only that tab",
+        "examples": ["close", "-s=work close", "--tab=inbox close"],
     },
     "detach": {
         "usage": "detach",

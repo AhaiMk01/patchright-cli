@@ -91,7 +91,7 @@ With `--context=host`:
 
 ```bash
 patchright-cli list                        # List all active sessions
-patchright-cli close                       # Close current session gracefully
+patchright-cli close                       # Close current session gracefully (all its tabs)
 patchright-cli close-all                   # Close all sessions gracefully
 patchright-cli kill-all                    # Force-kill all sessions + stop daemon
 patchright-cli delete-data                 # Delete default session's profile data
@@ -110,11 +110,32 @@ patchright-cli tab-list                      # labelled by owning tab
 patchright-cli --tab orders-audit close      # frees one tab only
 ```
 
-`close` releases the tab it is addressed to and the session ends when the last
-tab closes, so concurrent agents clean up without coordinating. A session opened
-only through `--tab` has no default tab in use, so closing the named tabs ends
-it; one opened with a plain `open` keeps its default tab until that is closed
-too. A command
+`--tab <name> close` closes that tab only and says how many tabs are still in
+use, so concurrent agents clean up without coordinating. The session closes
+with it only when it was the last tab in use, and the reply says so. `close`
+without `--tab` closes the whole session, every tab included; `--tab=default
+close` is the same command.
+
+What counts as in use:
+
+- A named tab, until it is closed.
+- The default tab, once a plain `open` or a command that works on its page ran
+  without `--tab`: `goto`, `click`, `snapshot`, `eval`, `tab-new`, `tab-select`
+  and the like. Commands that work on the whole session do not count, so a
+  coordinator can run them without `--tab` and not pin the browser: `tab-list`,
+  `tab-close`, `console`, `network`, `request`, `route-list`, `cookie-*`
+  (except `cookie-set`), `state-save`, `state-load`, `passkey-*`, `tracing-*`,
+  `set-*`/`clear-*` emulation, `debugger-*` and `list`. Nor does a command that
+  was refused because the default tab had no page.
+- In a session opened only through `--tab`, the page Chrome launched with is
+  not in use. `tab-list` shows it, and the close reply mentions it separately
+  ("1 tab(s) still in use ..., plus 1 unused page(s)"); closing the last named
+  tab then closes the session.
+
+If `tab-close` removes the default tab's last page, only the named tabs keep
+the session open, and closing the last of them closes it. If `tab-close`
+removes every page, the session stays open with no page until `tab-new` or
+`close`. A command
 addressed to a tab that was never opened is an error rather than a silent
 fallback to the default tab -- a typo in a tab name should not quietly drive
 someone else's page.
