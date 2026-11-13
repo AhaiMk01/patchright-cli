@@ -1057,7 +1057,8 @@ async def _run_patchright(
         # The CLI must never read the MCP server's stdin, which is the stdio transport.
         stdin=asyncio.subprocess.DEVNULL,
         cwd=OUTPUT_ROOT,
-        # A piped child writes in the locale code page (cp936, cp1252 on Windows); pin it to match the decode below.
+        # The CLI already writes UTF-8 to a pipe (#60); the pin also overrides an inherited PYTHONIOENCODING,
+        # which the CLI would respect, so the bytes always match the decode below.
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
