@@ -130,7 +130,8 @@ open --headless               # Headless mode
 attach --cdp=<url>            # Attach to existing Chrome via CDP (fresh, isolated context)
 attach --cdp=<url> --context=host  # Use the Host Context: the browser's own logins, cookies, storage
 close                         # Close the whole session: every tab, and the browser; refused on --context=host -- use detach
---tab <name> close            # Close only that named tab; the session stays while other tabs are open
+--tab <name> close            # Close only that named tab; the session stays while other tabs are in use,
+                              # and closes with it (the reply says so) when it was the last tab in use
 detach                        # Detach an attached session (keeps external browser running)
 ```
 
@@ -288,7 +289,7 @@ patchright-cli --tab "$TAB" open https://example.com
 does for sessions.
 
 Cleanup needs no coordination: every agent runs `--tab <name> close` for its own
-tab. The reply names the tab and says how many tabs are still open, or that the
+tab. The reply names the tab and says how many tabs are still in use, or that the
 session closed because it was the last tab in use. `close` without `--tab`
 closes the whole session, every tab included, so only whoever owns the session
 runs it. On an `attach --context=host`
