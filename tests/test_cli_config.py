@@ -437,25 +437,115 @@ def test_warn_outdated_survives_a_network_failure(tmp_path, monkeypatch, capsys)
     assert capsys.readouterr().err == ""
 
 
-# -- Console encoding --------------------------------------------------------
+# -- Output encoding ---------------------------------------------------------
+
+NON_ASCII = "百度 — 一下"
 
 
-def test_soften_output_encoding_replaces_instead_of_raising():
-    from patchright_cli.cli import _soften_output_encoding
+def _gbk_stream(tty: bool):
+    """A text stream over bytes, in the code page Windows gives a Chinese locale."""
+    import io
 
+    class Raw(io.BytesIO):
+        def isatty(self):
+            return tty
+
+    raw = Raw()
+    return raw, io.TextIOWrapper(raw, encoding="gbk")
+
+
+def test_output_encoding_piped_stream_writes_utf8(monkeypatch):
+    from patchright_cli.cli import _configure_output_encoding
+
+    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+    raw, stream = _gbk_stream(tty=False)
+    _configure_output_encoding(stream)
+    stream.write(NON_ASCII)
+    stream.flush()
+
+    assert stream.encoding == "utf-8"
+    assert stream.errors == "replace"
+    assert raw.getvalue() == NON_ASCII.encode("utf-8")
+    assert raw.getvalue() != NON_ASCII.encode("gbk")
+
+
+def test_output_encoding_console_keeps_its_encoding(monkeypatch):
+    from patchright_cli.cli import _configure_output_encoding
+
+    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+    raw, stream = _gbk_stream(tty=True)
+    _configure_output_encoding(stream)
+    stream.write(NON_ASCII + " 😀")
+    stream.flush()
+
+    assert stream.encoding == "gbk"
+    assert stream.errors == "replace"
+    assert raw.getvalue() == NON_ASCII.encode("gbk") + b" ?"
+
+
+def test_output_encoding_respects_pythonioencoding(monkeypatch):
+    from patchright_cli.cli import _configure_output_encoding
+
+    monkeypatch.setenv("PYTHONIOENCODING", "gbk")
+    raw, stream = _gbk_stream(tty=False)
+    _configure_output_encoding(stream)
+    stream.write(NON_ASCII)
+    stream.flush()
+
+    assert stream.encoding == "gbk"
+    assert stream.errors == "replace"
+    assert raw.getvalue() == NON_ASCII.encode("gbk")
+
+
+def test_output_encoding_respects_pythonioencoding_error_handler(monkeypatch):
+    from patchright_cli.cli import _configure_output_encoding
+
+    monkeypatch.setenv("PYTHONIOENCODING", "gbk:backslashreplace")
+    _raw, stream = _gbk_stream(tty=False)
+    stream.reconfigure(errors="backslashreplace")  # what the interpreter does with that value
+    _configure_output_encoding(stream)
+
+    assert stream.encoding == "gbk"
+    assert stream.errors == "backslashreplace"
+
+
+def test_output_encoding_error_handler_alone_still_gets_utf8(monkeypatch):
+    from patchright_cli.cli import _configure_output_encoding
+
+    monkeypatch.setenv("PYTHONIOENCODING", ":backslashreplace")
+    _raw, stream = _gbk_stream(tty=False)
+    stream.reconfigure(errors="backslashreplace")
+    _configure_output_encoding(stream)
+
+    assert stream.encoding == "utf-8"
+    assert stream.errors == "backslashreplace"
+
+
+def test_output_encoding_reconfigures_each_stream(monkeypatch):
+    from patchright_cli.cli import _configure_output_encoding
+
+    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
     calls = []
 
     class Stream:
+        def __init__(self, tty):
+            self.tty = tty
+
+        def isatty(self):
+            return self.tty
+
         def reconfigure(self, **kwargs):
             calls.append(kwargs)
 
-    a, b = Stream(), Stream()
-    _soften_output_encoding(a, b)
-    assert calls == [{"errors": "replace"}, {"errors": "replace"}]
+    _configure_output_encoding(Stream(True), Stream(False))
+    assert calls == [{"errors": "replace"}, {"encoding": "utf-8", "errors": "replace"}]
 
 
-def test_soften_output_encoding_tolerates_streams_that_cannot():
-    from patchright_cli.cli import _soften_output_encoding
+def test_output_encoding_tolerates_streams_that_cannot(monkeypatch):
+    from patchright_cli.cli import _configure_output_encoding
+
+    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+    calls = []
 
     class NoReconfigure:
         pass
@@ -464,7 +554,50 @@ def test_soften_output_encoding_tolerates_streams_that_cannot():
         def reconfigure(self, **kwargs):
             raise OSError("not a tty")
 
-    _soften_output_encoding(NoReconfigure(), Raises())
+    class IsattyRaises:
+        def isatty(self):
+            raise ValueError("I/O operation on closed file")
+
+        def reconfigure(self, **kwargs):
+            calls.append(kwargs)
+
+    _configure_output_encoding(NoReconfigure(), Raises(), IsattyRaises())
+    # A stream that cannot say what it is counts as a pipe.
+    assert calls == [{"encoding": "utf-8", "errors": "replace"}]
+
+
+def test_piped_cli_output_is_utf8_whatever_the_locale():
+    """`--help` needs no daemon and its banner has an em dash, which GBK writes as A1 AA (#60)."""
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUTF8", "PYTHONIOENCODING")}
+    env["PATCHRIGHT_CLI_NO_VERSION_CHECK"] = "1"
+    result = subprocess.run(
+        [sys.executable, "-m", "patchright_cli", "--help"], capture_output=True, env=env, timeout=60
+    )
+
+    assert result.returncode == 0, result.stderr
+    first_line = result.stdout.splitlines()[0]
+    assert first_line == "patchright-cli — Undetected browser automation CLI".encode()
+    result.stdout.decode("utf-8")  # the whole manual, not only the banner
+
+
+def test_piped_cli_stderr_is_utf8_whatever_the_locale():
+    """`mcp` rejects a bad --port on stderr before it needs MCP or a daemon, echoing the value (#60)."""
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUTF8", "PYTHONIOENCODING")}
+    env["PATCHRIGHT_CLI_NO_VERSION_CHECK"] = "1"
+    result = subprocess.run(
+        [sys.executable, "-m", "patchright_cli", "mcp", "--port=百度"], capture_output=True, env=env, timeout=60
+    )
+
+    assert result.returncode == 2, result.stderr
+    assert result.stdout == b""
+    assert "invalid int value: '百度'".encode() in result.stderr
+    result.stderr.decode("utf-8")
 
 
 # -- Socket timeout ----------------------------------------------------------

@@ -31,17 +31,43 @@ from patchright_cli.daemon import (
 )
 
 
-def _soften_output_encoding(*streams) -> None:
-    """Make unencodable characters print as `?` instead of killing the command.
+def _is_interactive(stream) -> bool:
+    """True when the stream is a console; a pipe, a file or anything that cannot say is not."""
+    try:
+        return bool(stream.isatty())
+    except (AttributeError, OSError, ValueError):
+        return False
 
-    Windows consoles default to a legacy code page (GBK on this machine), and a
-    single character outside it raised UnicodeEncodeError from click.echo --
-    losing a whole page snapshot over one glyph.
+
+def _configure_output_encoding(*streams) -> None:
+    """Write UTF-8 to pipes and files, and never die on an unencodable character.
+
+    Python gives a piped stdout the locale encoding, which on Windows is the
+    system code page (GBK here): `tab-list | ...` sent GBK bytes, and readers
+    that expect UTF-8 (agents, `subprocess.run(..., encoding="utf-8")`) saw
+    mojibake for non-ASCII page titles (issue #60). So a stream that is not a
+    console is switched to UTF-8.
+
+    A console keeps its own encoding, and an encoding the user chose with
+    PYTHONIOENCODING is left alone.
+
+    Every stream also gets errors="replace", unless PYTHONIOENCODING names an
+    error handler: one character outside a legacy code page raised
+    UnicodeEncodeError from click.echo and lost a whole page snapshot.
     """
+    chosen_encoding, _, chosen_errors = os.environ.get("PYTHONIOENCODING", "").partition(":")
     for stream in streams:
+        options = {}
+        if not chosen_errors:
+            options["errors"] = "replace"
+        if not chosen_encoding and not _is_interactive(stream):
+            # reconfigure(encoding=...) alone resets the error handler to "strict".
+            options = {"encoding": "utf-8", "errors": chosen_errors or "replace"}
+        if not options:
+            continue
         try:
-            stream.reconfigure(errors="replace")
-        except (AttributeError, OSError, ValueError):
+            stream.reconfigure(**options)
+        except (AttributeError, OSError, ValueError, LookupError):
             pass
 
 
@@ -2017,7 +2043,7 @@ def main():
 
 
 def _main():
-    _soften_output_encoding(sys.stdout, sys.stderr)
+    _configure_output_encoding(sys.stdout, sys.stderr)
     argv = sys.argv[1:]
 
     # MCP is a self-contained subcommand with its own transport options.
