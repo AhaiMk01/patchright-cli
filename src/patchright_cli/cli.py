@@ -26,11 +26,16 @@ from patchright_cli.protocol import (
     token_path,
 )
 
+_ANSI_ESCAPE = re.compile(r"\033\[[;?0-9]*[a-zA-Z]")
+
 
 def echo(message: object = "", err: bool = False) -> None:
     """Flushing each line keeps stdout and stderr in order when both go to one pipe."""
     stream = sys.stderr if err else sys.stdout
-    stream.write(f"{message}\n")
+    text = f"{message}\n"
+    if not _is_interactive(stream):
+        text = _ANSI_ESCAPE.sub("", text)
+    stream.write(text)
     stream.flush()
 
 
