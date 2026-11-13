@@ -298,7 +298,7 @@ class TestE2E:
 
         resp = _cmd(daemon, "close", options={"tab": "scratch"})
         assert resp["success"] is True
-        assert "still open" in resp["output"]
+        assert "still in use" in resp["output"]
 
         still_there = _cmd(daemon, "url")
         assert still_there["success"] is True

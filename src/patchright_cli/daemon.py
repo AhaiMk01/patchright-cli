@@ -570,8 +570,35 @@ class Session:
             except Exception:
                 pass
 
-        named = [key for key, t in self.tabs.items() if key != DEFAULT_TAB and not t.gone]
-        return bool(named) or (self.default_in_use and bool(self.pages))
+        in_use, _unused = self.tab_counts()
+        return in_use > 0
+
+    def tab_counts(self) -> tuple[int, int]:
+        """How many open pages are in use, and how many are not.
+
+        A named tab's page is in use. The pages no named tab owns are the
+        default tab's: in use once someone works in the default tab, otherwise
+        unused (the page Chrome launched with, in a session opened only through
+        `--tab`). The two add up to what `tab-list` shows.
+        """
+        named = {id(tab.page) for name, tab in self.tabs.items() if name != DEFAULT_TAB and not tab.gone}
+        others = sum(1 for page in self.pages if id(page) not in named)
+        return (len(named) + others, 0) if self.default_in_use else (len(named), others)
+
+    def note_default_tab_use(self, succeeded: bool, pageless: bool) -> None:
+        """Record that a command just worked in the default tab, if it really did.
+
+        Called from the task that ran it, while that task is still routed to the
+        default tab. A command that was refused for want of a page never gets
+        here; one whose page closed under it leaves no live page and does not
+        count. A command that needs no page to start (`tab-new`, `tab-select`)
+        counts only when it succeeded, since only then did it give the tab one.
+        """
+        page = self.page
+        if page is None or self._is_dead(page):
+            return
+        if succeeded or not pageless:
+            self.default_in_use = True
 
     def select_page(self, page) -> None:
         """Make `page` the default tab's page, tracking it first if it is new."""
@@ -4530,9 +4557,123 @@ def _gone_reply() -> dict:
 # Commands that run without a current page: the tab ones get a page back, and
 # console reads the session-wide buffer, which outlives the page that closed.
 _PAGELESS = frozenset({"tab-new", "tab-select", "tab-list", "tab-close", "console", "cookie-list"})
-# Commands a coordinator runs without --tab to look at or tidy a session whose
-# work happens in named tabs; they do not put the default tab in use.
-_DEFAULT_TAB_ONLOOKERS = frozenset({"tab-list", "tab-close", "console", "cookie-list"})
+# Every registered command is in exactly one of the two sets below (a unit test
+# checks it). The rule: does the command work on the page of the tab it is
+# addressed to -- read it, drive it, attach something to it, or give the tab a
+# page? Then it is a page command, and running it without --tab puts the default
+# tab in use, which keeps a session opened only through --tab alive after its
+# last named tab closes. A session-wide command works on the context, on state
+# the Session keeps, or on the list of pages, and leaves the default tab as it was.
+_SESSION_WIDE = frozenset(
+    {
+        # The list of pages. tab-close only ever takes a page away.
+        "tab-list",
+        "tab-close",
+        # The context's cookies, permissions, storage state, passkeys and network.
+        "cookie-list",
+        "cookie-get",
+        "cookie-delete",
+        "cookie-clear",
+        "cookie-import",
+        "cookie-export",
+        "grant-permissions",
+        "state-save",
+        "state-load",
+        "passkey-list",
+        "passkey-add",
+        "passkey-delete",
+        "passkey-clear",
+        "passkey-export",
+        "passkey-import",
+        "network-state-set",
+        "tracing-start",
+        "tracing-stop",
+        # Buffers and settings the Session keeps for all its pages.
+        "console",
+        "network",
+        "request",
+        "route-list",
+        "dialog-accept",
+        "dialog-dismiss",
+        "codegen-stop",
+        # A recording already running, on whichever page it was started.
+        "video-stop",
+        "video-chapter",
+        "video-show-actions",
+        "video-hide-actions",  # touches the page only to wipe a leftover callout
+        # The Session's debugger.
+        "debugger-pause",
+        "debugger-step",
+        "debugger-resume",  # touches the page only to walk out of an armed pause
+        "debugger-status",
+    }
+    # Media emulation applies to every page of the session at once.
+    | {f"{verb}-{feature}" for verb in ("set", "clear") for feature in _EMULATED_MEDIA}
+)
+_PAGE_COMMANDS = frozenset(
+    {
+        "goto",
+        "go-back",
+        "go-forward",
+        "reload",
+        "url",
+        "title",
+        "click",
+        "dblclick",
+        "fill",
+        "type",
+        "hover",
+        "select",
+        "check",
+        "uncheck",
+        "drag",
+        "drop",
+        "snapshot",
+        "find",
+        "generate-locator",
+        "pick-locator",
+        "highlight",
+        "eval",
+        "text",
+        "html",
+        "screenshot",
+        "press",
+        "keydown",
+        "keyup",
+        "mousemove",
+        "mousedown",
+        "mouseup",
+        "mousewheel",
+        "tab-new",
+        "tab-select",
+        "cookie-set",  # without --domain the cookie is for the page's URL
+        "localstorage-list",
+        "localstorage-get",
+        "localstorage-set",
+        "localstorage-delete",
+        "localstorage-clear",
+        "sessionstorage-list",
+        "sessionstorage-get",
+        "sessionstorage-set",
+        "sessionstorage-delete",
+        "sessionstorage-clear",
+        "upload",
+        "resize",
+        "route",  # routes are installed on the page
+        "unroute",
+        "run-code",
+        "video-start",
+        "pdf",
+        "scroll",
+        "scroll-to",
+        "wait",
+        "wait-for",
+        "show",  # reaches a session only as `show --annotate`, which reads the page
+        "codegen",  # starts recording the tab, from its page's URL
+        "webmcp-list",
+        "webmcp-call",
+    }
+)
 _NOT_HELD = {"close", "close-all", "kill-all", "detach", "delete-data", "list", "profile-list"}
 
 
@@ -4783,12 +4924,19 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
                 await session.close_tab(tab_name)
                 return {"success": True, "output": f"Tab '{tab_name}' closed; session stays attached until `detach`."}
             if named_tab and await session.close_tab(tab_name):
-                # The count is of pages, the same ones `tab-list` and `list` show.
+                # Tabs in use, not pages: `tab-list` also shows a launch page
+                # nobody uses, and that one will not keep the session open.
+                in_use, unused = session.tab_counts()
+                spare = (
+                    f", plus {unused} unused page(s) (the launch page, which will not keep the session open)"
+                    if unused
+                    else ""
+                )
                 return {
                     "success": True,
                     "output": (
-                        f"Tab '{tab_name}' closed; {len(session.pages)} tab(s) still open in session "
-                        f"'{session_name}' (`close` without --tab closes the session)."
+                        f"Tab '{tab_name}' closed; {in_use} tab(s) still in use in session '{session_name}'{spare}. "
+                        "`close` without --tab closes the session."
                     ),
                 }
             closed = await state.close_session(session_name)
@@ -4833,10 +4981,6 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
                 "code": TAB_NOT_OPEN,
             }
         session.activate_tab(tab_name)
-        if tab_name == DEFAULT_TAB and cmd not in _DEFAULT_TAB_ONLOOKERS:
-            # Someone works in the default tab now, even if the session was opened
-            # only through --tab: closing the last named tab must not end it.
-            session.default_in_use = True
         page = session.page
 
         if page is None and session.pages and cmd not in _PAGELESS:
@@ -4847,7 +4991,15 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
         if page is not None:
             await _apply_timeouts(page, options)
             await _draw_action_callout(session, page, cmd, args)
-        result = await handler(session, page, args, options, cwd, state)
+        succeeded = False
+        try:
+            result = await handler(session, page, args, options, cwd, state)
+            succeeded = bool(result.get("success"))
+        finally:
+            if tab_name == DEFAULT_TAB and cmd in _PAGE_COMMANDS:
+                # Someone works in the default tab now, even if the session was
+                # opened only through --tab: closing the last named tab must not end it.
+                session.note_default_tab_use(succeeded, cmd in _PAGELESS)
         if result.get("success") and session._codegen is not None and cmd in _CODEGEN_RECORDABLE:
             args_quoted = [f'"{a}"' if " " in a else a for a in args]
             opt_parts = []
