@@ -871,6 +871,10 @@ def _is_stale(session: Session) -> bool:
         return True
 
 
+# `--background` only means "do not take desktop focus", which a browser with no window already honours.
+BACKGROUND_IGNORED_NOTE = "--background ignored: the browser is headless, so it has no window to take focus."
+
+
 def _with_notices(session: Session, result: dict) -> dict:
     """Prefix `result` with the notices the Session collected while opening, once."""
     notices, session.attach_notices = session.attach_notices, []
@@ -1242,8 +1246,6 @@ class DaemonState:
         webmcp: bool = False,
         background: bool = False,
     ) -> Session:
-        if background and headless:
-            raise ValueError("Background opening requires headed Chrome; remove --headless.")
         if background and cdp_endpoint:
             raise ValueError("Background opening cannot use an attached browser; choose an owned headed session.")
         if context_mode not in CDP_CONTEXT_MODES:
@@ -1270,11 +1272,6 @@ class DaemonState:
                         f"Session '{name}' is attached; background opening requires an owned headed session. "
                         "Use another session name."
                     )
-                if background and existing.headless:
-                    raise ValueError(
-                        f"Session '{name}' is headless; background opening requires headed Chrome. "
-                        "Use another session name or close this session first."
-                    )
                 if cdp_endpoint:
                     _check_reattach(existing, cdp_endpoint, use_host)
                 elif (
@@ -1300,7 +1297,8 @@ class DaemonState:
                         raise ValueError(
                             f"Session '{name}' runs with {current.flags}. `close` it first to use {guard.flags}."
                         )
-                if background:
+                # A headless Session has no window, so there is nothing to keep out of focus.
+                if background and not existing.headless:
                     existing.background = True
                 return existing
 
@@ -1311,7 +1309,7 @@ class DaemonState:
 
         use_headless = headless if headless is not None else self.default_headless
         if background and use_headless:
-            raise ValueError("Background opening requires headed Chrome; remove --headless.")
+            background = False
         # An Attached Session's browser state lives wherever the Host keeps it;
         # it has no Profile of ours. Unless told otherwise, a Launched Session's
         # Profile is named after it.
@@ -1419,7 +1417,7 @@ class DaemonState:
             session.network_guard = guard
             session.webmcp = webmcp and not cdp_endpoint
             session.profile = chosen
-            session.background = background and not use_headless and not cdp_endpoint
+            session.background = background and not cdp_endpoint
             session.headless = use_headless and not cdp_endpoint
             await session.setup_listeners()
         except BaseException:
@@ -1433,6 +1431,13 @@ class DaemonState:
             raise
         self.sessions[name] = session
         return session
+
+    def opens_headless(self, name: str, headless: bool | None) -> bool:
+        """Whether an `open` of `name` lands on a headless browser: the live Session's, else the one it would launch."""
+        existing = self.sessions.get(name)
+        if existing is not None and not _is_stale(existing):
+            return bool(existing.headless)
+        return bool(headless if headless is not None else self.default_headless)
 
     async def _launch(
         self,
@@ -4550,7 +4555,38 @@ async def handle_command(state: DaemonState, msg: dict) -> dict:
     return await debugger.run(label, _dispatch_command(state, msg))
 
 
+def _background_ignored(state: DaemonState, msg: dict) -> bool:
+    """Whether `msg` is an `open --background` that meets a headless browser, judged before it runs."""
+    cmd = msg.get("command", "")
+    options = msg.get("options") or {}
+    if cmd not in ("open", "background-open") or not isinstance(options, dict):
+        return False
+    if cmd == "open" and not options.get("background"):
+        return False
+    name = options.get("session") or "default"
+    if not isinstance(name, str):
+        return False
+    headless = False if options.get("headed") else options.get("headless")
+    return state.opens_headless(name, None if headless is None else bool(headless))
+
+
 async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
+    # The note is tied to this reply, success or failure, and is never stored on the Session,
+    # where a failed open would leave it for the next command to print.
+    ignored = _background_ignored(state, msg)
+    reply = await _run_command(state, msg)
+    if ignored and isinstance(reply.get("output", ""), str):
+        note = f"Note: {BACKGROUND_IGNORED_NOTE}"
+        output = reply.get("output", "")
+        if reply.get("success", True):
+            reply["output"] = f"{note}\n{output}"
+        else:
+            # After the error, whose first line the CLI prints as `error: <message>`.
+            reply["output"] = f"{output.rstrip()}\n{note}" if output.strip() else note
+    return reply
+
+
+async def _run_command(state: DaemonState, msg: dict) -> dict:
     cmd = msg.get("command", "")
     args = msg.get("args", [])
     options = dict(msg.get("options", {}))
@@ -4619,7 +4655,7 @@ async def _dispatch_command(state: DaemonState, msg: dict) -> dict:
             )
             # A stale Session under this name was replaced, not reused.
             existed = session is prior
-            if protected_background and existed and not named_tab and not url:
+            if protected_background and session.background and existed and not named_tab and not url:
                 return {
                     "success": True,
                     "output": f"Session '{session_name}' uses background page creation.",
