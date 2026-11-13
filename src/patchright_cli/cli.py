@@ -675,7 +675,8 @@ COMMAND_SPECS: dict[str, dict] = {
         "flags": {
             "block-networks": "Refuse navigation to link-local|private addresses (default: allow all)",
             "headed": "Force a headed window on a daemon started with --headless (default: off)",
-            "background": "Open a headed browser and its new tabs without taking desktop focus (default: off)",
+            "background": "Open a headed browser and its new tabs without taking desktop focus; "
+            "ignored with a note when the browser is headless (default: off)",
             "webmcp": "Launch Chrome with WebMCP on, for webmcp-list/webmcp-call; exposes "
             "document.modelContext, which stock Chrome lacks (default: off)",
         },
@@ -2316,8 +2317,7 @@ def _main():
 
     wire_command = command
     if command == "open" and options.get("background"):
-        if options.get("headless"):
-            raise UsageError("Background opening requires headed Chrome; remove --headless.")
+        # With --headless too, the daemon opens as usual and notes that --background was ignored.
         wire_command = "background-open"
 
     if command == "kill-all":
