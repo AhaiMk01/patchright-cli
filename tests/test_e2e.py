@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from patchright_cli.daemon import ensure_daemon_running, read_daemon_token
+from patchright_cli.cli import ensure_daemon_running
+from patchright_cli.protocol import read_daemon_token
 
 FIXTURE_URL = "file://" + os.path.join(os.path.dirname(__file__), "fixture.html")
 WEBMCP_FIXTURE_URL = (Path(__file__).parent / "webmcp_fixture.html").resolve().as_uri()

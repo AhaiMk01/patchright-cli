@@ -1117,7 +1117,6 @@ version = "0.13.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
-    { name = "click" },
     { name = "patchright" },
     { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "pyyaml" },
@@ -1144,7 +1143,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.9" },
-    { name = "click" },
     { name = "fastmcp", marker = "extra == 'dev'", specifier = ">=3.4.3,<5" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=3.4.3,<5" },
     { name = "patchright", specifier = ">=1.64.4,<1.65" },

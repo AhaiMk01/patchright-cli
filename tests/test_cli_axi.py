@@ -1,5 +1,6 @@
 """AXI argument layer: strict flags, per-command help, usage errors, version fast path."""
 
+import io
 import subprocess
 import sys
 import time
@@ -568,3 +569,21 @@ def test_a_malformed_ref_exits_2(monkeypatch, capsys):
 def test_a_failed_command_without_exit_code_exits_1(monkeypatch, capsys):
     code, _ = _run_reply(["click", "e9"], {"success": False, "output": "Error: stale"}, monkeypatch, capsys)
     assert code == 1
+
+
+class _Console(io.StringIO):
+    def isatty(self):
+        return True
+
+
+def test_echo_strips_ansi_escapes_from_piped_output_only(monkeypatch, capsys):
+    colored = "\x1b[31mred\x1b[0m"
+    cli.echo(colored)
+    cli.echo(colored, err=True)
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == ("red\n", "red\n")
+
+    console = _Console()
+    monkeypatch.setattr(sys, "stdout", console)
+    cli.echo(colored)
+    assert console.getvalue() == colored + "\n"
