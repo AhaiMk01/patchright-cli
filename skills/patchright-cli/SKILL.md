@@ -129,7 +129,8 @@ open --profile=work           # Run on a named profile (logins persist; one sess
 open --headless               # Headless mode
 attach --cdp=<url>            # Attach to existing Chrome via CDP (fresh, isolated context)
 attach --cdp=<url> --context=host  # Use the Host Context: the browser's own logins, cookies, storage
-close                         # Close session (closes the browser); refused on --context=host -- use detach
+close                         # Close the whole session: every tab, and the browser; refused on --context=host -- use detach
+--tab <name> close            # Close only that named tab; the session stays while other tabs are open
 detach                        # Detach an attached session (keeps external browser running)
 ```
 
@@ -286,8 +287,11 @@ patchright-cli --tab "$TAB" open https://example.com
 `$PATCHRIGHT_CLI_TAB` sets it for a whole shell, the way `$PATCHRIGHT_CLI_SESSION`
 does for sessions.
 
-Cleanup needs no coordination: every agent runs `close` addressed to its own
-tab, and the browser exits when the last tab goes. On an `attach --context=host`
+Cleanup needs no coordination: every agent runs `--tab <name> close` for its own
+tab. The reply names the tab and says how many tabs are still open, or that the
+session closed because it was the last tab in use. `close` without `--tab`
+closes the whole session, every tab included, so only whoever owns the session
+runs it. On an `attach --context=host`
 session the host's browser never exits: closing tabs leaves it attached, and
 whoever attached runs `detach` at the end.
 
@@ -432,7 +436,7 @@ html [ref] [--selector] [--include-shadow] [--filename] [--max-chars]  # Print p
 screenshot [ref] [--full-page] [--hires] [--filename]  # Save screenshot
 drag <from> <to> [--scroll]             # Drag element to target
 drop <ref> [--path] [--data]            # Drop file/data onto element (fails if it does not accept drops)
-close                                   # Close browser session (or the --tab it is addressed to)
+close                                   # Close the whole session, all tabs; with --tab=<name>, only that tab
 detach                                  # Detach attached session (keep external browser running)
 
 # Navigation
