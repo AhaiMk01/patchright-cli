@@ -147,6 +147,68 @@ async def test_route_then_unroute(mock_state, mock_session):
     assert mock_session._routes == {}
 
 
+async def _fulfilled(mock_state, mock_session, **options) -> dict:
+    """What a route added with `options` answers a request with."""
+    mock_state.sessions = {"default": mock_session}
+    reply = await _run(mock_state, "route", ["**/api"], **options)
+    assert reply["success"] is True, reply
+    request = MagicMock()
+    request.fulfill = AsyncMock()
+    await mock_session._routes["**/api"][0](request)
+    return request.fulfill.await_args.kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("options", "content_type", "headers"),
+    [
+        ({}, "text/plain", None),
+        ({"header": "X-One:1"}, "text/plain", {"X-One": "1"}),
+        ({"header": ["X-One:1", "X-Two: 2"]}, "text/plain", {"X-One": "1", "X-Two": "2"}),
+        ({"header": ["X-A:1", "x-a:2"]}, "text/plain", {"X-A": "1, 2"}),
+        ({"header": "content-type:application/json"}, "application/json", None),
+        ({"content-type": "text/html", "header": "X-One:1"}, "text/html", {"X-One": "1"}),
+        ({"header": ["X-Test:1", "X-Keep:2"], "remove-header": "x-test"}, "text/plain", {"X-Keep": "2"}),
+        ({"header": ["X-Test:1", "X-Keep:2"], "remove-header": "X-TEST, x-keep"}, "text/plain", None),
+        ({"header": "Content-Type:application/json", "remove-header": "content-type"}, "text/plain", None),
+    ],
+)
+async def test_route_mock_headers(mock_state, mock_session, options, content_type, headers):
+    sent = await _fulfilled(mock_state, mock_session, **options)
+    assert (sent["content_type"], sent["headers"]) == (content_type, headers)
+
+
+@pytest.mark.asyncio
+async def test_route_rejects_the_content_type_given_twice(mock_state, mock_session):
+    mock_state.sessions = {"default": mock_session}
+    reply = await _run(
+        mock_state, "route", ["**/api"], **{"content-type": "text/html", "header": ["X-One:1", "Content-Type:a/b"]}
+    )
+    assert (reply["success"], reply["exit_code"]) == (False, 2)
+    assert "route got the Content-Type more than once" in reply["output"]
+    assert mock_session._routes == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"header": ["Content-Type:text/plain", "cOnTeNt-TyPe:application/json"]},
+        {"header": ["X-A:1", "X-B:2"], "remove-header": ["X-A", "X-B"]},
+        {"header": {"X-A": "1"}},
+        {"header": [["X-A:1"]]},
+        {"header": ":v"},
+        {"content-type": ["text/html"]},
+    ],
+)
+async def test_route_refuses_values_a_raw_client_can_send(mock_state, mock_session, options):
+    # A list for a flag that does not repeat, or a dict, used to become a mock that misbehaved.
+    mock_state.sessions = {"default": mock_session}
+    reply = await _run(mock_state, "route", ["**/api"], **options)
+    assert (reply["success"], reply["exit_code"]) == (False, 2), reply
+    assert mock_session._routes == {}
+
+
 @pytest.mark.asyncio
 async def test_route_same_pattern_replaces_previous_handler(mock_state, mock_session):
     mock_state.sessions = {"default": mock_session}

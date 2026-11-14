@@ -26,9 +26,9 @@ the route again in each tab that needs it.
 |------|--------|
 | `--status=N` | Status code of the mock response (default: 200) |
 | `--body=<string>` | Body of the mock response (default: empty) |
-| `--content-type=<mime>` | Its Content-Type (default: `text/plain`). This is the only way to set it: a `Content-Type` given with `--header` is ignored |
-| `--header=Name:Value` | Add a header to the mock response; repeat the flag for more. The same name twice keeps only the last value |
-| `--remove-header=Name` | Drop a header given with `--header` (comma-separated). Spell the name exactly as `--header` did, case included. It does not remove Content-Type or any header of a real response |
+| `--content-type=<mime>` | Its Content-Type (default: `text/plain`). `--header=Content-Type:<mime>` sets it too; giving it more than once, either way, is a usage error |
+| `--header=Name:Value` | Add a header to the mock response; repeat the flag for more. The name must not be empty. A name other than Content-Type given more than once becomes one header with the values joined by `, ` (so it cannot send two `Set-Cookie` headers) |
+| `--remove-header=Name` | Drop a header given with `--header` (comma-separated, any case). It does not remove a Content-Type set with `--content-type`, or any header of a real response |
 
 ### Examples
 

@@ -880,8 +880,8 @@ COMMAND_SPECS: dict[str, dict] = {
         "usage": "drop <ref>",
         "summary": "Drop file/data onto element (fails if it does not accept drops)",
         "flags": {
-            "path": "File to drop (default: none)",
-            "data": "Data to drop as mime=value (default: none)",
+            "path": "File to drop; repeat the flag for more (default: none)",
+            "data": "Data to drop as mime=value; repeat the flag for more (default: none)",
         },
         "examples": ["drop e4 --path=photo.png", 'drop e4 --data="text/plain=hello"'],
     },
@@ -1173,9 +1173,10 @@ COMMAND_SPECS: dict[str, dict] = {
         "flags": {
             "status": "Response status (default: 200)",
             "body": "Response body (default: empty)",
-            "content-type": "Response Content-Type (default: text/plain)",
-            "header": "Extra response header as K:V; repeat the flag for more (default: none)",
-            "remove-header": "Comma-separated names to drop from the --header ones (default: none)",
+            "content-type": "Response Content-Type; give it once, here or as a --header (default: text/plain)",
+            "header": "Extra response header as K:V; repeat the flag for more, a repeated name joins "
+            "its values with ', ' (default: none)",
+            "remove-header": "Comma-separated names to drop from the --header ones, in any case (default: none)",
         },
         "examples": [
             'route "**/api/*" --status=500',

@@ -10,6 +10,7 @@ anything that needs the page stays in the handler.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 
 from patchright_cli.snapshot_text import normalize_ref
@@ -120,6 +121,28 @@ class Text:
         return self.empty or raw != ""
 
 
+_HEADER_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+
+def header_name(raw: str) -> str:
+    """The name of a `Name:Value` header, lowercased as HTTP compares names."""
+    return raw.partition(":")[0].strip().lower()
+
+
+@dataclass(frozen=True)
+class Header:
+    """One HTTP header as `Name:Value`; the value may be empty, the name may not."""
+
+    example: str
+
+    def describe(self) -> str:
+        return "a header as Name:Value"
+
+    def parse(self, raw: str) -> bool:
+        name, colon, _ = raw.partition(":")
+        return bool(colon) and _HEADER_NAME.match(name.strip()) is not None
+
+
 @dataclass(frozen=True)
 class Ref:
     """An element ref as a snapshot prints it (`e5`, `f3e5`, also `@e5` and `[ref=e5]`)."""
@@ -200,7 +223,7 @@ FLAG_KINDS: dict[str, dict[str, object]] = {
         "status": Int(100, 599, 404),
         "body": Text("hello", empty=True),
         "content-type": Text("application/json"),
-        "header": Text("X-Test:1"),
+        "header": Header("X-Test:1"),
         "remove-header": Text("X-Test"),
     },
     "video-start": {"fps": Int(1, MAX_VIDEO_FPS, 30)},
@@ -214,7 +237,10 @@ FLAG_KINDS: dict[str, dict[str, object]] = {
 
 # command -> flags that may be given more than once; the values then arrive as a list.
 # Any other flag given twice keeps its last value.
-REPEATABLE_FLAGS: dict[str, frozenset[str]] = {"route": frozenset({"header"})}
+REPEATABLE_FLAGS: dict[str, frozenset[str]] = {
+    "route": frozenset({"header"}),
+    "drop": frozenset({"path", "data"}),
+}
 
 # command -> (name, kind) per positional, in usage order; None skips one.
 ARG_KINDS: dict[str, list[tuple[str, object] | None]] = {
@@ -247,12 +273,9 @@ def check_flag(flag: str, kind, value) -> None:
             f"--{flag} needs a value",
             f"help: --{flag} takes {kind.describe()}, written --{flag}=<value>, e.g. --{flag}={kind.example}",
         )
-    if isinstance(value, list):  # a repeated flag (route --header) arrives as a list
-        for item in value:
-            check_flag(flag, kind, item)
-        return
     raw = str(value)
-    if not kind.parse(raw):
+    # A client that skips the CLI can send any JSON; only a string or a number is a flag value.
+    if not isinstance(value, str | int | float) or not kind.parse(raw):
         raise ValueProblem(
             f"invalid --{flag} value `{raw}`",
             f"help: --{flag} takes {kind.describe()}, e.g. --{flag}={kind.example}",
@@ -261,9 +284,14 @@ def check_flag(flag: str, kind, value) -> None:
 
 def check_flags(command: str, options: dict) -> None:
     """The value of every typed flag in `options`, global ones included."""
+    repeatable = REPEATABLE_FLAGS.get(command, ())
     for flag, kind in {**GLOBAL_FLAG_KINDS, **FLAG_KINDS.get(command, {})}.items():
-        if flag in options:
-            check_flag(flag, kind, options[flag])
+        if flag not in options:
+            continue
+        value = options[flag]
+        # Only a repeatable flag arrives as a list, one item per time it was given.
+        for item in value if isinstance(value, list) and flag in repeatable else [value]:
+            check_flag(flag, kind, item)
 
 
 def check_args(command: str, args: list, options: dict) -> None:
@@ -337,6 +365,15 @@ def _check_combinations(command: str, args: list, options: dict) -> None:
             "html takes either a ref or --selector=<css>, not both",
             "help: e.g. html e5, or html --selector='#main'",
         )
+    elif command == "route":
+        given = options.get("header") or []
+        names = [header_name(str(h)) for h in (given if isinstance(given, list) else [given])]
+        # A response has one Content-Type, so it is the one header name that cannot repeat.
+        if names.count("content-type") + ("content-type" in options) > 1:
+            raise ValueProblem(
+                "route got the Content-Type more than once (--content-type, --header=Content-Type:...)",
+                "help: pass it once, e.g. route '**/api' --content-type=application/json",
+            )
     elif command == "wait" and args and "url" in options:
         raise ValueProblem(
             "wait takes either a duration in ms or --url=<pattern>, not both",

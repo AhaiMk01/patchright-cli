@@ -943,3 +943,19 @@ class TestPageVisibleTraces:
             "undefined",
             0,
         )
+
+
+def test_route_mock_headers_reach_the_page(daemon, http_origin):
+    tab = {"tab": "route-headers"}
+    assert _cmd(daemon, "open", args=[f"{http_origin}/page.html"], options=tab)["success"] is True
+    read = (
+        "fetch('/mocked').then(r => [r.status, r.headers.get('content-type'), r.headers.get('x-a'), "
+        "r.headers.get('x-test'), r.headers.get('x-keep')].join('|'))"
+    )
+    try:
+        mock = {"body": "{}", "header": ["Content-Type:application/json", "X-A:1", "x-a:2", "X-Test:1", "X-Keep:2"]}
+        assert _cmd(daemon, "route", args=["**/mocked"], options={**tab, **mock, "remove-header": "x-test"})["success"]
+        assert json.loads(_cmd(daemon, "eval", args=[read], options=tab)["output"]) == "200|application/json|1, 2||2"
+    finally:
+        _cmd(daemon, "unroute", options=tab)
+        _cmd(daemon, "close", options=tab)

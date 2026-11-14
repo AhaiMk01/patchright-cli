@@ -563,6 +563,51 @@ def test_route_keeps_every_repeated_header(monkeypatch, capsys):
     assert out.startswith("error: invalid --header value ``")
 
 
+def test_route_rejects_the_content_type_given_twice(monkeypatch, capsys):
+    argv = ["route", "**/x", "--content-type=text/html", "--header=X-One:1", "--header=content-type:application/json"]
+    code, out, _, sent = _run(argv, monkeypatch, capsys)
+    assert (code, sent) == (2, {})
+    refused = [
+        "error: route got the Content-Type more than once (--content-type, --header=Content-Type:...)",
+        "help: pass it once, e.g. route '**/api' --content-type=application/json",
+    ]
+    assert out.splitlines() == refused
+    code, out, _, sent = _run(
+        ["route", "**/x", "--header=Content-Type:text/plain", "--header=cOnTeNt-TyPe:application/json"],
+        monkeypatch,
+        capsys,
+    )
+    assert (code, sent, out.splitlines()) == (2, {}, refused)
+    code, _, _, sent = _run(["route", "**/x", "--header=Content-Type:application/json"], monkeypatch, capsys)
+    assert (code, sent["options"]["header"]) == (0, "Content-Type:application/json")
+
+
+@pytest.mark.parametrize("header", [":v", " :v", "NoColon", "Bad Name:v", "X-É:v"])
+def test_route_rejects_a_header_that_is_not_name_colon_value(header, monkeypatch, capsys):
+    # An empty or malformed name reached the browser and left the mocked request hanging.
+    code, out, _, sent = _run(["route", "**/x", f"--header={header}"], monkeypatch, capsys)
+    assert (code, sent) == (2, {})
+    assert out.splitlines() == [
+        f"error: invalid --header value `{header}`",
+        "help: --header takes a header as Name:Value, e.g. --header=X-Test:1",
+    ]
+
+
+def test_drop_keeps_every_repeated_path_and_data(monkeypatch, capsys):
+    # The daemon drops several files and data items at once; the CLI sent only the last of each.
+    argv = ["drop", "e4", "--path=a.png", "--path=b.png", "--data=text/plain=hi", "--data=text/uri-list=https://x/"]
+    code, _, _, sent = _run(argv, monkeypatch, capsys)
+    assert code == 0
+    assert sent["options"]["path"] == ["a.png", "b.png"]
+    assert sent["options"]["data"] == ["text/plain=hi", "text/uri-list=https://x/"]
+
+
+def test_route_accepts_a_header_with_an_empty_value_or_colons_in_it(monkeypatch, capsys):
+    argv = ["route", "**/x", "--header=X-Empty:", "--header=Link:<https://a/b>; rel=next"]
+    code, _, _, sent = _run(argv, monkeypatch, capsys)
+    assert (code, sent["options"]["header"]) == (0, ["X-Empty:", "Link:<https://a/b>; rel=next"])
+
+
 def test_run_code_from_a_file_rejects_an_extra_argument(monkeypatch, capsys, tmp_path):
     path = tmp_path / "f.js"
     path.write_text("1", encoding="utf-8")
