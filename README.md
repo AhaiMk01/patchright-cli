@@ -390,9 +390,8 @@ patchright-cli passkey-import passkeys.json
 ```bash
 patchright-cli route "**/*.jpg" --status=404
 patchright-cli route "https://api.example.com/**" --body='{"mock":true}'
-patchright-cli route "**/*" --content-type=application/json --body='{"ok":true}'
-patchright-cli route "**/*" --header=X-Custom:value
-patchright-cli route "**/*" --remove-header=Content-Type
+patchright-cli route "**/api/me" --content-type=application/json --body='{"ok":true}' --header=X-Custom:value --header=Cache-Control:no-store
+# A routed request never reaches the server: the reply is the mock alone (default: 200, empty body, text/plain)
 patchright-cli route-list
 patchright-cli unroute "**/*.jpg"
 patchright-cli unroute                 # Remove all routes

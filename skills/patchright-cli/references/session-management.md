@@ -93,7 +93,8 @@ With `--context=host`:
 patchright-cli list                        # List all active sessions
 patchright-cli close                       # Close current session gracefully (all its tabs)
 patchright-cli close-all                   # Close all sessions gracefully
-patchright-cli kill-all                    # Force-kill all sessions + stop daemon
+patchright-cli kill-all                    # Close all sessions + stop the daemon (force-stops it only if it stops answering)
+patchright-cli kill-all --force            # Skip the graceful request and kill the daemon process
 patchright-cli delete-data                 # Delete default session's profile data
 patchright-cli -s=mysession delete-data    # Delete named session's profile data
 ```

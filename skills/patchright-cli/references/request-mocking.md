@@ -2,7 +2,7 @@
 
 ## Route command
 
-Intercept and modify network requests matching a URL pattern:
+Answer every request matching a URL pattern with a made-up response:
 
 ```bash
 patchright-cli route "<pattern>" [options]
@@ -10,15 +10,20 @@ patchright-cli route "<pattern>" [options]
 
 The pattern uses glob syntax (e.g., `**/*.jpg`, `https://api.example.com/**`).
 
+A routed request never reaches the server. The reply is built from the flags
+alone: status 200, an empty body and `text/plain` unless you say otherwise.
+`route` cannot pass a real response through or edit one, so a broad pattern such
+as `**/*` replaces every page, script and API call with an empty response.
+
 ### Options
 
 | Flag | Effect |
 |------|--------|
-| `--status=N` | Respond with HTTP status code N |
-| `--body=<string>` | Respond with this body content |
-| `--content-type=<mime>` | Set the Content-Type header |
-| `--header=Name:Value` | Add or override a response header |
-| `--remove-header=Name` | Remove a response header |
+| `--status=N` | Status code of the mock response (default: 200) |
+| `--body=<string>` | Body of the mock response (default: empty) |
+| `--content-type=<mime>` | Its Content-Type (default: `text/plain`) |
+| `--header=Name:Value` | Add a header to the mock response; repeat the flag for more |
+| `--remove-header=Name` | Drop a header given with `--header` (comma-separated); it does not remove Content-Type or any header of a real response |
 
 ### Examples
 
@@ -29,11 +34,8 @@ patchright-cli route "**/*.jpg" --status=404
 # Mock an API endpoint
 patchright-cli route "https://api.example.com/**" --body='{"mock": true}' --content-type=application/json
 
-# Add a custom header to all responses
-patchright-cli route "**/*" --header=X-Custom:value
-
-# Remove a header from responses
-patchright-cli route "**/*" --remove-header=Content-Type
+# Mock an endpoint with extra response headers
+patchright-cli route "https://api.example.com/me" --body='{"id":1}' --content-type=application/json --header=X-Request-Id:abc --header=Cache-Control:no-store
 
 # Block all CSS (speeds up testing)
 patchright-cli route "**/*.css" --status=404
@@ -93,11 +95,16 @@ patchright-cli network-state-set offline
 Monitor network activity and console output:
 
 ```bash
-patchright-cli console                     # Show console messages (last 50)
+patchright-cli console                     # First call starts capture; later calls show the last 50 messages
 patchright-cli console warning             # Filter by level
-patchright-cli console --clear             # Clear buffer after printing
+patchright-cli console --clear             # Clear buffer after printing (capture stays on)
 
 patchright-cli network                     # Show requests (excludes static assets)
 patchright-cli network --static            # Include images, fonts, scripts, etc.
 patchright-cli network --clear             # Clear log after printing
 ```
+
+Console capture starts on the first `console` call, so messages logged before
+it are gone: run `console` before reproducing the issue, then again to read.
+It covers every page of the session, later ones included. It uses CDP Runtime,
+which a page can detect, and stays on until the session closes.

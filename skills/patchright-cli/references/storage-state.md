@@ -21,7 +21,7 @@ patchright-cli cookie-set token xyz \
   --httpOnly \
   --secure \
   --sameSite=Lax \
-  --expires=1735689600                                  # Full options
+  --expires=4102444800                                  # Full options; a past --expires sets nothing lasting
 ```
 
 #### Cookie-set flags
@@ -33,7 +33,7 @@ patchright-cli cookie-set token xyz \
 | `--httpOnly` | HTTP-only flag |
 | `--secure` | Secure flag |
 | `--sameSite=Strict\|Lax\|None` | SameSite attribute |
-| `--expires=UNIX_TS` | Expiration as Unix timestamp |
+| `--expires=UNIX_TS` | Expiration as Unix timestamp in seconds (default: a session cookie) |
 
 ### Delete
 
@@ -89,32 +89,38 @@ patchright-cli state-load auth.json                     # Restore state
 
 `state-load` replaces the session's state: it first clears the existing cookies, localStorage, IndexedDB and OPFS data, then applies the file. localStorage is applied to every origin in the file; you do not need to visit an origin first.
 
+It also deletes the session's virtual passkeys, and when the file holds none it
+uninstalls the virtual authenticator. `passkey-export` the ones you need first,
+and run a `passkey-*` command again before the page's next WebAuthn call.
+
 ## Cookie persistence login pattern
 
-Use persistent profiles with cookies for login flows that survive across sessions:
+Profiles always persist, so a login survives closing the session. `state-save`
+is for carrying it to another profile or machine:
 
 ```bash
 # First time: log in and save state
-patchright-cli open https://app.example.com --persistent
+patchright-cli open https://app.example.com
 patchright-cli snapshot
 patchright-cli fill e3 "user@example.com"
 patchright-cli fill e5 "password123"
 patchright-cli click e8
 patchright-cli state-save auth.json
 
-# Later: restore state without logging in again
-patchright-cli open https://app.example.com --persistent
-patchright-cli state-load auth.json
-patchright-cli goto https://app.example.com/dashboard
+# Later, in another session: restore state without logging in again
+patchright-cli -s=other open https://app.example.com
+patchright-cli -s=other state-load auth.json
+patchright-cli -s=other goto https://app.example.com/dashboard
 ```
 
-Or simply use `--persistent` -- cookies and storage are automatically preserved in the profile:
+On the same session or profile nothing needs saving (`--persistent` is accepted
+but has no effect):
 
 ```bash
-patchright-cli -s=myapp open https://app.example.com --persistent
+patchright-cli -s=myapp open https://app.example.com
 # ... log in once ...
 patchright-cli -s=myapp close
 # Next time:
-patchright-cli -s=myapp open https://app.example.com --persistent
+patchright-cli -s=myapp open https://app.example.com
 # Already logged in
 ```

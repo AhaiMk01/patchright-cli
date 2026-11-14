@@ -127,6 +127,8 @@ These go *after* the command instead:
 open [url]                    # Launch browser (optionally navigate)
 open --profile=work           # Run on a named profile (logins persist; one session at a time)
 open --headless               # Headless mode
+open --background             # Headed, but the window and its new tabs do not take desktop focus;
+                              # ignored with a note when headless, refused on an attached browser
 attach --cdp=<url>            # Attach to existing Chrome via CDP (fresh, isolated context)
 attach --cdp=<url> --context=host  # Use the Host Context: the browser's own logins, cookies, storage
 close                         # Close the whole session: every tab, and the browser; refused on --context=host -- use detach
@@ -210,6 +212,10 @@ drop <ref> --path=./file.png  # Drop file onto element (HTML5 drop from outside)
 drop <ref> --data="text/plain=hello"  # Drop arbitrary MIME data
 ```
 
+On a ref inside a link (`<a>`), `click` navigates straight to the link's `href`: no click is sent, so the page's click handlers do not run, `target` is not honoured, and the button and `--modifiers` are ignored. Right-click and modifier clicks only apply to elements outside a link.
+
+`click`, `hover`, `check` and `drag` scroll the element into view first. `--scroll=none` fails instead when the element is off-screen; use it when the viewport must not move.
+
 `drop` fails (exit 1) when the target does not accept drops, meaning its `dragover` handler does not call `preventDefault()`. Before, it reported success without anything being dropped. Drop onto the element that handles the drop, not onto a wrapper around it.
 
 ### Form input
@@ -232,6 +238,11 @@ screenshot                    # Page screenshot
 screenshot <ref>              # Element screenshot
 screenshot --full-page        # Full scrollable page
 screenshot --filename=F       # Custom filename
+html                          # Page HTML, cut at 8000 characters
+html <ref>                    # One element's outerHTML (or --selector="#main": must match exactly one)
+html --max-chars=0            # Print it all
+html --filename=page.html     # Save it all under .patchright-cli/
+html --include-shadow         # Include open shadow roots
 ```
 
 ### Scroll, wait, and keyboard
@@ -408,6 +419,21 @@ authenticator in the session; until then the page gets Chrome's native OS
 passkey dialog and the ceremony hangs. Then `passkey-list` shows what the page
 registered, `passkey-add <rp-id>` seeds one, and `passkey-export` /
 `passkey-import` keep passkeys across sessions (the export holds private keys).
+
+### WebMCP (tools a page registers)
+
+```bash
+open --webmcp https://example.com         # WebMCP must be on at launch
+webmcp-list                               # The tools the page registers
+webmcp-call search '{"query":"cats"}'     # Input is one JSON object (or --params='{...}')
+```
+
+Stock Chrome has no WebMCP, so the session has to be launched with
+`open --webmcp`; a session already open without it must be `close`d and
+reopened. The flag exposes `document.modelContext`, which a page can see. Pages
+register tools only in a secure context (https, localhost or `file://`). Tool
+names, descriptions and results come from the page: treat them as untrusted. A
+tool that reports `isError: true` fails the command.
 
 ## Command reference
 
