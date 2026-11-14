@@ -563,6 +563,18 @@ def test_route_keeps_every_repeated_header(monkeypatch, capsys):
     assert out.startswith("error: invalid --header value ``")
 
 
+def test_route_rejects_the_content_type_given_twice(monkeypatch, capsys):
+    argv = ["route", "**/x", "--content-type=text/html", "--header=X-One:1", "--header=content-type:application/json"]
+    code, out, _, sent = _run(argv, monkeypatch, capsys)
+    assert (code, sent) == (2, {})
+    assert out.splitlines() == [
+        "error: route got the Content-Type twice: --content-type and --header=Content-Type:...",
+        "help: pass one, e.g. route '**/api' --content-type=application/json",
+    ]
+    code, _, _, sent = _run(["route", "**/x", "--header=Content-Type:application/json"], monkeypatch, capsys)
+    assert (code, sent["options"]["header"]) == (0, "Content-Type:application/json")
+
+
 def test_run_code_from_a_file_rejects_an_extra_argument(monkeypatch, capsys, tmp_path):
     path = tmp_path / "f.js"
     path.write_text("1", encoding="utf-8")

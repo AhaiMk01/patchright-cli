@@ -1174,8 +1174,9 @@ COMMAND_SPECS: dict[str, dict] = {
             "status": "Response status (default: 200)",
             "body": "Response body (default: empty)",
             "content-type": "Response Content-Type (default: text/plain)",
-            "header": "Extra response header as K:V; repeat the flag for more (default: none)",
-            "remove-header": "Comma-separated names to drop from the --header ones (default: none)",
+            "header": "Extra response header as K:V; repeat the flag for more, a repeated name joins "
+            "its values with ', ' (default: none)",
+            "remove-header": "Comma-separated names to drop from the --header ones, in any case (default: none)",
         },
         "examples": [
             'route "**/api/*" --status=500',

@@ -337,6 +337,14 @@ def _check_combinations(command: str, args: list, options: dict) -> None:
             "html takes either a ref or --selector=<css>, not both",
             "help: e.g. html e5, or html --selector='#main'",
         )
+    elif command == "route" and "content-type" in options:
+        given = options.get("header") or []
+        names = [str(h).partition(":")[0].strip().lower() for h in (given if isinstance(given, list) else [given])]
+        if "content-type" in names:
+            raise ValueProblem(
+                "route got the Content-Type twice: --content-type and --header=Content-Type:...",
+                "help: pass one, e.g. route '**/api' --content-type=application/json",
+            )
     elif command == "wait" and args and "url" in options:
         raise ValueProblem(
             "wait takes either a duration in ms or --url=<pattern>, not both",

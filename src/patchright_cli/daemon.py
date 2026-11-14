@@ -3611,27 +3611,41 @@ async def cmd_passkey_import(
 # -- Route (request interception) --------------------------------------------
 
 
+def _mock_response_headers(options: dict) -> tuple[str, dict[str, str]]:
+    """The Content-Type and the other headers of a `route` mock response.
+
+    Header names are compared without case, as HTTP does. A name given more than once becomes
+    one header whose values are joined with ", ". Content-Type is returned apart from the rest
+    because `route.fulfill` takes it as its own argument, which wins over a header of that name.
+    """
+    given = options.get("header") or []
+    removed = {name.strip().lower() for name in str(options.get("remove-header") or "").split(",")} - {""}
+    content_type = options.get("content-type")
+    headers: dict[str, tuple[str, str]] = {}
+    for item in given if isinstance(given, list) else [given]:
+        name, _, value = str(item).partition(":")
+        name, value = name.strip(), value.strip()
+        key = name.lower()
+        if key in removed:
+            continue
+        if key == "content-type":
+            content_type = content_type or value
+        elif key in headers:
+            headers[key] = (headers[key][0], f"{headers[key][1]}, {value}")
+        else:
+            headers[key] = (name, value)
+    return content_type or "text/plain", dict(headers.values())
+
+
 @register("route")
 async def cmd_route(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     pattern = args[0] if args else "**/*"
     status = int(options.get("status", 200))
     body = options.get("body", "")
-    content_type = options.get("content-type", "text/plain")
-    headers = {}
-    if options.get("header"):
-        for h in options["header"] if isinstance(options["header"], list) else [options["header"]]:
-            k, _, v = h.partition(":")
-            headers[k.strip()] = v.strip()
-    remove_headers = [h.strip() for h in options.get("remove-header", "").split(",") if h.strip()]
+    content_type, headers = _mock_response_headers(options)
 
     async def _route_handler(route):
-        if headers or remove_headers:
-            resp_headers = dict(headers)
-            for rh in remove_headers:
-                resp_headers.pop(rh, None)
-            await route.fulfill(status=status, body=body, content_type=content_type, headers=resp_headers)
-        else:
-            await route.fulfill(status=status, body=body, content_type=content_type)
+        await route.fulfill(status=status, body=body, content_type=content_type, headers=headers or None)
 
     previous = session._routes.pop(pattern, None)
     if previous is not None:
