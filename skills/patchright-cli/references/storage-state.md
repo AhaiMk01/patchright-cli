@@ -95,8 +95,11 @@ and run a `passkey-*` command again before the page's next WebAuthn call.
 
 ## Cookie persistence login pattern
 
-Profiles always persist, so a login survives closing the session. `state-save`
-is for carrying it to another profile or machine:
+A profile keeps cookies that have an expiry, localStorage and IndexedDB across a
+`close`. A session cookie (one with no expiry) ends with the browser, so a login
+a site keeps in one is gone after `close`. `state-save` records session cookies
+too and `state-load` puts them back: use the pair for such a login, and to carry
+any login to another profile or machine:
 
 ```bash
 # First time: log in and save state
@@ -113,8 +116,9 @@ patchright-cli -s=other state-load auth.json
 patchright-cli -s=other goto https://app.example.com/dashboard
 ```
 
-On the same session or profile nothing needs saving (`--persistent` is accepted
-but has no effect):
+When the site keeps its login in cookies with an expiry or in storage, the same
+session or profile needs no saving (`--persistent` is accepted but has no
+effect):
 
 ```bash
 patchright-cli -s=myapp open https://app.example.com
@@ -122,5 +126,5 @@ patchright-cli -s=myapp open https://app.example.com
 patchright-cli -s=myapp close
 # Next time:
 patchright-cli -s=myapp open https://app.example.com
-# Already logged in
+# Still logged in, unless the site keeps the login in a session cookie
 ```

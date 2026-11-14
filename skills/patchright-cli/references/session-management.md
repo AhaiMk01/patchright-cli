@@ -25,7 +25,9 @@ patchright-cli snapshot                    # Same session
 
 Every session you `open` runs on a **profile**: a persistent store of cookies,
 storage, logins and history. (Attached sessions use the browser's own data.) Profiles always persist -- close the session, open it
-again later, and you are still logged in. (`--persistent` is accepted but
+again later, and cookies with an expiry and site storage are still there, so
+most logins survive. A login a site keeps in a session cookie does not: see
+[storage-state.md](storage-state.md). (`--persistent` is accepted but
 changes nothing.)
 
 By default the profile is named after the session. `--profile=<name>` picks a

@@ -407,7 +407,7 @@ clear-media
 
 ### Network mocking
 
-`route "<pattern>"` mocks matching requests (`--status`, `--body`,
+`route "<pattern>"` mocks the current tab's matching requests (`--status`, `--body`,
 `--content-type`, `--header`); `route-list` and `unroute` manage them, and
 `network-state-set offline|online` simulates connectivity.
 

@@ -391,7 +391,8 @@ patchright-cli passkey-import passkeys.json
 patchright-cli route "**/*.jpg" --status=404
 patchright-cli route "https://api.example.com/**" --body='{"mock":true}'
 patchright-cli route "**/api/me" --content-type=application/json --body='{"ok":true}' --header=X-Custom:value --header=Cache-Control:no-store
-# A routed request never reaches the server: the reply is the mock alone (default: 200, empty body, text/plain)
+# A routed request never reaches the server: the reply is the mock alone (default: 200, empty body, text/plain).
+# A route covers the tab it was added in; Content-Type comes from --content-type only.
 patchright-cli route-list
 patchright-cli unroute "**/*.jpg"
 patchright-cli unroute                 # Remove all routes

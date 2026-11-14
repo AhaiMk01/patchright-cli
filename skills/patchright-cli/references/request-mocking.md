@@ -2,7 +2,7 @@
 
 ## Route command
 
-Answer every request matching a URL pattern with a made-up response:
+Answer the current tab's requests that match a URL pattern with a made-up response:
 
 ```bash
 patchright-cli route "<pattern>" [options]
@@ -13,7 +13,12 @@ The pattern uses glob syntax (e.g., `**/*.jpg`, `https://api.example.com/**`).
 A routed request never reaches the server. The reply is built from the flags
 alone: status 200, an empty body and `text/plain` unless you say otherwise.
 `route` cannot pass a real response through or edit one, so a broad pattern such
-as `**/*` replaces every page, script and API call with an empty response.
+as `**/*` replaces every page, script and API call in that tab with an empty
+response.
+
+A route covers only the tab it was added in. Other tabs, and tabs opened later,
+still reach the server, although `route-list` shows the route from any tab. Add
+the route again in each tab that needs it.
 
 ### Options
 
@@ -21,9 +26,9 @@ as `**/*` replaces every page, script and API call with an empty response.
 |------|--------|
 | `--status=N` | Status code of the mock response (default: 200) |
 | `--body=<string>` | Body of the mock response (default: empty) |
-| `--content-type=<mime>` | Its Content-Type (default: `text/plain`) |
-| `--header=Name:Value` | Add a header to the mock response; repeat the flag for more |
-| `--remove-header=Name` | Drop a header given with `--header` (comma-separated); it does not remove Content-Type or any header of a real response |
+| `--content-type=<mime>` | Its Content-Type (default: `text/plain`). This is the only way to set it: a `Content-Type` given with `--header` is ignored |
+| `--header=Name:Value` | Add a header to the mock response; repeat the flag for more. The same name twice keeps only the last value |
+| `--remove-header=Name` | Drop a header given with `--header` (comma-separated). Spell the name exactly as `--header` did, case included. It does not remove Content-Type or any header of a real response |
 
 ### Examples
 
