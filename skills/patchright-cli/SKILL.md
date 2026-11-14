@@ -125,7 +125,7 @@ These go *after* the command instead:
 
 ```bash
 open [url]                    # Launch browser (optionally navigate)
-open --profile=work           # Run on a named profile (logins persist; one session at a time)
+open --profile=work           # Run on a named profile (cookies with an expiry and storage persist; one session at a time)
 open --headless               # Headless mode
 open --background             # Headed, but the window and its new tabs do not take desktop focus;
                               # ignored with a note when headless, refused on an attached browser
@@ -629,7 +629,8 @@ patchright-cli fill e3 "user@example.com"
 patchright-cli fill e5 "password123"
 patchright-cli click e8
 patchright-cli snapshot
-# The login persists in profile "myapp" for any later session that opens it
+# Profile "myapp" keeps the login for any later session that opens it, unless the
+# site holds it in a session cookie (then use state-save / state-load)
 ```
 
 ### Extracting data
