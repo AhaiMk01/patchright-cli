@@ -2587,7 +2587,7 @@ async def cmd_highlight(session: Session, page, args: list, options: dict, cwd: 
 @register("eval")
 async def cmd_eval(session: Session, page, args: list, options: dict, cwd: str | None, state: DaemonState) -> dict:
     if len(args) > 2 or (len(args) == 2 and not normalize_ref(args[1])):
-        # The CLI rejects these first; an MCP or raw client lands here.
+        # values.check_args rejects a non-ref second argument first; a third argument lands here.
         return {
             "success": False,
             "output": f"eval takes <expr> [ref]; `{args[-1]}` is not a ref. Quote the expression as one argument.",

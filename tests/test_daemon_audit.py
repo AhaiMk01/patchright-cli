@@ -15,7 +15,9 @@ async def test_eval_rejects_a_trailing_non_ref(mock_state, mock_session, args): 
     mock_state.sessions = {"default": mock_session}
     reply = await _run(mock_state, "eval", args)
     assert reply["success"] is False and reply["exit_code"] == 2
-    assert "is not a ref" in reply["output"]
+    # The shared value check answers before the handler, for clients that skip the CLI too.
+    assert "invalid [ref] value" in reply["output"]
+    assert "quote an expression with spaces as one argument" in reply["output"]
     mock_session.page.evaluate.assert_not_called()
 
 

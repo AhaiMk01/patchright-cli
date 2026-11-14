@@ -842,7 +842,7 @@ COMMAND_SPECS: dict[str, dict] = {
         "usage": "eval <expr> [ref]",
         "summary": "Evaluate JavaScript (expression, --file or stdin)",
         "flags": {"file": "Read the JavaScript from this file (default: from <expr> or stdin)"},
-        "examples": ['eval "document.title"', 'eval "el => el.textContent" e5', "eval --file=script.js"],
+        "examples": ['eval "document.title"', 'eval "el => el.textContent" e5', "eval --file=script.js e5"],
         "min_args": 0,
     },
     "text": {"usage": "text <ref|selector>", "summary": "Get text content of element", "examples": ["text e5"]},
@@ -1174,12 +1174,13 @@ COMMAND_SPECS: dict[str, dict] = {
             "status": "Response status (default: 200)",
             "body": "Response body (default: empty)",
             "content-type": "Response Content-Type (default: text/plain)",
-            "header": "Extra response header as K:V (default: none)",
-            "remove-header": "Comma-separated request headers to strip (default: none)",
+            "header": "Extra response header as K:V; repeat the flag for more (default: none)",
+            "remove-header": "Comma-separated names to drop from the --header ones (default: none)",
         },
         "examples": [
             'route "**/api/*" --status=500',
             'route "**/data.json" --body=\'{"ok":true}\' --content-type=application/json',
+            'route "**/me" --body=ok --header=X-Test:1 --header=Cache-Control:no-store',
         ],
     },
     "route-list": {"usage": "route-list", "summary": "List active routes", "examples": ["route-list"]},
@@ -2271,7 +2272,11 @@ def _main():
             end_of_options = True
         elif a.startswith("--") and "=" in a:
             k, v = a[2:].split("=", 1)
-            cmd_opts[k] = v
+            if k in cmd_opts and k in values.REPEATABLE_FLAGS.get(command, ()):
+                earlier = cmd_opts[k]
+                cmd_opts[k] = [*earlier, v] if isinstance(earlier, list) else [earlier, v]
+            else:
+                cmd_opts[k] = v
         elif a.startswith("--"):
             cmd_opts[a[2:]] = True
         else:
@@ -2306,21 +2311,22 @@ def _main():
     except values.ValueProblem as e:
         raise UsageError(e.message, *e.help_lines) from None
 
-    # For eval/run-code: support --file=<path> and stdin via "-"
+    # For eval/run-code: support --file=<path> and stdin via "-". The script takes
+    # the first positional's place; what follows it (eval's ref) is kept.
     if command in ("eval", "run-code"):
         file_opt = extra_opts.pop("file", None)
         if file_opt:
             # Read JS from file
             try:
                 with open(file_opt, encoding="utf-8") as f:
-                    args = [f.read()]
+                    args = [f.read(), *args]
             except FileNotFoundError:
                 _print_error(f"file not found: {file_opt}", "help: pass an existing path to --file")
                 sys.exit(1)
         elif args and args[0] == "-" and not end_of_options:
             # Read JS from stdin; an empty one is no input
             piped = sys.stdin.read()
-            args = [piped] if piped.strip() else []
+            args = [piped, *args[1:]] if piped.strip() else []
         elif not args and not sys.stdin.isatty():
             # Piped input with no positional arg; an empty pipe (or /dev/null)
             # is no input, not an empty script to run.
