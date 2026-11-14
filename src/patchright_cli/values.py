@@ -12,6 +12,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from patchright_cli.snapshot_text import normalize_ref
+
 
 class ValueProblem(ValueError):
     """A flag or positional value of the wrong shape: one message, then help lines."""
@@ -118,6 +120,19 @@ class Text:
         return self.empty or raw != ""
 
 
+@dataclass(frozen=True)
+class Ref:
+    """An element ref as a snapshot prints it (`e5`, `f3e5`, also `@e5` and `[ref=e5]`)."""
+
+    example: str = "e5"
+
+    def describe(self) -> str:
+        return "an element ref from a snapshot (quote an expression with spaces as one argument)"
+
+    def parse(self, raw: str) -> bool:
+        return normalize_ref(raw) is not None
+
+
 SCROLL = Choice(("auto", "none"))
 BUTTON = Choice(("left", "right", "middle"))
 CALLOUT_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
@@ -186,7 +201,7 @@ FLAG_KINDS: dict[str, dict[str, object]] = {
         "body": Text("hello", empty=True),
         "content-type": Text("application/json"),
         "header": Text("X-Test:1"),
-        "remove-header": Text("Cookie"),
+        "remove-header": Text("X-Test"),
     },
     "video-start": {"fps": Int(1, MAX_VIDEO_FPS, 30)},
     "video-stop": {"filename": Text("demo.webm")},
@@ -197,8 +212,13 @@ FLAG_KINDS: dict[str, dict[str, object]] = {
     "show": {"wait": Seconds("600")},
 }
 
+# command -> flags that may be given more than once; the values then arrive as a list.
+# Any other flag given twice keeps its last value.
+REPEATABLE_FLAGS: dict[str, frozenset[str]] = {"route": frozenset({"header"})}
+
 # command -> (name, kind) per positional, in usage order; None skips one.
 ARG_KINDS: dict[str, list[tuple[str, object] | None]] = {
+    "eval": [None, ("[ref]", Ref())],
     "click": [None, ("[button]", BUTTON)],
     "dblclick": [None, ("[button]", BUTTON)],
     "mousedown": [("[button]", BUTTON)],
@@ -262,7 +282,13 @@ def check_args(command: str, args: list, options: dict) -> None:
     _check_combinations(command, args, options)
 
 
+# The untyped positionals of a command whose example needs more than a ref.
+_EXAMPLE_ARGS = {"eval": '"el => el.textContent" e5'}
+
+
 def _example_args(command: str) -> str:
+    if command in _EXAMPLE_ARGS:
+        return _EXAMPLE_ARGS[command]
     return " ".join("e5" if entry is None else str(entry[1].example) for entry in ARG_KINDS[command])
 
 

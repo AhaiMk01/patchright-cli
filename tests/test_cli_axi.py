@@ -519,6 +519,59 @@ def test_eval_with_empty_piped_stdin_is_a_usage_error(monkeypatch, capsys):
         assert sent == {}
 
 
+def test_eval_keeps_the_ref_after_a_script_from_stdin_or_file(monkeypatch, capsys, tmp_path):
+    # `eval - e5` and `eval --file=f.js e5` dropped e5 and ran the expression on the page.
+    script = "el => el.textContent"
+    monkeypatch.setattr(sys, "stdin", io.StringIO(script))
+    code, _, _, sent = _run(["eval", "-", "e5"], monkeypatch, capsys, stdin_tty=False)
+    assert (code, sent["args"]) == (0, [script, "e5"])
+
+    path = tmp_path / "f.js"
+    path.write_text(script, encoding="utf-8")
+    code, _, _, sent = _run(["eval", f"--file={path}", "e5"], monkeypatch, capsys)
+    assert (code, sent["args"]) == (0, [script, "e5"])
+    code, _, _, sent = _run(["eval", f"--file={path}"], monkeypatch, capsys)
+    assert (code, sent["args"]) == (0, [script])
+
+
+def test_eval_rejects_a_second_argument_that_is_not_a_ref(monkeypatch, capsys, tmp_path):
+    path = tmp_path / "f.js"
+    path.write_text("1", encoding="utf-8")
+    for argv in (["eval", "a", "document.title"], ["eval", f"--file={path}", "document.title"]):
+        code, out, _, sent = _run(argv, monkeypatch, capsys)
+        assert code == 2, argv
+        assert out.splitlines() == [
+            "error: invalid [ref] value `document.title` for `eval`",
+            "help: [ref] takes an element ref from a snapshot (quote an expression with spaces as one argument), "
+            'e.g. eval "el => el.textContent" e5',
+            "help: patchright-cli eval <expr> [ref]",
+        ]
+        assert sent == {}
+    for ref in ("e5", "f3e5", "@e5", "[ref=e5]"):
+        code, _, _, sent = _run(["eval", "el => el.id", ref], monkeypatch, capsys)
+        assert (code, sent["args"]) == (0, ["el => el.id", ref])
+
+
+def test_route_keeps_every_repeated_header(monkeypatch, capsys):
+    # The second --header replaced the first, so a mock lost headers without a word.
+    code, _, _, sent = _run(["route", "**/x", "--header=A:1", "--header=B:2", "--header=C:3"], monkeypatch, capsys)
+    assert (code, sent["options"]["header"]) == (0, ["A:1", "B:2", "C:3"])
+    code, _, _, sent = _run(["route", "**/x", "--header=A:1"], monkeypatch, capsys)
+    assert (code, sent["options"]["header"]) == (0, "A:1")
+    code, out, _, sent = _run(["route", "**/x", "--header=A:1", "--header="], monkeypatch, capsys)
+    assert (code, sent) == (2, {})
+    assert out.startswith("error: invalid --header value ``")
+
+
+def test_run_code_from_a_file_rejects_an_extra_argument(monkeypatch, capsys, tmp_path):
+    path = tmp_path / "f.js"
+    path.write_text("1", encoding="utf-8")
+    code, out, _, sent = _run(["run-code", f"--file={path}", "extra"], monkeypatch, capsys)
+    assert code == 2
+    assert out.startswith("error: `run-code` takes at most 1 argument(s), got 2: extra")
+    assert sent == {}
+
+
 def test_toon_falls_back_to_text_when_it_cannot_encode(monkeypatch, capsys):
     # A lone surrogate in a page title cannot be encoded; the text output still can.
     title = "A" + chr(0xD800) + "B"
