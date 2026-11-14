@@ -3616,7 +3616,8 @@ def _mock_response_headers(options: dict) -> tuple[str, dict[str, str]]:
 
     Header names are compared without case, as HTTP does. A name given more than once becomes
     one header whose values are joined with ", ". Content-Type is returned apart from the rest
-    because `route.fulfill` takes it as its own argument, which wins over a header of that name.
+    because `route.fulfill` takes it as its own argument, which wins over a header of that name;
+    `values.check_args` has already refused a second one.
     """
     given = options.get("header") or []
     removed = {name.strip().lower() for name in str(options.get("remove-header") or "").split(",")} - {""}
@@ -3629,7 +3630,7 @@ def _mock_response_headers(options: dict) -> tuple[str, dict[str, str]]:
         if key in removed:
             continue
         if key == "content-type":
-            content_type = content_type or value
+            content_type = value
         elif key in headers:
             headers[key] = (headers[key][0], f"{headers[key][1]}, {value}")
         else:

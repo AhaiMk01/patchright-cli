@@ -185,7 +185,27 @@ async def test_route_rejects_the_content_type_given_twice(mock_state, mock_sessi
         mock_state, "route", ["**/api"], **{"content-type": "text/html", "header": ["X-One:1", "Content-Type:a/b"]}
     )
     assert (reply["success"], reply["exit_code"]) == (False, 2)
-    assert "route got the Content-Type twice" in reply["output"]
+    assert "route got the Content-Type more than once" in reply["output"]
+    assert mock_session._routes == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"header": ["Content-Type:text/plain", "cOnTeNt-TyPe:application/json"]},
+        {"header": ["X-A:1", "X-B:2"], "remove-header": ["X-A", "X-B"]},
+        {"header": {"X-A": "1"}},
+        {"header": [["X-A:1"]]},
+        {"header": ":v"},
+        {"content-type": ["text/html"]},
+    ],
+)
+async def test_route_refuses_values_a_raw_client_can_send(mock_state, mock_session, options):
+    # A list for a flag that does not repeat, or a dict, used to become a mock that misbehaved.
+    mock_state.sessions = {"default": mock_session}
+    reply = await _run(mock_state, "route", ["**/api"], **options)
+    assert (reply["success"], reply["exit_code"]) == (False, 2), reply
     assert mock_session._routes == {}
 
 
