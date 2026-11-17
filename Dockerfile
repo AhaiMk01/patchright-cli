@@ -1,6 +1,6 @@
 # Base images are pinned by multi-arch index digest; Dependabot (.github/dependabot.yml) bumps them.
 # uv is a named stage because Dependabot only reads image references on FROM lines.
-FROM ghcr.io/astral-sh/uv:latest@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
+FROM ghcr.io/astral-sh/uv:latest@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 FROM python:3.12-slim@sha256:5b8b1421ccb6a525860a77863c049eab5847076cda34e030c75a80c58faf3f3c
 
