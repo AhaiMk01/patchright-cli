@@ -318,6 +318,78 @@ async def test_popups_of_our_pages_are_ours_and_popups_of_host_pages_are_not():
     assert not session.may_close_page(host_popup)
 
 
+# -- leaving the Host's own browsing alone ---------------------------------------
+
+
+def _listener(page, event):
+    """The handler the Session registered on a fake page for `event`."""
+    return next(call.args[1] for call in page.on.call_args_list if call.args[0] == event)
+
+
+def _fake_dialog():
+    dialog = MagicMock()
+    dialog.accept = AsyncMock()
+    dialog.dismiss = AsyncMock()
+    return dialog
+
+
+@pytest.mark.asyncio
+async def test_only_a_host_attach_leaves_the_browsers_defaults_alone():
+    """Without no_defaults, Playwright sends the Host's downloads to a temp dir it deletes."""
+    state, _ = _state_with_browser([_fake_context([_fake_page()])])
+    connect = state.playwright.chromium.connect_over_cdp
+
+    await _host_session(state)
+    await state.get_or_create_session("iso", cdp_endpoint="http://cdp")
+
+    assert [call.kwargs["no_defaults"] for call in connect.await_args_list] == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_a_dialog_on_a_host_page_is_left_for_the_person():
+    host_page = _fake_page()
+    state, _ = _state_with_browser([_fake_context([host_page])])
+    session = await _host_session(state)
+    ours = await session.new_page()
+    await session._on_new_page(ours)
+
+    host_dialog, our_dialog = _fake_dialog(), _fake_dialog()
+    _listener(host_page, "dialog")(host_dialog)
+    _listener(ours, "dialog")(our_dialog)
+    await asyncio.sleep(0)
+
+    host_dialog.accept.assert_not_awaited()
+    host_dialog.dismiss.assert_not_awaited()
+    our_dialog.dismiss.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_host_page_dialog_does_not_use_up_a_pending_dialog_action():
+    host_page = _fake_page()
+    state, _ = _state_with_browser([_fake_context([host_page])])
+    session = await _host_session(state)
+    session._pending_dialog_action = ("accept", "yes")
+
+    _listener(host_page, "dialog")(_fake_dialog())
+
+    assert session._pending_dialog_action == ("accept", "yes")
+
+
+@pytest.mark.asyncio
+async def test_requests_of_host_pages_are_not_recorded():
+    host_page = _fake_page()
+    state, _ = _state_with_browser([_fake_context([host_page])])
+    session = await _host_session(state)
+    ours = await session.new_page()
+    await session._on_new_page(ours)
+
+    host_req, our_req = MagicMock(url="https://bank.example/login"), MagicMock(url="https://site.example/")
+    _listener(host_page, "request")(host_req)
+    _listener(ours, "request")(our_req)
+
+    assert [entry["_request"] for entry in session.network_log] == [our_req]
+
+
 # -- ending a Host Context Session -----------------------------------------------
 
 

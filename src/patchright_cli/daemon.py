@@ -281,9 +281,12 @@ class Session:
     async def _attach_page_listeners(self, page):
         # Network and dialogs use page events. Console requires the session's
         # explicit opt-in because enabling CDP Runtime makes it detectable.
-        page.on("request", lambda req: self._on_request(req))
+        # A Host Context's own Pages get the same listeners, but they ignore
+        # them (see _on_request and _handle_dialog). The dialog listener must
+        # still be there: with none, Playwright closes the dialog itself.
+        page.on("request", lambda req: self._on_request(req, page))
         page.on("response", lambda resp: asyncio.ensure_future(self._on_response(resp)))
-        page.on("dialog", lambda dialog: self._handle_dialog(dialog))
+        page.on("dialog", lambda dialog: self._handle_dialog(dialog, page))
         if self._console_capture_enabled:
             await self._start_page_console_capture(page, include_startup=True)
 
@@ -373,7 +376,15 @@ class Session:
             }
         )
 
-    def _on_request(self, req):
+    def _is_host_page(self, page) -> bool:
+        """A Page of the Host's own browsing: in a Host Context, one this Session did not open."""
+        return self.uses_host_context and page not in self.own_pages
+
+    def _on_request(self, req, page=None):
+        # The Host's own browsing is not ours to record: its requests carry
+        # their cookies, auth headers and form posts.
+        if page is not None and self._is_host_page(page):
+            return
         try:
             entry = {
                 "id": len(self.network_log),
@@ -414,10 +425,15 @@ class Session:
                 entry["_response"] = resp
                 return
 
-    def _handle_dialog(self, dialog):
-        """Auto-handle dialogs based on pending action or auto-dismiss."""
+    def _handle_dialog(self, dialog, page=None):
+        """Auto-handle dialogs based on pending action or auto-dismiss.
+
+        A dialog on the Host's own Page is left open for the person to answer.
+        """
         import asyncio
 
+        if page is not None and self._is_host_page(page):
+            return
         action = self._pending_dialog_action
         self._pending_dialog_action = None
 
@@ -1396,8 +1412,11 @@ class DaemonState:
                     version = await _fetch_cdp_version(cdp_endpoint, cdp_headers, timeout=cdp_timeout / 1000)
                     connect_to = version["webSocketDebuggerUrl"]
                     await guard.check_url(connect_to, "CDP WebSocket")
+                # no_defaults: Playwright would otherwise take over the Host
+                # Context's downloads (into a temp dir it deletes on disconnect)
+                # and emulate focus and media on the Host's own Pages.
                 attached_browser = await self.playwright.chromium.connect_over_cdp(
-                    connect_to, headers=cdp_headers, timeout=cdp_timeout
+                    connect_to, headers=cdp_headers, timeout=cdp_timeout, no_defaults=use_host
                 )
                 if use_host:
                     if not attached_browser.contexts:
