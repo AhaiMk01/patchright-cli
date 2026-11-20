@@ -217,6 +217,10 @@ class Session:
 
     async def setup_listeners(self):
         """Attach network and dialog listeners to all existing pages."""
+        # Dialogs are handled on the context, not per page: a new page can show
+        # one before its page listeners are attached, and with no listener at
+        # all Playwright closes the dialog itself (a Host Page's included).
+        self.context.on("dialog", lambda dialog: self._handle_dialog(dialog, dialog.page))
         for page in self.pages:
             self._watch_page(page)
             await self._attach_page_listeners(page)
@@ -263,7 +267,8 @@ class Session:
             # A named tab's page belongs to that tab. While the default tab's
             # page is gone, a new page came from some other tab. Taking either
             # would put the default caller on someone else's tab.
-            if self._current_gone or self._opening_named:
+            # A tab the Host opened is not the default caller's either.
+            if self._current_gone or self._opening_named or self._is_host_page(page):
                 self.pages.append(page)
             else:
                 self.select_page(page)
@@ -275,18 +280,16 @@ class Session:
     async def apply_emulation(self, page) -> None:
         """Give `page` this Session's emulated media features, if any are set."""
         async with self.emulation_lock:
-            if self.emulation and not page.is_closed():
+            if self.emulation and not page.is_closed() and not self._is_host_page(page):
                 await page.emulate_media(**self.emulation)
 
     async def _attach_page_listeners(self, page):
         # Network and dialogs use page events. Console requires the session's
         # explicit opt-in because enabling CDP Runtime makes it detectable.
-        # A Host Context's own Pages get the same listeners, but they ignore
-        # them (see _on_request and _handle_dialog). The dialog listener must
-        # still be there: with none, Playwright closes the dialog itself.
+        # A Host Page gets the same listener, which ignores it (_on_request):
+        # ownership is decided when the request happens, not here.
         page.on("request", lambda req: self._on_request(req, page))
         page.on("response", lambda resp: asyncio.ensure_future(self._on_response(resp)))
-        page.on("dialog", lambda dialog: self._handle_dialog(dialog, page))
         if self._console_capture_enabled:
             await self._start_page_console_capture(page, include_startup=True)
 
@@ -309,6 +312,10 @@ class Session:
         return capturing
 
     async def _start_page_console_capture(self, page, *, include_startup: bool = False) -> bool:
+        # The Host's own tabs are not captured: Runtime.enable would mark them
+        # as automated and record the person's own console output.
+        if self._is_host_page(page):
+            return True
         # Commands and the context's page event can race to attach to one page.
         async with self._console_lock:
             if page.is_closed():
@@ -1414,7 +1421,8 @@ class DaemonState:
                     await guard.check_url(connect_to, "CDP WebSocket")
                 # no_defaults: Playwright would otherwise take over the Host
                 # Context's downloads (into a temp dir it deletes on disconnect)
-                # and emulate focus and media on the Host's own Pages.
+                # and emulate media on the Host's own Pages. Focus emulation
+                # stays on: connect_over_cdp has no option for it.
                 attached_browser = await self.playwright.chromium.connect_over_cdp(
                     connect_to, headers=cdp_headers, timeout=cdp_timeout, no_defaults=use_host
                 )
@@ -3352,7 +3360,7 @@ _EMULATED_MEDIA = {
 
 async def _emulate_on_all_pages(session: Session, **features: str) -> None:
     for p in list(session.pages):
-        if p.is_closed():
+        if p.is_closed() or session._is_host_page(p):
             continue
         try:
             await p.emulate_media(**features)
