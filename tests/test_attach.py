@@ -318,6 +318,144 @@ async def test_popups_of_our_pages_are_ours_and_popups_of_host_pages_are_not():
     assert not session.may_close_page(host_popup)
 
 
+# -- leaving the Host's own browsing alone ---------------------------------------
+
+
+def _listener(target, event):
+    """The handler the Session registered on a fake page or context for `event`."""
+    return next(call.args[1] for call in target.on.call_args_list if call.args[0] == event)
+
+
+def _fake_dialog(page):
+    dialog = MagicMock()
+    dialog.page = page
+    dialog.accept = AsyncMock()
+    dialog.dismiss = AsyncMock()
+    return dialog
+
+
+@pytest.mark.asyncio
+async def test_only_a_host_attach_leaves_the_browsers_defaults_alone():
+    """Without no_defaults, Playwright sends the Host's downloads to a temp dir it deletes."""
+    state, _ = _state_with_browser([_fake_context([_fake_page()])])
+    connect = state.playwright.chromium.connect_over_cdp
+
+    await _host_session(state)
+    await state.get_or_create_session("iso", cdp_endpoint="http://cdp")
+
+    assert [call.kwargs["no_defaults"] for call in connect.await_args_list] == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_a_dialog_on_a_host_page_is_left_for_the_person():
+    host_page = _fake_page()
+    state, _ = _state_with_browser([_fake_context([host_page])])
+    session = await _host_session(state)
+    ours = await session.new_page()
+    await session._on_new_page(ours)
+
+    host_dialog, our_dialog = _fake_dialog(host_page), _fake_dialog(ours)
+    _listener(session.context, "dialog")(host_dialog)
+    _listener(session.context, "dialog")(our_dialog)
+    await asyncio.sleep(0)
+
+    host_dialog.accept.assert_not_awaited()
+    host_dialog.dismiss.assert_not_awaited()
+    our_dialog.dismiss.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_host_page_dialog_does_not_use_up_a_pending_dialog_action():
+    host_page = _fake_page()
+    state, _ = _state_with_browser([_fake_context([host_page])])
+    session = await _host_session(state)
+    session._pending_dialog_action = ("accept", "yes")
+
+    _listener(session.context, "dialog")(_fake_dialog(host_page))
+
+    assert session._pending_dialog_action == ("accept", "yes")
+
+
+@pytest.mark.asyncio
+async def test_requests_of_host_pages_are_not_recorded():
+    host_page = _fake_page()
+    state, _ = _state_with_browser([_fake_context([host_page])])
+    session = await _host_session(state)
+    ours = await session.new_page()
+    await session._on_new_page(ours)
+
+    host_req, our_req = MagicMock(url="https://bank.example/login"), MagicMock(url="https://site.example/")
+    _listener(host_page, "request")(host_req)
+    _listener(ours, "request")(our_req)
+
+    assert [entry["_request"] for entry in session.network_log] == [our_req]
+
+
+@pytest.mark.asyncio
+async def test_a_new_host_tab_shows_its_dialog_before_its_page_listeners_exist():
+    """The dialog listener is on the context, so no page is ever without one."""
+    state, _ = _state_with_browser([_fake_context([_fake_page()])])
+    session = await _host_session(state)
+    new_host_tab = _fake_page()
+    dialog = _fake_dialog(new_host_tab)
+
+    _listener(session.context, "dialog")(dialog)  # before _on_new_page ran
+    await asyncio.sleep(0)
+
+    dialog.dismiss.assert_not_awaited()
+    dialog.accept.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_tab_the_host_opens_does_not_become_the_default_tab():
+    host_page = _fake_page()
+    state, _ = _state_with_browser([_fake_context([host_page])])
+    session = await _host_session(state)
+    ours = await session.new_page()
+    await session._on_new_page(ours)
+    session.select_page(ours)
+
+    host_tab = _fake_page()
+    await session._on_new_page(host_tab)
+
+    assert session.page is ours
+    assert host_tab in session.pages
+
+
+@pytest.mark.asyncio
+async def test_media_emulation_leaves_host_pages_alone():
+    host_page = _fake_page()
+    host_page.emulate_media = AsyncMock()
+    state, _ = _state_with_browser([_fake_context([host_page])])
+    session = await _host_session(state)
+    ours = await session.new_page()
+    ours.emulate_media = AsyncMock()
+    await session._on_new_page(ours)
+
+    response = await _run(state, "set-color-scheme", ["dark"], session="s")
+    later_host_tab = _fake_page()
+    later_host_tab.emulate_media = AsyncMock()
+    await session._on_new_page(later_host_tab)
+
+    assert response["success"] is True, response
+    ours.emulate_media.assert_awaited()
+    host_page.emulate_media.assert_not_awaited()
+    later_host_tab.emulate_media.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_console_capture_does_not_enable_runtime_on_host_pages():
+    host_page = _fake_page()
+    host = _fake_context([host_page])
+    host_page.context = host
+    state, _ = _state_with_browser([host])
+    session = await _host_session(state)
+
+    await session.start_console_capture()
+
+    host.new_cdp_session.assert_not_awaited()
+
+
 # -- ending a Host Context Session -----------------------------------------------
 
 
